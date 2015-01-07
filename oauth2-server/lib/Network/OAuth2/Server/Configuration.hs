@@ -13,7 +13,6 @@
 module Network.OAuth2.Server.Configuration where
 
 import Data.Text (Text)
-import qualified Data.Text as T
 
 import Network.OAuth2.Server.Types
 
@@ -30,7 +29,7 @@ data OAuth2TokenStore m = TokenStore
 data OAuth2Server m = Configuration
     { oauth2Store                  :: OAuth2TokenStore m
     -- | Check the credentials provided by the resource owner.
-    , oauth2CheckOwnerCredential   :: Maybe (Text -> Text -> Scope -> m Bool)
+    , oauth2CheckOwnerCredentials  :: Maybe (Text -> Text -> Scope -> m Bool)
     -- | Check the credentials provided by an OAuth2 client.
     , oauth2CheckClientCredentials :: Text -> Text -> m Bool
     }

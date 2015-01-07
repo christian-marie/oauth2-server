@@ -73,6 +73,14 @@ data TokenGrant = TokenGrant
     }
   deriving (Eq, Show)
 
+-- | Convert a 'TokenGrant' into an 'AccessResponse'.
+--
+-- This involves massaging the data slightly.
+grantResponse
+    :: TokenGrant
+    -> AccessResponse
+grantResponse TokenGrant{..} = tokenResponse grantTokenType grantAccessToken
+
 tokenResponse :: Text -> Token -> AccessResponse
 tokenResponse ty to = AccessResponse ty to Nothing Nothing Nothing
 

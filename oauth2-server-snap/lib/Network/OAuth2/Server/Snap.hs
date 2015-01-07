@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards   #-}
 
 -- | Description: Run an OAuth2 server as a Snaplet.
 module Network.OAuth2.Server.Snap where
@@ -6,23 +7,18 @@ module Network.OAuth2.Server.Snap where
 import Data.Aeson
 import qualified Data.ByteString.Lazy as BS
 import Data.Monoid
-import Data.Text (Text)
-import qualified Data.Text as T
 import Snap
-import Snap.Snaplet
 
 import Network.OAuth2.Server.Configuration
 import Network.OAuth2.Server.Types
 
 -- | Snaplet state for OAuth2 server.
-data OAuth2 m = OAuth2
-    { oauth2Configuration :: OAuth2Server m
-    }
+data OAuth2 m b = OAuth2 { oauth2Configuration :: OAuth2Server m }
 
 -- | Implement an 'OAuth2Server' configuration in Snap.
 initOAuth2Server
-    :: OAuth2Server m
-    -> SnapletInit b (OAuth2 m)
+    :: OAuth2Server IO
+    -> SnapletInit b (OAuth2 IO b)
 initOAuth2Server cfg = makeSnaplet "oauth2" "" Nothing $ do
     addRoutes [ ("authorize", authorizeEndpoint)
               , ("token", tokenEndpoint)
@@ -35,9 +31,8 @@ initOAuth2Server cfg = makeSnaplet "oauth2" "" Nothing $ do
 -- resource owner via user-agent redirection."
 --
 -- http://tools.ietf.org/html/rfc6749#section-3.1
-
 authorizeEndpoint
-    :: Handler b (OAuth2 m) ()
+    :: Handler b (OAuth2 IO b) ()
 authorizeEndpoint = writeText "U AM U?"
 
 -- | OAuth2 token endpoint
@@ -46,9 +41,8 @@ authorizeEndpoint = writeText "U AM U?"
 -- an access token, typically with client authentication"
 --
 -- http://tools.ietf.org/html/rfc6749#section-3.2
-
 tokenEndpoint
-    :: Handler b (OAuth2 m) ()
+    :: Handler b (OAuth2 IO b) ()
 tokenEndpoint = do
     let grant_type = GrantPassword
     case grant_type of
@@ -57,18 +51,51 @@ tokenEndpoint = do
         GrantAuthorizationCode -> writeBS "auth code plox"
         GrantToken -> writeBS "token"
         -- Resource Owner Password Credentials Grant
-        GrantPassword -> serveToken aToken
+        GrantPassword -> passwordGrant
         -- Client Credentials Grant
         GrantClient -> writeBS "client tokens"
         -- Error
         GrantExtension t -> writeText $ "Dunno " <> t
 
+-- | Create a 'TokenGrant' representing a new token.
+--
+-- The caller is responsible for saving the grant in the store.
+createGrant
+    :: Handler b (OAuth2 IO b) TokenGrant
+createGrant = return aGrant
+
+-- | Resource Owner Password Credentials Grant
+--
+-- This handler checks the supplied resource owner credentials and, if valid,
+-- grants a token.
+--
+-- http://tools.ietf.org/html/rfc6749#section-4.3
+passwordGrant
+    :: Handler b (OAuth2 IO b) ()
+passwordGrant = do
+    OAuth2 Configuration{..} <- get
+    valid <- liftIO $ oauth2CheckClientCredentials "HELLO" "LOL"
+    when valid $ do
+        grant <- createGrant
+        liftIO $ tokenStoreSave oauth2Store grant
+        serveToken $ grantResponse grant
+
 -- | Send an access token to the client.
 serveToken
     :: AccessResponse
-    -> Handler b (OAuth2 m) ()
+    -> Handler b (OAuth2 m b) ()
 serveToken token = do
     modifyResponse $ setContentType "application/json"
     writeBS . BS.toStrict . encode $ token
 
+aToken :: AccessResponse
 aToken = tokenResponse "bearer" (Token "token")
+
+aGrant :: TokenGrant
+aGrant = TokenGrant
+    { grantTokenType = "access_token"
+    , grantAccessToken = Token "token"
+    , grantRefreshToken = Nothing
+    , grantExpires = Nothing
+    , grantScope = Nothing
+    }
