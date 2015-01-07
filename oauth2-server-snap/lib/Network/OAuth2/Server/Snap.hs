@@ -50,7 +50,15 @@ tokenEndpoint
     :: Handler b (OAuth2 IO b) ()
 tokenEndpoint = do
     clientAuth
-    let grant_type = GrantPassword
+    req <- getRequest
+    let grant_type'' = S.lookup "grant_type" (headers req)
+    grant_type' <- case grant_type'' of
+        Just [grant_type'] -> return $ T.decodeUtf8 grant_type'
+        _ -> do
+            modifyResponse $ setResponseStatus 400 "grant_type missing"
+            r <- getResponse
+            finishWith r
+    let grant_type = grantType grant_type'
     case grant_type of
         GrantRefreshToken -> writeBS "new one!"
         GrantCode -> writeBS "l33t codez"
