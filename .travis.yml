@@ -1,0 +1,10 @@
+language: haskell
+ghc: 7.8
+notifications:
+  email:
+    on_success: change
+    on_failure: change
+before_install:
+  - cabal sandbox init
+  - cabal sandbox add-source oauth2-server*
+  - cabal install oauth2-server oauth2-server-snap
