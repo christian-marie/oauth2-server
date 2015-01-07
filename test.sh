@@ -12,6 +12,8 @@ fi
 for pkg in oauth2-server*; do
         cd $pkg
         [ -f "cabal.sandbox.config" ] || cabal sandbox init --sandbox=../.cabal-sandbox/
+
+        cabal install --dependencies-only --enable-tests
         cabal test
         cd ..
 done
