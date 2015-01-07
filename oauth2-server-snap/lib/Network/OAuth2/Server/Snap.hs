@@ -50,15 +50,13 @@ tokenEndpoint
     :: Handler b (OAuth2 IO b) ()
 tokenEndpoint = do
     clientAuth
-    req <- getRequest
-    let grant_type'' = S.lookup "grant_type" (headers req)
-    grant_type' <- case grant_type'' of
-        Just [grant_type'] -> return $ T.decodeUtf8 grant_type'
+    grant_type' <- getParam "grant_type"
+    grant_type <- case grant_type' of
+        Just gt -> return . grantType . T.decodeUtf8 $ gt
         _ -> do
             modifyResponse $ setResponseStatus 400 "grant_type missing"
             r <- getResponse
             finishWith r
-    let grant_type = grantType grant_type'
     case grant_type of
         GrantRefreshToken -> writeBS "new one!"
         GrantCode -> writeBS "l33t codez"
@@ -76,15 +74,13 @@ clientAuth
     :: Handler b (OAuth2 IO b) ()
 clientAuth = do
     OAuth2 cfg <- get
-    req <- getRequest
-    let hs = headers req
-        client_id' = S.lookup "client_id" hs
-        client_secret' = S.lookup "client_secret" hs
+    client_id' <- getParam "client_id"
     client_id <- case client_id' of
-        Just [client_id] -> return $ T.decodeUtf8 client_id
+        Just client_id -> return $ T.decodeUtf8 client_id
         _ -> missingHeader
+    client_secret' <- getParam "client_secret"
     client_secret <- case client_secret' of
-        Just [client_secret] -> return $ T.decodeUtf8 client_secret
+        Just client_secret -> return $ T.decodeUtf8 client_secret
         _ -> missingHeader
     client_valid <- liftIO $ oauth2CheckClientCredentials cfg client_id client_secret
     unless client_valid $ do
