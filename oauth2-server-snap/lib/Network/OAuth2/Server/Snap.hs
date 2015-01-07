@@ -3,25 +3,26 @@
 -- | Description: Run an OAuth2 server as a Snaplet.
 module Network.OAuth2.Server.Snap where
 
-import           Data.Aeson
-import qualified Data.ByteString.Lazy                as BS
-import           Data.Text                           (Text)
-import qualified Data.Text                           as T
-import           Snap
-import           Snap.Snaplet
+import Data.Aeson
+import qualified Data.ByteString.Lazy as BS
+import Data.Monoid
+import Data.Text (Text)
+import qualified Data.Text as T
+import Snap
+import Snap.Snaplet
 
-import           Network.OAuth2.Server.Configuration
-import           Network.OAuth2.Server.Types
+import Network.OAuth2.Server.Configuration
+import Network.OAuth2.Server.Types
 
 -- | Snaplet state for OAuth2 server.
-data OAuth2 b = OAuth2
-    { oauth2Configuration :: OAuth2Server
+data OAuth2 m = OAuth2
+    { oauth2Configuration :: OAuth2Server m
     }
 
 -- | Implement an 'OAuth2Server' configuration in Snap.
 initOAuth2Server
-    :: OAuth2Server
-    -> SnapletInit b (OAuth2 b)
+    :: OAuth2Server m
+    -> SnapletInit b (OAuth2 m)
 initOAuth2Server cfg = makeSnaplet "oauth2" "" Nothing $ do
     addRoutes [ ("authorize", authorizeEndpoint)
               , ("token", tokenEndpoint)
@@ -36,7 +37,7 @@ initOAuth2Server cfg = makeSnaplet "oauth2" "" Nothing $ do
 -- http://tools.ietf.org/html/rfc6749#section-3.1
 
 authorizeEndpoint
-    :: Handler b (OAuth2 b) ()
+    :: Handler b (OAuth2 m) ()
 authorizeEndpoint = writeText "U AM U?"
 
 -- | OAuth2 token endpoint
@@ -47,25 +48,25 @@ authorizeEndpoint = writeText "U AM U?"
 -- http://tools.ietf.org/html/rfc6749#section-3.2
 
 tokenEndpoint
-    :: Handler b (OAuth2 b) ()
+    :: Handler b (OAuth2 m) ()
 tokenEndpoint = do
-    let grant_type = "password" :: Text
+    let grant_type = GrantPassword
     case grant_type of
-        "refresh_token" -> writeBS "new one!"
-        "code" -> writeBS "l33t codez"
-        "authorization_code" -> writeBS "auth code plox"
-        "token" -> writeBS "token"
+        GrantRefreshToken -> writeBS "new one!"
+        GrantCode -> writeBS "l33t codez"
+        GrantAuthorizationCode -> writeBS "auth code plox"
+        GrantToken -> writeBS "token"
         -- Resource Owner Password Credentials Grant
-        "password" -> serveToken aToken
+        GrantPassword -> serveToken aToken
         -- Client Credentials Grant
-        "client_credentials" -> writeBS "client tokens"
+        GrantClient -> writeBS "client tokens"
         -- Error
-        _ -> writeBS "NO!"
+        GrantExtension t -> writeText $ "Dunno " <> t
 
 -- | Send an access token to the client.
 serveToken
     :: AccessResponse
-    -> Handler b (OAuth2 b) ()
+    -> Handler b (OAuth2 m) ()
 serveToken token = do
     modifyResponse $ setContentType "application/json"
     writeBS . BS.toStrict . encode $ token
