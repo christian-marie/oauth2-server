@@ -5,12 +5,8 @@ notifications:
     on_success: change
     on_failure: change
 before_install:
-  - cabal sandbox init
-  - cabal sandbox add-source oauth2-server*
-  - cd oauth2-server ; cabal sandbox init --sandbox=../.cabal-sandbox ; cd ..
-  - cd oauth2-server-snap ; cabal sandbox init --sandbox=../.cabal-sandbox ; cd ..
+  - 'echo'
 install:
-  - cabal install oauth2-server oauth2-server-snap
+  - 'echo'
 script: 
-  - 'cd oauth2-server ; cabal test ; cd ..'
-  - 'cd oauth2-server-snap ; cabal test ; cd ..'
+  - 'sh test.sh'
