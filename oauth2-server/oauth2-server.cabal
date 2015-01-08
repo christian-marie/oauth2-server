@@ -24,5 +24,7 @@ Library
       base >=4.7 && <4.8
     , aeson
     , bytestring
+    , random
     , text
     , time
+    , transformers

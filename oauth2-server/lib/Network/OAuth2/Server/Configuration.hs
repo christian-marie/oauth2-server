@@ -12,8 +12,6 @@
 
 module Network.OAuth2.Server.Configuration where
 
-import Data.Text (Text)
-
 import Network.OAuth2.Server.Types
 
 -- | Actions, supplied by the client, which load and save tokens from a data
@@ -27,9 +25,7 @@ data OAuth2TokenStore m = TokenStore
 
 -- | The configuration for an OAuth2 server.
 data OAuth2Server m = Configuration
-    { oauth2Store                  :: OAuth2TokenStore m
+    { oauth2Store            :: OAuth2TokenStore m
     -- | Check the credentials provided by the resource owner.
-    , oauth2CheckOwnerCredentials  :: Maybe (Text -> Text -> Scope -> m Bool)
-    -- | Check the credentials provided by an OAuth2 client.
-    , oauth2CheckClientCredentials :: Text -> Text -> m Bool
+    , oauth2CheckCredentials :: AccessRequest -> m Bool
     }

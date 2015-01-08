@@ -53,6 +53,19 @@ instance FromJSON GrantType where
     parseJSON (String t) = return $ grantType t
     parseJSON _ = mzero
 
+-- | A request to the token endpoint.
+data AccessRequest
+    = RequestPassword
+        { requestClientID     :: Maybe Text
+        , requestClientSecret :: Maybe Text
+        , requestUsername     :: Text
+        , requestPassword     :: Text
+        , requestScope        :: Maybe Scope }
+    | RequestClient
+        { requestClientIDReq     :: Text
+        , requestClientSecretReq :: Text
+        , requestScope           :: Maybe Scope }
+
 -- | A response containing an OAuth2 access token grant.
 data AccessResponse = AccessResponse
     { tokenType    :: Text

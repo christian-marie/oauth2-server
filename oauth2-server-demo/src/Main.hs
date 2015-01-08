@@ -17,8 +17,7 @@ import Network.OAuth2.Server.Snap
 oauth2Conf :: OAuth2Server IO
 oauth2Conf = Configuration
     { oauth2Store = store
-    , oauth2CheckOwnerCredentials = Just checkUser
-    , oauth2CheckClientCredentials = checkClient
+    , oauth2CheckCredentials = checkCredentials
     }
   where
     store = TokenStore
@@ -27,12 +26,7 @@ oauth2Conf = Configuration
         }
     saveToken _token = return ()
     loadToken _token = return Nothing
-    checkUser user _pass _scope = do
-        T.putStrLn $ "Checking user: " <> user
-        return True
-    checkClient client _pass = do
-        T.putStrLn $ "Checking client: " <> client
-        return True
+    checkCredentials _creds = return True
 
 -- * Snap Application
 

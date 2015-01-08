@@ -1,2 +1,36 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Network.OAuth2.Server where
 
+import Control.Monad
+import Control.Monad.IO.Class
+import Data.Text (Text)
+import qualified Data.Text as T
+import Data.Time.Clock
+import System.Random
+
+import Network.OAuth2.Server.Types
+
+-- | Create a 'TokenGrant' representing a new token.
+--
+-- The caller is responsible for saving the grant in the store.
+createGrant
+    :: MonadIO m => m TokenGrant
+createGrant = do
+    access <- newToken
+    refresh <- newToken
+    scope <- return . Scope $ []
+    t <- liftIO getCurrentTime
+    return TokenGrant
+        { grantTokenType = "access_token"
+        , grantAccessToken = Token access
+        , grantRefreshToken = Just (Token refresh)
+        , grantExpires = Just (addUTCTime 1800 t)
+        , grantScope = Just scope
+        }
+  where
+    newToken :: MonadIO m => m Text
+    newToken = do
+      tok <- liftIO . replicateM 64 $ do
+          n <- randomRIO (0,63)
+          return $ (['A'..'Z']++['a'..'z']++['0'..'9']++"+/") !! n
+      return . T.pack $ tok
