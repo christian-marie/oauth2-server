@@ -27,3 +27,4 @@ Library
     , snap
     , snap-core
     , text
+    , time

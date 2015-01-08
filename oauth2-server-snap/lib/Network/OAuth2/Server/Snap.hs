@@ -14,6 +14,7 @@ import Snap
 import Snap.Snaplet
 import qualified Snap.Types.Headers as S
 
+import Network.OAuth2.Server
 import Network.OAuth2.Server.Configuration
 import Network.OAuth2.Server.Types
 
@@ -93,13 +94,6 @@ clientAuth = do
         r <- getResponse
         finishWith r
 
--- | Create a 'TokenGrant' representing a new token.
---
--- The caller is responsible for saving the grant in the store.
-createGrant
-    :: Handler b (OAuth2 IO b) TokenGrant
-createGrant = return aGrant
-
 -- | Create an access token and send it to the client.
 createAndServeToken
     :: Handler b (OAuth2 IO b) ()
@@ -129,15 +123,3 @@ serveToken
 serveToken token = do
     modifyResponse $ setContentType "application/json"
     writeBS . BS.toStrict . encode $ token
-
-aToken :: AccessResponse
-aToken = tokenResponse "bearer" (Token "token")
-
-aGrant :: TokenGrant
-aGrant = TokenGrant
-    { grantTokenType = "access_token"
-    , grantAccessToken = Token "token"
-    , grantRefreshToken = Nothing
-    , grantExpires = Nothing
-    , grantScope = Nothing
-    }
