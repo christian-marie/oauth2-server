@@ -11,6 +11,8 @@ ropcg() {
         [ -n "$scope" ] || scope_param="-d scope=${scope}"
 
         temp=$(mktemp -d --tmpdir oauth2-tests.XXXXXXXXXX)
+        touch "${temp}/headers"
+        touch "${temp}/body"
 
         curl --silent -X POST \
                 -d "grant_type=password" \
@@ -19,13 +21,12 @@ ropcg() {
                 $scope_param \
                 -D "${temp}/headers" \
                 -o "${temp}/body" \
-                $URL 
-                > /dev/null
+                $URL
 
         response_code=$(head -n 1 "${temp}/headers" | awk '{print $2}')
 
         cat "${temp}/body"
-        #rm -rf "${temp}"
+        rm -rf "${temp}"
 
         if [ "200" = "$response_code" ]; then
                 return 0;
