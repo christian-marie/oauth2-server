@@ -9,4 +9,5 @@ before_install:
 install:
   - 'echo'
 script: 
-  - 'sh test.sh'
+  - 'sh tests/unit-tests.sh'
+  - 'bash tests/acceptance-tests.sh'
