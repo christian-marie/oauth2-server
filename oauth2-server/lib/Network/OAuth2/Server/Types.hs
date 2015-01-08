@@ -39,15 +39,18 @@ instance ToJSON GrantType where
         GrantClient -> "client_credentials"
         GrantExtension g -> g
 
+grantType :: Text -> GrantType
+grantType t = case t of
+    "refresh_token" -> GrantRefreshToken
+    "code" -> GrantCode
+    "authorization_code" -> GrantAuthorizationCode
+    "token" -> GrantToken
+    "password" -> GrantPassword
+    "client_credentials" -> GrantClient
+    g -> GrantExtension g
+
 instance FromJSON GrantType where
-    parseJSON (String t) = return $ case t of
-        "refresh_token" -> GrantRefreshToken
-        "code" -> GrantCode
-        "authorization_code" -> GrantAuthorizationCode
-        "token" -> GrantToken
-        "password" -> GrantPassword
-        "client_credentials" -> GrantClient
-        g -> GrantExtension g
+    parseJSON (String t) = return $ grantType t
     parseJSON _ = mzero
 
 -- | A response containing an OAuth2 access token grant.

@@ -7,7 +7,12 @@ module Network.OAuth2.Server.Snap where
 import Data.Aeson
 import qualified Data.ByteString.Lazy as BS
 import Data.Monoid
+import Data.Text (Text)
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import Snap
+import Snap.Snaplet
+import qualified Snap.Types.Headers as S
 
 import Network.OAuth2.Server.Configuration
 import Network.OAuth2.Server.Types
@@ -44,7 +49,14 @@ authorizeEndpoint = writeText "U AM U?"
 tokenEndpoint
     :: Handler b (OAuth2 IO b) ()
 tokenEndpoint = do
-    let grant_type = GrantPassword
+    clientAuth
+    grant_type' <- getParam "grant_type"
+    grant_type <- case grant_type' of
+        Just gt -> return . grantType . T.decodeUtf8 $ gt
+        _ -> do
+            modifyResponse $ setResponseStatus 400 "grant_type missing"
+            r <- getResponse
+            finishWith r
     case grant_type of
         GrantRefreshToken -> writeBS "new one!"
         GrantCode -> writeBS "l33t codez"
@@ -53,9 +65,33 @@ tokenEndpoint = do
         -- Resource Owner Password Credentials Grant
         GrantPassword -> passwordGrant
         -- Client Credentials Grant
-        GrantClient -> writeBS "client tokens"
+        GrantClient -> createAndServeToken
         -- Error
         GrantExtension t -> writeText $ "Dunno " <> t
+
+-- | Check the client credentials
+clientAuth
+    :: Handler b (OAuth2 IO b) ()
+clientAuth = do
+    OAuth2 cfg <- get
+    client_id' <- getParam "client_id"
+    client_id <- case client_id' of
+        Just client_id -> return $ T.decodeUtf8 client_id
+        _ -> missingHeader
+    client_secret' <- getParam "client_secret"
+    client_secret <- case client_secret' of
+        Just client_secret -> return $ T.decodeUtf8 client_secret
+        _ -> missingHeader
+    client_valid <- liftIO $ oauth2CheckClientCredentials cfg client_id client_secret
+    unless client_valid $ do
+        modifyResponse $ setResponseStatus 401 "Unauthorized"
+        r <- getResponse
+        finishWith r
+  where
+    missingHeader = do
+        modifyResponse $ setResponseStatus 400 "Bad Request"
+        r <- getResponse
+        finishWith r
 
 -- | Create a 'TokenGrant' representing a new token.
 --
@@ -63,6 +99,15 @@ tokenEndpoint = do
 createGrant
     :: Handler b (OAuth2 IO b) TokenGrant
 createGrant = return aGrant
+
+-- | Create an access token and send it to the client.
+createAndServeToken
+    :: Handler b (OAuth2 IO b) ()
+createAndServeToken = do
+    OAuth2 Configuration{..} <- get
+    grant <- createGrant
+    liftIO $ tokenStoreSave oauth2Store grant
+    serveToken $ grantResponse grant
 
 -- | Resource Owner Password Credentials Grant
 --
@@ -75,10 +120,7 @@ passwordGrant
 passwordGrant = do
     OAuth2 Configuration{..} <- get
     valid <- liftIO $ oauth2CheckClientCredentials "HELLO" "LOL"
-    when valid $ do
-        grant <- createGrant
-        liftIO $ tokenStoreSave oauth2Store grant
-        serveToken $ grantResponse grant
+    when valid createAndServeToken
 
 -- | Send an access token to the client.
 serveToken

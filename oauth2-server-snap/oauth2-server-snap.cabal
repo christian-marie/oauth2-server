@@ -25,4 +25,5 @@ Library
     , lens
     , oauth2-server
     , snap
+    , snap-core
     , text
