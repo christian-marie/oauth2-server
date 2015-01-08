@@ -10,6 +10,7 @@ import Data.Monoid
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import Data.Time.Clock
 import Snap
 import Snap.Snaplet
 import qualified Snap.Types.Headers as S
@@ -28,6 +29,7 @@ initOAuth2Server
 initOAuth2Server cfg = makeSnaplet "oauth2" "" Nothing $ do
     addRoutes [ ("authorize", authorizeEndpoint)
               , ("token", tokenEndpoint)
+              , ("check", checkEndpoint)
               ]
     return $ OAuth2 cfg
 
@@ -92,11 +94,11 @@ tokenEndpoint = do
     OAuth2 cfg <- get
     valid <- liftIO $ oauth2CheckCredentials cfg request
     when valid createAndServeToken
-  where
-    missingParam p = do
-        modifyResponse $ setResponseStatus 400 ("Bad Request: missing parameter \"" <> p <> "\"")
-        r <- getResponse
-        finishWith r
+
+missingParam p = do
+    modifyResponse $ setResponseStatus 400 ("Bad Request: missing parameter \"" <> p <> "\"")
+    r <- getResponse
+    finishWith r
 
 -- | Create an access token and send it to the client.
 createAndServeToken
@@ -114,3 +116,26 @@ serveToken
 serveToken token = do
     modifyResponse $ setContentType "application/json"
     writeBS . BS.toStrict . encode $ token
+
+checkEndpoint
+    :: Handler b (OAuth2 IO b) ()
+checkEndpoint = do
+    OAuth2 Configuration{..} <- get
+    scope' <- getParam "scope"
+    scope <- case scope' of
+        Just scope -> return $ T.decodeUtf8 scope
+        _ -> missingParam "scope"
+    token' <- getParam "token"
+    token <- case token' of
+        Just token -> return . Token . T.decodeUtf8 $ token
+        _ -> missingParam "scope"
+    tokenGrant <- liftIO $ tokenStoreLoad oauth2Store token
+    res <- case tokenGrant of
+        Nothing -> return False
+        Just TokenGrant{..} -> do
+            t <- liftIO getCurrentTime
+            return $ t > grantExpires
+    unless res $ do
+        modifyResponse $ setResponseStatus 401 "Invalid Token"
+        r <- getResponse
+        finishWith r
