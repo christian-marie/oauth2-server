@@ -24,8 +24,8 @@ createGrant = do
         { grantTokenType = "access_token"
         , grantAccessToken = Token access
         , grantRefreshToken = Just (Token refresh)
-        , grantExpires = Just (addUTCTime 1800 t)
-        , grantScope = Just scope
+        , grantExpires = addUTCTime 1800 t
+        , grantScope = scope
         }
   where
     newToken :: MonadIO m => m Text

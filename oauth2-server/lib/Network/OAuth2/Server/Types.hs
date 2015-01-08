@@ -84,8 +84,8 @@ data TokenGrant = TokenGrant
     { grantTokenType    :: Text
     , grantAccessToken  :: Token
     , grantRefreshToken :: Maybe Token
-    , grantExpires      :: Maybe UTCTime
-    , grantScope        :: Maybe Scope
+    , grantExpires      :: UTCTime
+    , grantScope        :: Scope
     }
   deriving (Eq, Show)
 
