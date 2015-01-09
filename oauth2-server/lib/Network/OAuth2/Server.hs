@@ -1,8 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards   #-}
 module Network.OAuth2.Server where
 
 import Control.Monad
 import Control.Monad.IO.Class
+import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Clock
@@ -14,17 +16,31 @@ import Network.OAuth2.Server.Types
 --
 -- The caller is responsible for saving the grant in the store.
 createGrant
-    :: MonadIO m => m TokenGrant
-createGrant = do
+    :: MonadIO m
+    => AccessRequest
+    -> m TokenGrant
+createGrant request = do
     access <- newToken
     refresh <- newToken
-    scope <- return . Scope $ []
     t <- liftIO getCurrentTime
+    let (client, user, scope) = case request of
+         RequestPassword{..} ->
+             ( requestClientID
+             , Just requestUsername
+             , fromMaybe (Scope []) requestScope
+             )
+         RequestClient{..} ->
+             ( Just requestClientIDReq
+             , Nothing
+             , fromMaybe (Scope []) requestScope
+             )
     return TokenGrant
         { grantTokenType = "access_token"
         , grantAccessToken = Token access
         , grantRefreshToken = Just (Token refresh)
         , grantExpires = addUTCTime 1800 t
+        , grantClientID = client
+        , grantUsername = user
         , grantScope = scope
         }
   where

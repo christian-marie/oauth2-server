@@ -10,7 +10,6 @@ import Data.Aeson
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Clock
-import Data.Word
 
 -- | A scope is a list of strings.
 newtype Scope = Scope { unScope :: [Text] }

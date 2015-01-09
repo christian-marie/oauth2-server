@@ -5,7 +5,8 @@
 module Network.OAuth2.Server.Snap where
 
 import Data.Aeson
-import qualified Data.ByteString.Lazy as BS
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as B
 import Data.Monoid
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -93,8 +94,9 @@ tokenEndpoint = do
         _ -> missingParam "grant_type"
     OAuth2 cfg <- get
     valid <- liftIO $ oauth2CheckCredentials cfg request
-    when valid createAndServeToken
+    when valid $ createAndServeToken request
 
+missingParam :: MonadSnap m => BS.ByteString -> m a
 missingParam p = do
     modifyResponse $ setResponseStatus 400 ("Bad Request: missing parameter \"" <> p <> "\"")
     r <- getResponse
@@ -102,10 +104,11 @@ missingParam p = do
 
 -- | Create an access token and send it to the client.
 createAndServeToken
-    :: Handler b (OAuth2 IO b) ()
-createAndServeToken = do
+    :: AccessRequest
+    -> Handler b (OAuth2 IO b) ()
+createAndServeToken request = do
     OAuth2 Configuration{..} <- get
-    grant <- createGrant
+    grant <- createGrant request
     liftIO $ tokenStoreSave oauth2Store grant
     serveToken $ grantResponse grant
 
@@ -115,7 +118,7 @@ serveToken
     -> Handler b (OAuth2 m b) ()
 serveToken token = do
     modifyResponse $ setContentType "application/json"
-    writeBS . BS.toStrict . encode $ token
+    writeBS . B.toStrict . encode $ token
 
 checkEndpoint
     :: Handler b (OAuth2 IO b) ()
