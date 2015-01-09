@@ -1,5 +1,7 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards   #-}
+{-# LANGUAGE DeriveGeneric              #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE RecordWildCards            #-}
 
 -- | Description: Data types for OAuth2 server.
 module Network.OAuth2.Server.Types where
@@ -10,6 +12,10 @@ import Data.Aeson
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Clock
+import Database.PostgreSQL.ORM.Model
+import Database.PostgreSQL.Simple.FromField
+import Database.PostgreSQL.Simple.ToField
+import GHC.Generics
 
 -- | A scope is a list of strings.
 newtype Scope = Scope { unScope :: [Text] }
@@ -17,7 +23,7 @@ newtype Scope = Scope { unScope :: [Text] }
 
 -- | A token is a unique piece of text.
 newtype Token = Token { unToken :: Text }
-  deriving (Eq, Show)
+  deriving (Eq, Show, FromField, ToField)
 
 -- | Grant types for OAuth2 requests.
 data GrantType
@@ -83,7 +89,8 @@ data AccessResponse = AccessResponse
 -- This is recorded in the OAuth2 server and used to verify tokens in the
 -- future.
 data TokenGrant = TokenGrant
-    { grantTokenType    :: Text
+    { grantTokenKey     :: DBKey
+    , grantTokenType    :: Text
     , grantAccessToken  :: Token
     , grantRefreshToken :: Maybe Token
     , grantExpires      :: UTCTime
@@ -91,7 +98,8 @@ data TokenGrant = TokenGrant
     , grantClientID     :: Maybe Text
     , grantScope        :: Scope
     }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
+instance Model TokenGrant
 
 -- | Convert a 'TokenGrant' into an 'AccessResponse'.
 grantResponse
@@ -113,6 +121,12 @@ instance ToJSON Scope where
 instance FromJSON Scope where
     parseJSON (String t) = return . Scope . T.splitOn " " $ t
     parseJSON _ = mzero
+
+instance ToField Scope where
+    toField (Scope ss) = toField . T.intercalate " " $ ss
+
+instance FromField Scope where
+    fromField field bs = Scope . T.splitOn " " <$> fromField field bs
 
 instance ToJSON Token where
     toJSON (Token t) = String t
