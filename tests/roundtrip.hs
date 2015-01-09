@@ -33,7 +33,7 @@ main = do
     priv <- initPrivKey "tests/key.pem" >>= either error return
     hspec $ suite pub priv
 
-suite :: AnchorCryptoState a -> AnchorCryptoState Pair -> SpecWith ()
+suite :: AnchorCryptoState Public -> AnchorCryptoState Pair -> SpecWith ()
 suite pub priv =
     describe "round tripping random data" $ do
         prop "is not lossy" $  \bs -> monadicIO $ do
