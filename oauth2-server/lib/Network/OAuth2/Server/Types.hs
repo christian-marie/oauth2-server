@@ -4,6 +4,7 @@
 -- | Description: Data types for OAuth2 server.
 module Network.OAuth2.Server.Types where
 
+import Control.Applicative
 import Control.Monad
 import Data.Aeson
 import Data.Text (Text)
@@ -68,11 +69,13 @@ data AccessRequest
 
 -- | A response containing an OAuth2 access token grant.
 data AccessResponse = AccessResponse
-    { tokenType    :: Text
-    , accessToken  :: Token
-    , refreshToken :: Maybe Token
-    , tokenExpires :: Maybe Word
-    , tokenScope   :: Maybe Scope
+    { tokenType     :: Text
+    , accessToken   :: Token
+    , refreshToken  :: Maybe Token
+    , tokenExpires  :: UTCTime
+    , tokenUsername :: Maybe Text
+    , tokenClientID :: Maybe Text
+    , tokenScope    :: Scope
     }
   deriving (Eq, Show)
 
@@ -85,20 +88,25 @@ data TokenGrant = TokenGrant
     , grantAccessToken  :: Token
     , grantRefreshToken :: Maybe Token
     , grantExpires      :: UTCTime
+    , grantUsername     :: Maybe Text
+    , grantClientID     :: Maybe Text
     , grantScope        :: Scope
     }
   deriving (Eq, Show)
 
 -- | Convert a 'TokenGrant' into an 'AccessResponse'.
---
--- This involves massaging the data slightly.
 grantResponse
     :: TokenGrant
     -> AccessResponse
-grantResponse TokenGrant{..} = tokenResponse grantTokenType grantAccessToken
-
-tokenResponse :: Text -> Token -> AccessResponse
-tokenResponse ty to = AccessResponse ty to Nothing Nothing Nothing
+grantResponse TokenGrant{..} = AccessResponse
+    { tokenType     = grantTokenType
+    , accessToken   = grantAccessToken
+    , refreshToken  = grantRefreshToken
+    , tokenExpires  = grantExpires
+    , tokenUsername = grantUsername
+    , tokenClientID = grantClientID
+    , tokenScope    = grantScope
+    }
 
 instance ToJSON Scope where
     toJSON (Scope ss) = String $ T.intercalate " " ss
@@ -118,8 +126,21 @@ instance ToJSON AccessResponse where
     toJSON AccessResponse{..} =
         let token = [ "access_token" .= toJSON accessToken
                     , "token_type" .= String tokenType
+                    , "expires" .= (T.pack . show $ tokenExpires)
+                    , "scope" .= toJSON tokenScope
                     ]
-            expire = maybe [] (\s -> ["expires_in" .= (T.pack . show $ s)]) tokenExpires
             ref = maybe [] (\t -> ["refresh_token" .= unToken t]) refreshToken
-            scope = maybe [] (\s -> ["scope" .= toJSON s]) tokenScope
-        in object . concat $ [token, expire, ref, scope]
+            uname = maybe [] (\s -> ["username" .= String s]) tokenUsername
+            client = maybe [] (\s -> ["client_id" .= String s]) tokenClientID
+        in object . concat $ [token, ref, uname, client]
+
+instance FromJSON AccessResponse where
+    parseJSON (Object o) = AccessResponse
+        <$> o .: "token_type"
+        <*> o .: "access_token"
+        <*> o .:? "refresh_token"
+        <*> o .: "expires"
+        <*> o .:? "username"
+        <*> o .:? "client_id"
+        <*> o .: "scope"
+    parseJSON _ = mzero
