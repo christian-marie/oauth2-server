@@ -1,6 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
-module Network.OAuth2.Server where
+module Network.OAuth2.Server (
+  createGrant,
+  module Types,
+  module Configuration,
+) where
 
 import Control.Monad
 import Control.Monad.IO.Class
@@ -10,7 +14,8 @@ import qualified Data.Text as T
 import Data.Time.Clock
 import System.Random
 
-import Network.OAuth2.Server.Types
+import Network.OAuth2.Server.Configuration as Configuration
+import Network.OAuth2.Server.Types as Types
 
 -- | Create a 'TokenGrant' representing a new token.
 --
