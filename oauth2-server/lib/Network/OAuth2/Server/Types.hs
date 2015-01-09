@@ -125,13 +125,13 @@ instance FromJSON Token where
 instance ToJSON AccessResponse where
     toJSON AccessResponse{..} =
         let token = [ "access_token" .= toJSON accessToken
-                    , "token_type" .= String tokenType
-                    , "expires" .= (T.pack . show $ tokenExpires)
+                    , "token_type" .= toJSON tokenType
+                    , "expires" .= toJSON tokenExpires
                     , "scope" .= toJSON tokenScope
                     ]
             ref = maybe [] (\t -> ["refresh_token" .= unToken t]) refreshToken
-            uname = maybe [] (\s -> ["username" .= String s]) tokenUsername
-            client = maybe [] (\s -> ["client_id" .= String s]) tokenClientID
+            uname = maybe [] (\s -> ["username" .= toJSON s]) tokenUsername
+            client = maybe [] (\s -> ["client_id" .= toJSON s]) tokenClientID
         in object . concat $ [token, ref, uname, client]
 
 instance FromJSON AccessResponse where
