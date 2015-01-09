@@ -1,9 +1,13 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Network.OAuth2.Server.TokenStore where
 
 import Control.Monad
 import Control.Monad.IO.Class
+import Data.Monoid
+import Data.Text.Encoding
 import Database.PostgreSQL.ORM
 import Database.PostgreSQL.Simple
+import Database.PostgreSQL.Simple.Types
 
 import Network.OAuth2.Server.Configuration
 import Network.OAuth2.Server.Types
@@ -30,5 +34,11 @@ postgreSQLTokenStoreLoad
     => Connection
     -> Token
     -> m (Maybe TokenGrant)
-postgreSQLTokenStoreLoad conn grant =
-    return Nothing
+postgreSQLTokenStoreLoad conn (Token token) = liftIO $ do
+    let select = (modelDBSelect :: DBSelect TokenGrant)
+            { selWhere = Query $ "\"grantAccessToken\" = \"" <> encodeUtf8 token <> "\"" }
+    grants <- dbSelect conn select
+    case grants of
+        [] -> return Nothing
+        [grant] -> return $ Just grant
+        _ -> error "Token collision, this should never happen."
