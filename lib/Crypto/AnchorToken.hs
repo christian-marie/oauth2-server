@@ -19,8 +19,8 @@ module Crypto.AnchorToken
     -- * Token manipulation
     makeToken,
     getPayload,
-    -- * Types
 
+    -- * Types
     AnchorCryptoState
 ) where
 
