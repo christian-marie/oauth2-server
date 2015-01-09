@@ -93,7 +93,7 @@ initPrivKey fp =
 -- Requires a key pair, not just the public key.
 makeToken :: AnchorCryptoState Pair -> ByteString -> IO ByteString
 makeToken (PrivKey key_pair dig) msg = do
-    signature <- signBS dig key_pair msg
+    signature <- withOpenSSL $ signBS dig key_pair msg
     return $ signature <> msg
 
 -- | Grab the payload from a token, you will only get the payload if the
@@ -105,7 +105,6 @@ getPayload (PubKey key dig) = getPayload' key dig
 getPayload' :: PublicKey key => key -> Digest -> ByteString -> Maybe ByteString
 getPayload' key dig msg =
     let (sig,payload) = S.splitAt 256 msg
-    in case unsafePerformIO (verifyBS dig sig key payload) of
+    in case unsafePerformIO (withOpenSSL $ verifyBS dig sig key payload) of
         VerifySuccess -> Just payload
         VerifyFailure -> Nothing
-
