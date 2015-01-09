@@ -21,7 +21,9 @@ module Crypto.AnchorToken
     getPayload,
 
     -- * Types
-    AnchorCryptoState
+    AnchorCryptoState,
+    Pair,
+    Public,
 ) where
 
 import           Control.Applicative

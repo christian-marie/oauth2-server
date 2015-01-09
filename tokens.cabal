@@ -10,7 +10,7 @@ maintainer:          Anchor Engineering <engineering@anchor.com.au>
 copyright:           (c) 2015 Anchor Systems, Pty Ltd and Others
 category:            Development
 build-type:          Simple
-extra-source-files:  README.md
+extra-source-files:  README.md, tests/key.pem, tests/key.pub
 cabal-version:       >=1.10
 
 source-repository HEAD
@@ -25,3 +25,14 @@ library
                      , HsOpenSSL >= 0.11.1
                      , bytestring
                      , transformers >= 0.4.0.0
+
+test-suite             roundtrip
+  type:                exitcode-stdio-1.0
+  build-depends:       base >=4.6 && <5,
+                       bytestring,
+                       hspec,
+                       QuickCheck,
+                       tokens
+  hs-source-dirs:      tests
+  main-is:             roundtrip.hs
+  default-language:    Haskell2010
