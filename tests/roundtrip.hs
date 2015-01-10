@@ -15,6 +15,7 @@ import           Control.Applicative
 import           Control.Monad
 import           Data.ByteString         (ByteString)
 import qualified Data.ByteString         as S
+import           Data.Maybe
 import           Data.Monoid
 import           Test.Hspec
 import           Test.Hspec.QuickCheck
@@ -49,6 +50,7 @@ suite pub priv =
             let noise' = S.pack noise
             let bs' = a <> noise' <> S.drop (S.length noise') b
             when (bs' /= bs) $ do
-                tok <- run $ makeToken priv bs'
-                assert (getPayload priv tok /= Just bs)
-                assert (getPayload pub  tok /= Just bs)
+                (sig,_) <- run $ S.splitAt 256 <$> makeToken priv bs
+                let tok' = sig <> bs'
+                assert . isNothing $ getPayload priv tok'
+                assert . isNothing $ getPayload pub  tok'
