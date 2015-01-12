@@ -1,5 +1,6 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards   #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE RecordWildCards            #-}
 
 -- | Description: Data types for OAuth2 server.
 module Network.OAuth2.Server.Types where
@@ -8,17 +9,19 @@ import Control.Applicative
 import Control.Monad
 import Data.Aeson
 import Data.Monoid
+import Data.Set (Set)
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Clock
 
 -- | A scope is a list of strings.
-newtype Scope = Scope { unScope :: [Text] }
-  deriving (Eq, Show)
+newtype Scope = Scope { unScope :: Set Text }
+  deriving (Eq, Show, Monoid)
 
 -- | Construct a 'Scope' from a space-separated list.
 mkScope :: Text -> Scope
-mkScope t = Scope . T.splitOn " " $ t
+mkScope t = Scope . S.fromList . T.splitOn " " $ t
 
 -- | A token is a unique piece of text.
 newtype Token = Token { unToken :: Text }
@@ -127,12 +130,8 @@ grantResponse TokenGrant{..} = AccessResponse
     , tokenScope    = grantScope
     }
 
-instance Monoid Scope where
-    mempty = Scope mempty
-    mappend (Scope s1) (Scope s2) = Scope $ mappend s1 s2
-
 instance ToJSON Scope where
-    toJSON (Scope ss) = String $ T.intercalate " " ss
+    toJSON (Scope ss) = String . T.intercalate " " . S.toList $ ss
 
 instance FromJSON Scope where
     parseJSON (String t) = return . mkScope $ t
