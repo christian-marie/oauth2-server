@@ -71,21 +71,20 @@ createGrant key request =
 
 -- | Check if the 'Token' is valid.
 checkToken
-    :: (MonadIO m)
-    => AnchorCryptoState a
+    :: Monad m
+    => OAuth2Server m
     -> Token
     -> Maybe Text
     -> Maybe Text
     -> Scope
     -> m Bool
-checkToken key (Token token') user client (Scope scope) = do
-    tok <- liftIO $ verifyToken key token'
-    case tok of
-        Left _ -> return False
-        Right token -> do
-            let user' = token ^. tokenUserName
-                userCorrect = isNothing user' || user == user'
-                client' = token ^. Token.tokenClientID
-                clientCorrect = isNothing client' || client == client'
-                scopeCorrect = scope `Set.isSubsetOf` Set.fromList (token ^. Token.tokenScope)
+checkToken Configuration{..} token user client (Scope scope) = do
+    token' <- tokenStoreLoad oauth2Store token
+    case token' of
+        Just TokenGrant{..} -> do
+            let userCorrect = isNothing grantUsername || user == grantUsername
+                clientCorrect = isNothing grantClientID || client == grantClientID
+                Scope scope' = grantScope
+                scopeCorrect = scope `Set.isSubsetOf` scope'
             return $ userCorrect && clientCorrect && scopeCorrect
+        Nothing -> return False

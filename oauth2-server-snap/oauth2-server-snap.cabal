@@ -25,9 +25,10 @@ Library
     , containers
     , lens
     , HsOpenSSL
+    , mtl
     , oauth2-server
     , snap
     , snap-core
-    , tokens
     , text
     , time
+    , tokens

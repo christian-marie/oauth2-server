@@ -5,6 +5,7 @@
 module Network.OAuth2.Server.Snap where
 
 import Control.Lens
+import Control.Monad.Reader
 import Data.Aeson
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as B
@@ -147,7 +148,7 @@ serveToken token = do
 checkEndpoint
     :: Handler b (OAuth2 IO b) ()
 checkEndpoint = do
-    OAuth2 Configuration{..} <- get
+    OAuth2 conf@Configuration{..} <- ask
     -- Get the token parameters.
     token <- getParam "token" >>=
         maybe (missingParam "token") (return . Token . T.decodeUtf8)
@@ -156,7 +157,7 @@ checkEndpoint = do
     user <- fmap T.decodeUtf8 <$> getParam "username"
     client <- fmap T.decodeUtf8 <$> getParam "client_id"
     -- Check the token is valid.
-    res <- checkToken oauth2SigningKey token user client scope
+    res <- liftIO $ checkToken conf token user client scope
     if res
         then do
             modifyResponse $ setResponseStatus 200 "OK"
