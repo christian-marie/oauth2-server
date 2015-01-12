@@ -7,21 +7,15 @@ module Network.OAuth2.Server (
     checkToken,
 ) where
 
-import Control.Applicative
 import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.Reader
-import Data.ByteString.Base64
 import Data.Maybe
 import Data.Monoid
 import qualified Data.Set as Set
 import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
 import Data.Time.Clock
 import OpenSSL
-import System.Random
 
 import Crypto.AnchorToken as Token
 

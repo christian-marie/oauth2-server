@@ -7,7 +7,6 @@ module Network.OAuth2.Server.Types where
 import Control.Applicative
 import Control.Monad
 import Data.Aeson
-import Data.ByteString (ByteString)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
