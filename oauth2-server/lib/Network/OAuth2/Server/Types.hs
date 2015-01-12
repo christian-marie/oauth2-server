@@ -17,7 +17,7 @@ newtype Scope = Scope { unScope :: [Text] }
 
 -- | A token is a unique piece of text.
 newtype Token = Token { unToken :: Text }
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 -- | Grant types for OAuth2 requests.
 data GrantType
@@ -143,3 +143,36 @@ instance FromJSON AccessResponse where
         <*> o .:? "client_id"
         <*> o .: "scope"
     parseJSON _ = mzero
+
+-- | Standard OAuth2 errors.
+--
+-- The creator should supply a human-readable message explaining the specific
+-- error which will be returned to the client.
+--
+-- http://tools.ietf.org/html/rfc6749#section-5.2
+data OAuth2Error
+    = InvalidClient { errorDescription :: Text }
+    | InvalidGrant { errorDescription :: Text }
+    | InvalidRequest { errorDescription :: Text }
+    | InvalidScope { errorDescription :: Text }
+    | UnauthorizedClient { errorDescription :: Text }
+    | UnsupportedGrantType { errorDescription :: Text }
+  deriving (Eq, Show)
+
+-- | Get the OAuth2 error code for an error case.
+oauth2ErrorCode
+    :: OAuth2Error
+    -> Text
+oauth2ErrorCode err = case err of
+    InvalidClient{} -> "invalid_client"
+    InvalidGrant{} -> "invalid_grant"
+    InvalidRequest{} -> "invalid_request"
+    InvalidScope{} -> "invalid_scope"
+    UnauthorizedClient{} -> "unauthorized_client"
+    UnsupportedGrantType{} -> "unsupported_grant_type"
+
+instance ToJSON OAuth2Error where
+    toJSON err = object
+        [ "error" .= oauth2ErrorCode err
+        , "description" .= errorDescription err
+        ]
