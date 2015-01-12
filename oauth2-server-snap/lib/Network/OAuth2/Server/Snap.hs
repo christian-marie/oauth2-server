@@ -94,11 +94,24 @@ tokenEndpoint = do
         _ -> missingParam "grant_type"
     OAuth2 cfg <- get
     valid <- liftIO $ oauth2CheckCredentials cfg request
-    when valid $ createAndServeToken request
+    if valid
+        then createAndServeToken request
+        else oauthError $ InvalidRequest "Cannot issue a token with those credentials."
 
 missingParam :: MonadSnap m => BS.ByteString -> m a
 missingParam p = do
     modifyResponse $ setResponseStatus 400 ("Bad Request: missing parameter \"" <> p <> "\"")
+    r <- getResponse
+    finishWith r
+
+-- | Send an 'OAuth2Error' to the client and terminate the request.
+oauthError
+    :: (MonadSnap m)
+    => OAuth2Error
+    -> m a
+oauthError err = do
+    modifyResponse $ setResponseStatus 400 "Bad Request"
+    writeBS . B.toStrict . encode $ err
     r <- getResponse
     finishWith r
 
