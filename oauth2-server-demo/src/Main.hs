@@ -1,6 +1,6 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards   #-}
-{-# LANGUAGE TemplateHaskell   #-}
+{-# LANGUAGE OverloadedStrings  #-}
+{-# LANGUAGE RecordWildCards    #-}
+{-# LANGUAGE TemplateHaskell    #-}
 
 {-# LANGUAGE StandaloneDeriving #-}
 
@@ -11,8 +11,8 @@ import Control.Lens
 import Control.Monad.IO.Class
 import Data.IORef
 import Data.Map.Strict (Map)
-import Data.Maybe
 import qualified Data.Map.Strict as M
+import Data.Maybe
 import Data.Set (Set)
 import qualified Data.Set as S
 import Data.Text (Text)
