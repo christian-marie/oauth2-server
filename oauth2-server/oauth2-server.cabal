@@ -19,6 +19,7 @@ Library
   exposed-modules:
       Network.OAuth2.Server
     , Network.OAuth2.Server.Configuration
+    , Network.OAuth2.Server.CryptoTokenStore
     , Network.OAuth2.Server.Types
   build-depends:
       base >=4.7 && <4.8
