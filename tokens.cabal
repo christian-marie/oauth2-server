@@ -38,6 +38,7 @@ test-suite             roundtrip
                        bytestring,
                        hspec,
                        QuickCheck,
+                       lens,
                        tokens
   hs-source-dirs:      tests
   main-is:             roundtrip.hs

@@ -13,14 +13,13 @@ module Main where
 
 import           Control.Applicative
 import           Control.Monad
-import           Data.ByteString         (ByteString)
-import qualified Data.ByteString         as S
+import           Data.ByteString       (ByteString)
+import qualified Data.ByteString       as S
 import           Data.Maybe
 import           Data.Monoid
 import           Test.Hspec
 import           Test.Hspec.QuickCheck
 import           Test.QuickCheck
-import           Test.QuickCheck.Monadic (assert, monadicIO, run)
 
 import           Crypto.AnchorToken
 
@@ -37,20 +36,19 @@ main = do
 suite :: AnchorCryptoState Public -> AnchorCryptoState Pair -> SpecWith ()
 suite pub priv =
     describe "round tripping random data" $ do
-        prop "is not lossy" $  \bs -> monadicIO $ do
-            tok <- run $ makeToken priv bs
-            assert (getPayload priv tok == Just bs)
-            assert (getPayload pub  tok == Just bs)
+        prop "is not lossy" $  \bs ->
+            let tok = signPayload priv bs
+            in (  getPayload priv tok == Just bs
+               && getPayload pub  tok == Just bs)
 
-        prop "is verifying integrity" $ \bs (NonEmpty noise) n -> monadicIO $ do
+        prop "is verifying integrity" $ \bs (NonEmpty noise) n -> do
             -- Randomly replace chunks of the input
             let os | n == 0    = 0
                    | otherwise = mod (S.length bs) n
             let (a,b) = S.splitAt os bs
             let noise' = S.pack noise
             let bs' = a <> noise' <> S.drop (S.length noise') b
-            when (bs' /= bs) $ do
-                (sig,_) <- run $ S.splitAt 256 <$> makeToken priv bs
+            (bs' == bs) || do
+                let (sig,_) = S.splitAt 256 $ signPayload priv bs
                 let tok' = sig <> bs'
-                assert . isNothing $ getPayload priv tok'
-                assert . isNothing $ getPayload pub  tok'
+                isNothing (getPayload priv tok' `mplus` getPayload pub tok')
