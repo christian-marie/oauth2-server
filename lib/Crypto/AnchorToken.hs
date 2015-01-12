@@ -84,8 +84,12 @@ $(deriveJSON defaultOptions ''AnchorToken)
 
 -- | Attempt to verify a token, checking the expiry time against the current
 -- time. This is the correct, and only way for a client to extract a token.
-verifyToken :: AnchorCryptoState a -> Text -> IO (Either String AnchorToken)
-verifyToken k txt = do
+verifyToken
+    :: MonadIO m
+    => AnchorCryptoState a
+    -> Text
+    -> m (Either String AnchorToken)
+verifyToken k txt = liftIO $ do
     now <- getCurrentTime
 
     return . (B64.decode . encodeUtf8
@@ -112,7 +116,9 @@ verifyToken k txt = do
 --
 --    preview signedBlob token
 --
-signed :: AnchorCryptoState Pair -> Prism' Text AnchorToken
+signed
+    :: AnchorCryptoState Pair
+    -> Prism' Text AnchorToken
 signed pair = prism' enc dec
   where
     enc = decodeUtf8 . B64.encode . signPayload pair
@@ -126,16 +132,22 @@ data Pair
 
 -- | Opaque type for internal state, stores keys and digest algorithm.
 data AnchorCryptoState k where
-    PubKey :: SomePublicKey -> Digest -> AnchorCryptoState Public
+    PubKey
+        :: SomePublicKey
+        -> Digest
+        -> AnchorCryptoState Public
     PrivKey :: SomeKeyPair -> Digest -> AnchorCryptoState Pair
 
 -- | Extract the public key from a public key or keypair
-statePublicKey :: AnchorCryptoState a -> SomePublicKey
+statePublicKey
+    :: AnchorCryptoState a
+    -> SomePublicKey
 statePublicKey (PubKey k _) = k
 statePublicKey (PrivKey k _) = fromPublicKey k
 
 -- | Attepmt to get digest format (sha256)
-getDigest :: ExceptT String IO Digest
+getDigest
+    :: ExceptT String IO Digest
 getDigest = liftIO (getDigestByName "sha256")
             >>= maybe (fail "No sha256 digest") return
 
@@ -144,7 +156,10 @@ getDigest = liftIO (getDigestByName "sha256")
 --
 --
 --     openssl rsa -in key.pem -pubout > key.pub
-getPublic :: FilePath -> ExceptT String IO SomePublicKey
+getPublic
+    :: MonadIO m
+    => FilePath
+    -> ExceptT String m SomePublicKey
 getPublic fp = liftIO (readFile fp `catch` handleE >>= readPublicKey)
 
 -- | Attempt to read a PEM encoded public key, can be generated from a private
@@ -152,40 +167,61 @@ getPublic fp = liftIO (readFile fp `catch` handleE >>= readPublicKey)
 --
 --     openssl genrsa -out key.pem 2048
 --
-getPair :: FilePath -> ExceptT String IO SomeKeyPair
+getPair
+    :: MonadIO m
+    => FilePath
+    -> ExceptT String m SomeKeyPair
 getPair fp = liftIO (readFile fp `catch` handleE
                      >>= flip readPrivateKey PwNone)
 
 -- | Helper for catching and showing any exception, useful in ErrorT
-handleE :: Monad m => SomeException -> m a
+handleE :: Monad m
+        => SomeException -> m a
 handleE (SomeException e) = fail $ show e
 
 -- | Initialize OpenSSL state, given a path to a PEM encoded public RSA key
-initPubKey :: FilePath -> IO (Either String (AnchorCryptoState Public))
+initPubKey
+    :: MonadIO m
+    => FilePath
+    -> m (Either String (AnchorCryptoState Public))
 initPubKey fp =
-    withOpenSSL . runExceptT $ PubKey <$> getPublic fp <*> getDigest
+    liftIO . withOpenSSL . runExceptT $ PubKey <$> getPublic fp <*> getDigest
 
 -- | Initialize OpenSSL state, given a path to a PEM encoded private RSA key
-initPrivKey :: FilePath -> IO (Either String (AnchorCryptoState Pair))
+initPrivKey
+    :: MonadIO m
+    => FilePath
+    -> m (Either String (AnchorCryptoState Pair))
 initPrivKey fp =
-    withOpenSSL . runExceptT $ PrivKey <$> getPair fp <*> getDigest
+    liftIO . withOpenSSL . runExceptT $ PrivKey <$> getPair fp <*> getDigest
 
 -- | Given a blob of data as the token payload, prepend a signature of 256
 -- bytes.
 --
 -- Requires a key pair, not just the public key.
-signPayload :: AnchorCryptoState Pair -> ByteString -> ByteString
+signPayload
+    :: AnchorCryptoState Pair
+    -> ByteString
+    -> ByteString
 signPayload (PrivKey key_pair dig) msg =
     let signature = unsafePerformIO . withOpenSSL $ signBS dig key_pair msg
     in signature <> msg
 
 -- | Grab the payload from a token, you will only get the payload if the
 -- signature is correct.
-getPayload :: AnchorCryptoState a -> ByteString -> Maybe ByteString
+getPayload
+    :: AnchorCryptoState a
+    -> ByteString
+    -> Maybe ByteString
 getPayload (PrivKey key_pair dig) = getPayload' key_pair dig
 getPayload (PubKey key dig) = getPayload' key dig
 
-getPayload' :: PublicKey key => key -> Digest -> ByteString -> Maybe ByteString
+getPayload'
+    :: PublicKey key
+    => key
+    -> Digest
+    -> ByteString
+    -> Maybe ByteString
 getPayload' key dig msg =
     let (sig,payload) = S.splitAt 256 msg
     in case unsafePerformIO . withOpenSSL $ verifyBS dig sig key payload of
