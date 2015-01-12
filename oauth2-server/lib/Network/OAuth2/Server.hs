@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 module Network.OAuth2.Server (
@@ -6,13 +7,20 @@ module Network.OAuth2.Server (
   module Configuration,
 ) where
 
+import Control.Applicative
 import Control.Monad
 import Control.Monad.IO.Class
+import Control.Monad.Reader
+import Data.ByteString.Base64
 import Data.Maybe
+import Data.Monoid
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Clock
+import OpenSSL
 import System.Random
+
+import Crypto.AnchorToken
 
 import Network.OAuth2.Server.Configuration as Configuration
 import Network.OAuth2.Server.Types as Types
@@ -21,37 +29,40 @@ import Network.OAuth2.Server.Types as Types
 --
 -- The caller is responsible for saving the grant in the store.
 createGrant
-    :: MonadIO m
-    => AccessRequest
+    :: (MonadIO m)
+    => AnchorCryptoState Pair
+    -> AccessRequest
     -> m TokenGrant
-createGrant request = do
-    access <- newToken
-    refresh <- newToken
-    t <- liftIO getCurrentTime
-    let (client, user, scope) = case request of
-         RequestPassword{..} ->
-             ( requestClientID
-             , Just requestUsername
-             , fromMaybe (Scope []) requestScope
-             )
-         RequestClient{..} ->
-             ( Just requestClientIDReq
-             , Nothing
-             , fromMaybe (Scope []) requestScope
-             )
-    return TokenGrant
-        { grantTokenType = "access_token"
-        , grantAccessToken = Token access
-        , grantRefreshToken = Just (Token refresh)
-        , grantExpires = addUTCTime 1800 t
-        , grantClientID = client
-        , grantUsername = user
-        , grantScope = scope
-        }
-  where
-    newToken :: MonadIO m => m Text
-    newToken = do
-      tok <- liftIO . replicateM 64 $ do
-          n <- randomRIO (0,63)
-          return $ (['A'..'Z']++['a'..'z']++['0'..'9']++"+/") !! n
-      return . T.pack $ tok
+createGrant key request =
+    liftIO . withOpenSSL $ do
+        t <- liftIO getCurrentTime
+        let (client, user, Scope scope) = case request of
+             RequestPassword{..} ->
+                 ( requestClientID
+                 , Just requestUsername
+                 , fromMaybe (Scope []) requestScope
+                 )
+             RequestClient{..} ->
+                 ( Just requestClientIDReq
+                 , Nothing
+                 , fromMaybe (Scope []) requestScope
+                 )
+            expires = addUTCTime 1800 t
+            token = AnchorToken
+                { _tokenType = "access_token"
+                , _tokenExpires = expires
+                , _tokenUserName = user
+                , _tokenClientID = client
+                , _tokenScope = scope
+                }
+        let makeToken = error "makeToken not defined"
+        access <- makeToken key token
+        return TokenGrant
+            { grantTokenType = "access_token"
+            , grantAccessToken = Token access
+            , grantRefreshToken = Just (Token access)
+            , grantExpires = addUTCTime 1800 t
+            , grantClientID = client
+            , grantUsername = user
+            , grantScope = Scope scope
+            }

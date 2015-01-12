@@ -27,5 +27,6 @@ Library
     , oauth2-server
     , snap
     , snap-core
+    , tokens
     , text
     , time

@@ -23,9 +23,12 @@ Library
   build-depends:
       base >=4.7 && <4.8
     , aeson
+    , base64-bytestring
     , bytestring
     , HsOpenSSL
+    , mtl
     , random
     , text
     , time
+    , tokens
     , transformers

@@ -12,7 +12,7 @@
 
 module Network.OAuth2.Server.Configuration where
 
-import OpenSSL.EVP.PKey
+import Crypto.AnchorToken
 
 import Network.OAuth2.Server.Types
 
@@ -31,5 +31,5 @@ data OAuth2Server m = Configuration
     -- | Check the credentials provided by the resource owner.
     , oauth2CheckCredentials :: AccessRequest -> m Bool
     -- | Key used to sign tokens.
-    , oauth2SigningKey       :: SomeKeyPair
+    , oauth2SigningKey       :: AnchorCryptoState Pair
     }

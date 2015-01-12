@@ -17,6 +17,8 @@ import Snap
 import Snap.Snaplet
 import qualified Snap.Types.Headers as S
 
+import Crypto.AnchorToken
+
 import Network.OAuth2.Server
 import Network.OAuth2.Server.Configuration
 import Network.OAuth2.Server.Types
@@ -110,7 +112,7 @@ createAndServeToken
     -> Handler b (OAuth2 IO b) ()
 createAndServeToken request = do
     OAuth2 Configuration{..} <- get
-    grant <- createGrant request
+    grant <- createGrant oauth2SigningKey request
     liftIO $ tokenStoreSave oauth2Store grant
     serveToken $ grantResponse grant
 
@@ -150,6 +152,6 @@ keyEndpoint
     :: Handler b (OAuth2 IO b) ()
 keyEndpoint = do
     OAuth2 Configuration{..} <- get
-    key <- liftIO $ writePublicKey oauth2SigningKey
+    key <- liftIO . writePublicKey . statePublicKey $ oauth2SigningKey
     modifyResponse $ setContentType "application/pkcs8"
     writeText $ T.pack key
