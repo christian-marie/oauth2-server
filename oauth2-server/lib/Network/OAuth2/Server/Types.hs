@@ -54,17 +54,32 @@ instance FromJSON GrantType where
     parseJSON _ = mzero
 
 -- | A request to the token endpoint.
+--
+-- Each constructor represents a different type of supported request. Not all
+-- request types represented by 'GrantType' are supported, so some expected
+-- 'AccessRequest' constructors are not implemented.
 data AccessRequest
     = RequestPassword
+        -- ^ 'GrantPassword'
         { requestClientID     :: Maybe Text
         , requestClientSecret :: Maybe Text
         , requestUsername     :: Text
         , requestPassword     :: Text
-        , requestScope        :: Maybe Scope }
+        , requestScope        :: Maybe Scope
+        }
     | RequestClient
+        -- ^ 'GrantClient'
         { requestClientIDReq     :: Text
         , requestClientSecretReq :: Text
-        , requestScope           :: Maybe Scope }
+        , requestScope           :: Maybe Scope
+        }
+    | RequestRefresh
+        -- ^ 'GrantRefreshToken'
+        { requestRefreshToken :: Token
+        , requestClientID     :: Maybe Text
+        , requestClientSecret :: Maybe Text
+        , requestScope        :: Maybe Scope
+        }
 
 -- | A response containing an OAuth2 access token grant.
 data AccessResponse = AccessResponse

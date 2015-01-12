@@ -49,6 +49,7 @@ oauth2Conf = do
             (requestUsername, requestPassword) `S.member` s
         check RequestClient{..} s =
             (requestClientIDReq, requestClientSecretReq) `S.member` s
+        check _ _ = False
 
 -- * Snap Application
 
