@@ -4,6 +4,7 @@
 module Network.OAuth2.Server (
     module X,
     createGrant,
+    checkToken,
 ) where
 
 import Control.Applicative
@@ -14,6 +15,7 @@ import Control.Monad.Reader
 import Data.ByteString.Base64
 import Data.Maybe
 import Data.Monoid
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -21,7 +23,7 @@ import Data.Time.Clock
 import OpenSSL
 import System.Random
 
-import Crypto.AnchorToken
+import Crypto.AnchorToken as Token
 
 import Network.OAuth2.Server.Configuration as X
 import Network.OAuth2.Server.Types as X
@@ -41,12 +43,12 @@ createGrant key request =
              RequestPassword{..} ->
                  ( requestClientID
                  , Just requestUsername
-                 , fromMaybe (Scope []) requestScope
+                 , fromMaybe (Scope mempty) requestScope
                  )
              RequestClient{..} ->
                  ( Just requestClientIDReq
                  , Nothing
-                 , fromMaybe (Scope []) requestScope
+                 , fromMaybe (Scope mempty) requestScope
                  )
             expires = addUTCTime 1800 t
             token = AnchorToken
@@ -54,9 +56,9 @@ createGrant key request =
                 , _tokenExpires = expires
                 , _tokenUserName = user
                 , _tokenClientID = client
-                , _tokenScope = scope
+                , _tokenScope = Set.toAscList scope
                 }
-            access = T.decodeUtf8 $ review (signedBlob key) token
+            access = review (signed key) token
         return TokenGrant
             { grantTokenType = "access_token"
             , grantAccessToken = Token access
@@ -66,3 +68,24 @@ createGrant key request =
             , grantUsername = user
             , grantScope = Scope scope
             }
+
+-- | Check if the 'Token' is valid.
+checkToken
+    :: (MonadIO m)
+    => AnchorCryptoState a
+    -> Token
+    -> Maybe Text
+    -> Maybe Text
+    -> Scope
+    -> m Bool
+checkToken key (Token token') user client (Scope scope) = do
+    tok <- liftIO $ verifyToken key token'
+    case tok of
+        Left _ -> return False
+        Right token -> do
+            let user' = token ^. tokenUserName
+                userCorrect = isNothing user' || user == user'
+                client' = token ^. Token.tokenClientID
+                clientCorrect = isNothing client' || client == client'
+                scopeCorrect = scope `Set.isSubsetOf` Set.fromList (token ^. Token.tokenScope)
+            return $ userCorrect && clientCorrect && scopeCorrect

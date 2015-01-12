@@ -22,6 +22,7 @@ Library
       base >=4.7 && <4.8
     , aeson
     , bytestring
+    , containers
     , lens
     , HsOpenSSL
     , oauth2-server

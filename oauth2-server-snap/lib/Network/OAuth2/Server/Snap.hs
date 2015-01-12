@@ -4,10 +4,12 @@
 -- | Description: Run an OAuth2 server as a Snaplet.
 module Network.OAuth2.Server.Snap where
 
+import Control.Lens
 import Data.Aeson
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as B
 import Data.Monoid
+import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Time.Clock
@@ -142,26 +144,19 @@ serveToken token = do
 -- | Endpoint: /check
 --
 -- Check that the supplied token is valid for the specified scope.
---
--- TODO: Move the actual check of this operation into the oauth2-server
--- package.
 checkEndpoint
     :: Handler b (OAuth2 IO b) ()
 checkEndpoint = do
     OAuth2 Configuration{..} <- get
-    -- Get the token and scope parameters.
-    token <- fmap (Token . T.decodeUtf8) <$> getParam "token" >>=
-        maybe (missingParam "token") return
-    _scope <- fmap T.decodeUtf8 <$> getParam "scope" >>=
-        maybe (missingParam "scope") return
-    -- Load the grant.
-    tokenGrant <- liftIO $ tokenStoreLoad oauth2Store token
+    -- Get the token parameters.
+    token <- getParam "token" >>=
+        maybe (missingParam "token") (return . Token . T.decodeUtf8)
+    scope <- getParam "scope" >>=
+        maybe (missingParam "scope") (return . Scope . Set.fromList . T.splitOn " " . T.decodeUtf8)
+    user <- fmap T.decodeUtf8 <$> getParam "username"
+    client <- fmap T.decodeUtf8 <$> getParam "client_id"
     -- Check the token is valid.
-    res <- case tokenGrant of
-        Nothing -> return False
-        Just TokenGrant{..} -> do
-            t <- liftIO getCurrentTime
-            return $ t > grantExpires
+    res <- checkToken oauth2SigningKey token user client scope
     if res
         then do
             modifyResponse $ setResponseStatus 200 "OK"

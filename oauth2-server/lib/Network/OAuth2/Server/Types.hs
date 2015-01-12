@@ -8,12 +8,14 @@ import Control.Applicative
 import Control.Monad
 import Data.Aeson
 import Data.ByteString (ByteString)
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Clock
 
 -- | A scope is a list of strings.
-newtype Scope = Scope { unScope :: [Text] }
+newtype Scope = Scope { unScope :: Set Text }
   deriving (Eq, Show)
 
 -- | A token is a unique piece of text.
@@ -109,10 +111,10 @@ grantResponse TokenGrant{..} = AccessResponse
     }
 
 instance ToJSON Scope where
-    toJSON (Scope ss) = String $ T.intercalate " " ss
+    toJSON (Scope ss) = String . T.intercalate " " . Set.toAscList $ ss
 
 instance FromJSON Scope where
-    parseJSON (String t) = return . Scope . T.splitOn " " $ t
+    parseJSON (String t) = return . Scope . Set.fromList . T.splitOn " " $ t
     parseJSON _ = mzero
 
 instance ToJSON Token where

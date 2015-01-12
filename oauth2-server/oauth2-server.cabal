@@ -26,6 +26,7 @@ Library
     , base64-bytestring
     , bytestring
     , HsOpenSSL
+    , containers
     , lens
     , mtl
     , random
