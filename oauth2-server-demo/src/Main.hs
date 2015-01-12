@@ -4,8 +4,6 @@
 module Main where
 
 import Control.Lens
-import Data.Monoid
-import qualified Data.Text.IO as T
 import Snap.Http.Server
 import Snap.Snaplet
 

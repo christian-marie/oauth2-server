@@ -143,3 +143,30 @@ instance FromJSON AccessResponse where
         <*> o .:? "client_id"
         <*> o .: "scope"
     parseJSON _ = mzero
+
+-- | An OAuth2 error to report to the client.
+data OAuth2Error
+    = InvalidClient { errorDescription :: Text }
+    | InvalidGrant { errorDescription :: Text }
+    | InvalidRequest { errorDescription :: Text }
+    | InvalidScope { errorDescription :: Text }
+    | UnauthorizedClient { errorDescription :: Text }
+    | UnsupportedGrantType { errorDescription :: Text }
+  deriving (Eq, Show)
+
+-- | Extract an OAuth2 error code from an 'OAuth2Error'.
+oauth2ErrorType :: OAuth2Error -> Text
+oauth2ErrorType err = case err of
+    InvalidClient{} -> "invalid_client"
+    InvalidGrant{} -> "invalid_grant"
+    InvalidRequest{} -> "invalid_request"
+    InvalidScope{} -> "invalid_scope"
+    UnauthorizedClient{} -> "unauthorized_client"
+    UnsupportedGrantType{} -> "unsupported_grant_type"
+
+instance ToJSON OAuth2Error where
+    toJSON err = object
+        [ "error" .= oauth2ErrorType err
+        , "description" .= errorDescription err
+        ]
+
