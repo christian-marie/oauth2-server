@@ -23,6 +23,7 @@ Library
     , aeson
     , bytestring
     , lens
+    , HsOpenSSL
     , oauth2-server
     , snap
     , snap-core

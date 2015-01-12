@@ -12,6 +12,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Time.Clock
+import OpenSSL.PEM
 import Snap
 import Snap.Snaplet
 import qualified Snap.Types.Headers as S
@@ -31,6 +32,7 @@ initOAuth2Server cfg = makeSnaplet "oauth2" "" Nothing $ do
     addRoutes [ ("authorize", authorizeEndpoint)
               , ("token", tokenEndpoint)
               , ("check", checkEndpoint)
+              , ("key", keyEndpoint)
               ]
     return $ OAuth2 cfg
 
@@ -142,3 +144,12 @@ checkEndpoint = do
         modifyResponse $ setResponseStatus 401 "Invalid Token"
         r <- getResponse
         finishWith r
+
+-- | Endpoint to get the public key used for token verification.
+keyEndpoint
+    :: Handler b (OAuth2 IO b) ()
+keyEndpoint = do
+    OAuth2 Configuration{..} <- get
+    key <- liftIO $ writePublicKey oauth2SigningKey
+    modifyResponse $ setContentType "application/pkcs8"
+    writeText $ T.pack key
