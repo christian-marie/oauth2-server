@@ -8,6 +8,7 @@
 --
 
 {-# LANGUAGE GADTs           #-}
+{-# LANGUAGE RankNTypes      #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 -- | API for manipulating anchor tokens.
@@ -18,11 +19,14 @@ module Crypto.AnchorToken
     initPrivKey,
 
     -- * Token manipulation
-    makeToken,
+    signPayload,
     getPayload,
 
+    -- * Utility
+    statePublicKey,
+
     -- * Types
-    AnchorToken,
+    AnchorToken(..),
     tokenType,
     tokenExpires,
     tokenUserName,
@@ -66,6 +70,15 @@ data AnchorToken = AnchorToken
 makeLenses ''AnchorToken
 $(deriveJSON defaultOptions ''AnchorToken)
 
+-- verifiedBlob :: AnchorCryptoState a -> Fold ByteString AnchorToken
+-- verifiedBlob k = _
+--
+-- signedBlob :: AnchorCryptoState Pair -> Prism' ByteString AnchorToken
+-- signedBlob = prism' enc dec
+--   where
+--     enc tok = signPayload $ encode (toJSON tok)
+--     dec = Nothing
+
 -- | Phantom type for Public keys
 data Public
 -- | Phantom type for Private /and/ Public keys (key pairs)
@@ -76,6 +89,10 @@ data AnchorCryptoState k where
     PubKey :: SomePublicKey -> Digest -> AnchorCryptoState Public
     PrivKey :: SomeKeyPair -> Digest -> AnchorCryptoState Pair
 
+-- | Extract the public key from a public key or keypair
+statePublicKey :: AnchorCryptoState a -> SomePublicKey
+statePublicKey (PubKey k _) = k
+statePublicKey (PrivKey k _) = fromPublicKey k
 
 -- | Attepmt to get digest format (sha256)
 getDigest :: ExceptT String IO Digest
@@ -117,8 +134,8 @@ initPrivKey fp =
 -- bytes.
 --
 -- Requires a key pair, not just the public key.
-makeToken :: AnchorCryptoState Pair -> ByteString -> IO ByteString
-makeToken (PrivKey key_pair dig) msg = do
+signPayload :: AnchorCryptoState Pair -> ByteString -> IO ByteString
+signPayload (PrivKey key_pair dig) msg = do
     signature <- withOpenSSL $ signBS dig key_pair msg
     return $ signature <> msg
 
