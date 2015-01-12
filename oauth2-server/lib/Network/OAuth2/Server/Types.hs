@@ -1,5 +1,6 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards   #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE RecordWildCards            #-}
 
 -- | Description: Data types for OAuth2 server.
 module Network.OAuth2.Server.Types where
@@ -7,13 +8,20 @@ module Network.OAuth2.Server.Types where
 import Control.Applicative
 import Control.Monad
 import Data.Aeson
+import Data.Monoid
+import Data.Set (Set)
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Clock
 
 -- | A scope is a list of strings.
-newtype Scope = Scope { unScope :: [Text] }
-  deriving (Eq, Show)
+newtype Scope = Scope { unScope :: Set Text }
+  deriving (Eq, Show, Monoid)
+
+-- | Construct a 'Scope' from a space-separated list.
+mkScope :: Text -> Scope
+mkScope t = Scope . S.fromList . T.splitOn " " $ t
 
 -- | A token is a unique piece of text.
 newtype Token = Token { unToken :: Text }
@@ -54,17 +62,32 @@ instance FromJSON GrantType where
     parseJSON _ = mzero
 
 -- | A request to the token endpoint.
+--
+-- Each constructor represents a different type of supported request. Not all
+-- request types represented by 'GrantType' are supported, so some expected
+-- 'AccessRequest' constructors are not implemented.
 data AccessRequest
     = RequestPassword
+        -- ^ 'GrantPassword'
         { requestClientID     :: Maybe Text
         , requestClientSecret :: Maybe Text
         , requestUsername     :: Text
         , requestPassword     :: Text
-        , requestScope        :: Maybe Scope }
+        , requestScope        :: Maybe Scope
+        }
     | RequestClient
+        -- ^ 'GrantClient'
         { requestClientIDReq     :: Text
         , requestClientSecretReq :: Text
-        , requestScope           :: Maybe Scope }
+        , requestScope           :: Maybe Scope
+        }
+    | RequestRefresh
+        -- ^ 'GrantRefreshToken'
+        { requestRefreshToken :: Token
+        , requestClientID     :: Maybe Text
+        , requestClientSecret :: Maybe Text
+        , requestScope        :: Maybe Scope
+        }
 
 -- | A response containing an OAuth2 access token grant.
 data AccessResponse = AccessResponse
@@ -108,10 +131,10 @@ grantResponse TokenGrant{..} = AccessResponse
     }
 
 instance ToJSON Scope where
-    toJSON (Scope ss) = String $ T.intercalate " " ss
+    toJSON (Scope ss) = String . T.intercalate " " . S.toList $ ss
 
 instance FromJSON Scope where
-    parseJSON (String t) = return . Scope . T.splitOn " " $ t
+    parseJSON (String t) = return . mkScope $ t
     parseJSON _ = mzero
 
 instance ToJSON Token where

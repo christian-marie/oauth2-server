@@ -8,6 +8,7 @@ import Data.Aeson
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as B
 import Data.Monoid
+import Data.Text (Text)
 import qualified Data.Text.Encoding as T
 import Data.Time.Clock
 import Snap
@@ -47,46 +48,35 @@ authorizeEndpoint = writeText "U AM U?"
 tokenEndpoint
     :: Handler b (OAuth2 IO b) ()
 tokenEndpoint = do
-    grant_type' <- getParam "grant_type"
-    request <- case grant_type' of
-        Just gt' -> do
-            let gt = grantType . T.decodeUtf8 $ gt'
-            case gt of
-                -- Resource Owner Password Credentials Grant
-                GrantPassword -> do
-                    client_id <- fmap T.decodeUtf8 <$> getParam "client_id"
-                    client_secret <- fmap T.decodeUtf8 <$> getParam "client_secret"
-                    username <- fmap T.decodeUtf8 <$> getParam "username" >>=
-                        maybe (missingParam "username") return
-                    password <- fmap T.decodeUtf8 <$> getParam "password" >>=
-                        maybe (missingParam "password") return
-                    return RequestPassword
-                        { requestClientID = client_id
-                        , requestClientSecret = client_secret
-                        , requestUsername = username
-                        , requestPassword = password
-                        , requestScope = Nothing }
-                -- Client Credentials Grant
-                GrantClient -> do
-                    client_id' <- getParam "client_id"
-                    client_id <- case client_id' of
-                        Just client_id -> return $ T.decodeUtf8 client_id
-                        _ -> missingParam "client_id"
-                    client_secret' <- getParam "client_secret"
-                    client_secret <- case client_secret' of
-                        Just client_secret -> return $ T.decodeUtf8 client_secret
-                        _ -> missingParam "client_secret"
-                    return RequestClient
-                        { requestClientIDReq = client_id
-                        , requestClientSecretReq = client_secret
-                        , requestScope = Nothing }
-                _ -> oauth2Error $ UnsupportedGrantType "This grant_type is not supported."
-        _ -> missingParam "grant_type"
+    grant_type <- grantType <$> getRequestParameter "grant_type"
+    requestScope <- fmap mkScope <$> getRequestParameter' "scope"
+
+    request <- case grant_type of
+        -- Resource Owner Password Credentials Grant
+        GrantPassword -> do
+            requestUsername <- getRequestParameter "username"
+            requestPassword <- getRequestParameter "password"
+            requestClientID <- getRequestParameter' "client_id"
+            requestClientSecret <- getRequestParameter' "client_secret"
+            return RequestPassword{..}
+        -- Client Credentials Grant
+        GrantClient -> do
+            requestClientIDReq <- getRequestParameter "client_id"
+            requestClientSecretReq <- getRequestParameter "client_secret"
+            return RequestClient{..}
+        -- Refreshing a Token
+        GrantRefreshToken -> do
+            requestRefreshToken <- Token <$> getRequestParameter "refresh_token"
+            requestClientID <- getRequestParameter' "client_id"
+            requestClientSecret <- getRequestParameter' "client_secret"
+            return RequestRefresh{..}
+        -- Unknown grant type.
+        _ -> oauth2Error $ UnsupportedGrantType "This grant_type is not supported."
     OAuth2 cfg <- get
     valid <- liftIO $ oauth2CheckCredentials cfg request
     if valid
         then createAndServeToken request
-        else oauth2Error $ InvalidRequest "Cannot issue a token with those credentials."
+        else oauth2Error $ InvalidRequest "Cannot issue requested token."
 
 -- | Send an 'OAuth2Error' response about a missing request parameter.
 --
@@ -143,10 +133,8 @@ checkEndpoint
 checkEndpoint = do
     OAuth2 Configuration{..} <- get
     -- Get the token and scope parameters.
-    token <- fmap (Token . T.decodeUtf8) <$> getParam "token" >>=
-        maybe (missingParam "token") return
-    _scope <- fmap T.decodeUtf8 <$> getParam "scope" >>=
-        maybe (missingParam "scope") return
+    token <- Token <$> getRequestParameter "token"
+    scope <- mkScope <$> getRequestParameter "scope"
     -- Load the grant.
     tokenGrant <- liftIO $ tokenStoreLoad oauth2Store token
     -- Check the token is valid.
@@ -164,3 +152,19 @@ checkEndpoint = do
             modifyResponse $ setResponseStatus 401 "Invalid Token"
             r <- getResponse
             finishWith r
+
+-- | Get a parameter or return an error.
+getRequestParameter
+    :: MonadSnap m
+    => BS.ByteString
+    -> m Text
+getRequestParameter name =
+    fmap T.decodeUtf8 <$> getParam name >>= maybe (missingParam name) return
+
+-- | Get a parameter, if defined.
+getRequestParameter'
+    :: MonadSnap m
+    => BS.ByteString
+    -> m (Maybe Text)
+getRequestParameter' name =
+    fmap T.decodeUtf8 <$> getParam name
