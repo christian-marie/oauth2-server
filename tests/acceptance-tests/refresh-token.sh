@@ -36,7 +36,8 @@ OUTPUT=$(refresh "bad-token") \
         || pass "Could not refresh with invalid token."
 
 # Refresh with a valid token returns a new token.
-TOKEN=$(ropcg "user" "password" | tr "," "\n" | grep refresh | cut -d\" -f4)
+TOKEN=$(ropcg "user" "password" | tr "," "\n" | grep refresh | cut -d\" -f4 | \
+        sed -Ee "s/[+]/%2B/g" -e "s/[/]/%2F/g" )
 OUTPUT=$(refresh "$TOKEN") \
         && pass "Got refresh with valid token." \
-        || fail "Could not refresh with valid token." "$OUTPUT"
+        || fail "Could not refresh with valid token ($TOKEN)." "$OUTPUT"
