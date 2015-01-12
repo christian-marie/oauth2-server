@@ -56,14 +56,10 @@ tokenEndpoint = do
                 GrantPassword -> do
                     client_id <- fmap T.decodeUtf8 <$> getParam "client_id"
                     client_secret <- fmap T.decodeUtf8 <$> getParam "client_secret"
-                    username' <- getParam "username"
-                    username <- case username' of
-                        Just username -> return $ T.decodeUtf8 username
-                        _ -> missingParam "username"
-                    password' <- getParam "password"
-                    password <- case password' of
-                        Just password -> return $ T.decodeUtf8 password
-                        _ -> missingParam "password"
+                    username <- fmap T.decodeUtf8 <$> getParam "username" >>=
+                        maybe (missingParam "username") return
+                    password <- fmap T.decodeUtf8 <$> getParam "password" >>=
+                        maybe (missingParam "password") return
                     return RequestPassword
                         { requestClientID = client_id
                         , requestClientSecret = client_secret
@@ -104,7 +100,9 @@ missingParam p = oauth2Error . InvalidRequest . T.decodeUtf8 $
 
 -- | Send an 'OAuth2Error' to the client and terminate the request.
 --
--- This terminates request handling.
+-- The response is formatted as specified in RFC 6749 section 5.2:
+--
+-- http://tools.ietf.org/html/rfc6749#section-5.2
 oauth2Error
     :: (MonadSnap m)
     => OAuth2Error
