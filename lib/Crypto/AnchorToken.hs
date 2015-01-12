@@ -18,9 +18,11 @@ module Crypto.AnchorToken
     initPubKey,
     initPrivKey,
 
+    -- * Accessing tokens
+    verifyToken,
+
     -- * Lenses
-    verifiedBlob,
-    signedBlob,
+    signed,
 
     -- * Token manipulation
     signPayload,
@@ -57,6 +59,7 @@ import qualified Data.ByteString.Base64     as B64
 import           Data.ByteString.Lazy       (toStrict)
 import           Data.Monoid
 import           Data.Text                  (Text)
+import           Data.Text.Encoding
 import           Data.Time.Clock
 import           OpenSSL
 import           OpenSSL.EVP.Digest
@@ -79,17 +82,27 @@ data AnchorToken = AnchorToken
 makeLenses ''AnchorToken
 $(deriveJSON defaultOptions ''AnchorToken)
 
--- | Attempt to extract a token.
---
--- Intended to be used like:
---
---   preview verifiedBlob key
---
-verifiedBlob :: AnchorCryptoState a -> Fold ByteString AnchorToken
-verifiedBlob k = folding (hush . B64.decode >=> getPayload k >=> decodeStrict)
+-- | Attempt to verify a token, checking the expiry time against the current
+-- time. This is the correct, and only way for a client to extract a token.
+verifyToken :: AnchorCryptoState a -> Text -> IO (Either String AnchorToken)
+verifyToken k txt = do
+    now <- getCurrentTime
+
+    return . (B64.decode . encodeUtf8
+              >=> note "Bad signature" . getPayload k
+              >=> eitherDecodeStrict
+              >=> checkExpiry now) $ txt
+  where
+    checkExpiry now tok
+        | now > tok ^. tokenExpires = Left "Token expired"
+        | otherwise                 = Right tok
+
 
 -- | Prism between ByteStrings and tokens, signing and encoding one way,
--- verifying and decoding the other.
+-- checking signature and decoding the other.
+--
+-- NOTE: This does not check the token's expiry! Do /not/ use this to verify a
+-- token.
 --
 -- Encoding:
 --
@@ -97,13 +110,14 @@ verifiedBlob k = folding (hush . B64.decode >=> getPayload k >=> decodeStrict)
 --
 -- Decoding:
 --
---    preview  signedBlob token
+--    preview signedBlob token
 --
-signedBlob :: AnchorCryptoState Pair -> Prism' ByteString AnchorToken
-signedBlob pair = prism' enc dec
+signed :: AnchorCryptoState Pair -> Prism' Text AnchorToken
+signed pair = prism' enc dec
   where
-    enc = B64.encode . signPayload pair . toStrict .  encode . toJSON
-    dec = hush . B64.decode >=> getPayload pair >=> decodeStrict
+    enc = decodeUtf8 . B64.encode . signPayload pair
+          . toStrict .  encode . toJSON
+    dec = hush . B64.decode . encodeUtf8 >=> getPayload pair >=> decodeStrict
 
 -- | Phantom type for Public keys
 data Public
