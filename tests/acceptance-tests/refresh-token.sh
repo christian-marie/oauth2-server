@@ -4,9 +4,9 @@
 # http://tools.ietf.org/html/rfc6749#section-6
 
 refresh() {
-        refresh_token=$1
+        refresh_token=$(echo $1 | sed -e "s/[+]/%2b/g")
         scope=$2
-        [ -n "$scope" ] || scope_param="-d scope=${scope}"
+        [ -n "$scope" ] && scope_param="-d scope=${scope}"
 
         temp=$(testtempdir)
 
@@ -19,6 +19,7 @@ refresh() {
                 $URL
 
         response_code=$(head -n 1 "${temp}/headers" | awk '{print $2}')
+        cat "$temp/headers"
         cat "${temp}/body"
 
         rm -rf "${temp}"
@@ -36,8 +37,7 @@ OUTPUT=$(refresh "bad-token") \
         || pass "Could not refresh with invalid token."
 
 # Refresh with a valid token returns a new token.
-TOKEN=$(ropcg "user" "password" | tr "," "\n" | grep refresh | cut -d\" -f4 | \
-        sed -Ee "s/[+]/%2B/g" -e "s/[/]/%2F/g" )
+TOKEN=$(ropcg "user" "password" | tr "," "\n" | grep refresh | cut -d\" -f4)
 OUTPUT=$(refresh "$TOKEN") \
         && pass "Got refresh with valid token." \
         || fail "Could not refresh with valid token ($TOKEN)." "$OUTPUT"
