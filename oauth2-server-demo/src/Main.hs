@@ -2,6 +2,8 @@
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE TemplateHaskell   #-}
 
+{-# LANGUAGE StandaloneDeriving #-}
+
 module Main where
 
 import Control.Applicative
@@ -9,6 +11,7 @@ import Control.Lens
 import Control.Monad.IO.Class
 import Data.IORef
 import Data.Map.Strict (Map)
+import Data.Maybe
 import qualified Data.Map.Strict as M
 import Data.Set (Set)
 import qualified Data.Set as S
@@ -22,13 +25,14 @@ import Network.OAuth2.Server.Snap
 -- * OAuth2 Server
 
 data State = State
-    { sTokens :: Map Token TokenGrant
-    , sCreds  :: Set (Text, Text)
+    { sTokens  :: Map Token TokenGrant
+    , sRefresh :: Map Token TokenGrant
+    , sCreds   :: Set (Text, Text)
     }
 
 oauth2Conf :: IO (OAuth2Server IO)
 oauth2Conf = do
-    ref <- newIORef (State M.empty $ S.singleton ("user", "password"))
+    ref <- newIORef (State M.empty M.empty $ S.singleton ("user", "password"))
     return Configuration
         { oauth2CheckCredentials = checkCredentials ref
         , oauth2Store = TokenStore
@@ -39,17 +43,22 @@ oauth2Conf = do
   where
     saveToken ref grant = modifyIORef ref (put grant)
       where
-        put g@TokenGrant{..} (State ts ss) =
+        put g@TokenGrant{..} (State ts rs ss) =
             let ts' = M.insert grantAccessToken g ts
-            in State ts' ss
+                rs' = maybe rs (\t -> M.insert t g rs) grantRefreshToken
+            in State ts' rs' ss
     loadToken ref token = (M.lookup token . sTokens) <$> readIORef ref
-    checkCredentials ref creds = check creds . sCreds <$> readIORef ref
+    checkCredentials ref creds = check creds <$> readIORef ref
       where
-        check RequestPassword{..} s =
-            (requestUsername, requestPassword) `S.member` s
-        check RequestClient{..} s =
-            (requestClientIDReq, requestClientSecretReq) `S.member` s
-        check _ _ = False
+        check RequestPassword{..} st =
+            let s = sCreds st
+            in (requestUsername, requestPassword) `S.member` s
+        check RequestClient{..} st =
+            let s = sCreds st
+            in (requestClientIDReq, requestClientSecretReq) `S.member` s
+        check RequestRefresh{..} st =
+            let r = sRefresh st
+            in isJust $ M.lookup requestRefreshToken r
 
 -- * Snap Application
 
