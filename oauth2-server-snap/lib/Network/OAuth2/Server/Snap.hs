@@ -49,7 +49,7 @@ tokenEndpoint
     :: Handler b (OAuth2 IO b) ()
 tokenEndpoint = do
     grant_type <- grantType <$> getRequestParameter "grant_type"
-    requestScope <- fmap (Scope . (:[])) <$> getRequestParameter' "scope"
+    requestScope <- fmap mkScope <$> getRequestParameter' "scope"
 
     request <- case grant_type of
         -- Resource Owner Password Credentials Grant
@@ -134,7 +134,7 @@ checkEndpoint = do
     OAuth2 Configuration{..} <- get
     -- Get the token and scope parameters.
     token <- Token <$> getRequestParameter "token"
-    _scope <- getRequestParameter "scope"
+    scope <- mkScope <$> getRequestParameter "scope"
     -- Load the grant.
     tokenGrant <- liftIO $ tokenStoreLoad oauth2Store token
     -- Check the token is valid.

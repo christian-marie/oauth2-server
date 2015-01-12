@@ -15,6 +15,10 @@ import Data.Time.Clock
 newtype Scope = Scope { unScope :: [Text] }
   deriving (Eq, Show)
 
+-- | Construct a 'Scope' from a space-separated list.
+mkScope :: Text -> Scope
+mkScope t = Scope . T.splitOn " " $ t
+
 -- | A token is a unique piece of text.
 newtype Token = Token { unToken :: Text }
   deriving (Eq, Ord, Show)
@@ -126,7 +130,7 @@ instance ToJSON Scope where
     toJSON (Scope ss) = String $ T.intercalate " " ss
 
 instance FromJSON Scope where
-    parseJSON (String t) = return . Scope . T.splitOn " " $ t
+    parseJSON (String t) = return . mkScope $ t
     parseJSON _ = mzero
 
 instance ToJSON Token where
