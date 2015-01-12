@@ -8,6 +8,7 @@ import Control.Lens
 import Control.Monad.Reader
 import Data.Aeson
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as B
 import Data.Monoid
 import qualified Data.Set as Set
@@ -158,13 +159,13 @@ checkEndpoint = do
     client <- fmap T.decodeUtf8 <$> getParam "client_id"
     -- Check the token is valid.
     res <- liftIO $ checkToken conf token user client scope
-    if res
-        then do
+    case res of
+        Right () -> do
             modifyResponse $ setResponseStatus 200 "OK"
             r <- getResponse
             finishWith r
-        else do
-            modifyResponse $ setResponseStatus 401 "Invalid Token"
+        Left e -> do
+            modifyResponse $ setResponseStatus 401 (BSC.pack e)
             r <- getResponse
             finishWith r
 

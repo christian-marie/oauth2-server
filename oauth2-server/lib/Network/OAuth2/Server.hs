@@ -77,14 +77,18 @@ checkToken
     -> Maybe Text
     -> Maybe Text
     -> Scope
-    -> m Bool
+    -> m (Either String ())
 checkToken Configuration{..} token user client (Scope scope) = do
     token' <- tokenStoreLoad oauth2Store token
-    case token' of
+    return $ case token' of
         Just TokenGrant{..} -> do
-            let userCorrect = isNothing grantUsername || user == grantUsername
-                clientCorrect = isNothing grantClientID || client == grantClientID
-                Scope scope' = grantScope
-                scopeCorrect = scope `Set.isSubsetOf` scope'
-            return $ userCorrect && clientCorrect && scopeCorrect
-        Nothing -> return False
+            when (isJust grantUsername) $ do
+                unless (isJust user) $ fail "Username unspecified"
+                unless (user == grantUsername) $ fail "User incorrect"
+            when (isJust grantClientID) $ do
+                unless (isJust client) $ fail "ClientID unspecified"
+                unless (client == grantClientID) $ fail "ClientID incorrect"
+            let Scope scope' = grantScope
+            unless (scope `Set.isSubsetOf` scope') $
+                fail "Incorrect scope"
+        Nothing -> fail "Invalid Token"
