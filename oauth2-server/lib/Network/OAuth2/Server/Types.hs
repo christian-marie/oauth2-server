@@ -7,6 +7,7 @@ module Network.OAuth2.Server.Types where
 import Control.Applicative
 import Control.Monad
 import Data.Aeson
+import Data.Monoid
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Clock
@@ -125,6 +126,10 @@ grantResponse TokenGrant{..} = AccessResponse
     , tokenClientID = grantClientID
     , tokenScope    = grantScope
     }
+
+instance Monoid Scope where
+    mempty = Scope mempty
+    mappend (Scope s1) (Scope s2) = Scope $ mappend s1 s2
 
 instance ToJSON Scope where
     toJSON (Scope ss) = String $ T.intercalate " " ss

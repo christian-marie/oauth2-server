@@ -8,6 +8,7 @@ module Network.OAuth2.Server (
 import Control.Monad
 import Control.Monad.IO.Class
 import Data.Maybe
+import Data.Monoid
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Clock
@@ -31,18 +32,18 @@ createGrant request = do
             RequestPassword{..} ->
                 ( requestClientID
                 , Just requestUsername
-                , fromMaybe (Scope []) requestScope
+                , fromMaybe mempty requestScope
                 )
             RequestClient{..} ->
                 ( Just requestClientIDReq
                 , Nothing
-                , fromMaybe (Scope []) requestScope
+                , fromMaybe mempty requestScope
                 )
             -- TODO: These details should be copied from the original grant.
             RequestRefresh{..} ->
                 ( requestClientID
                 , Nothing
-                , fromMaybe (Scope []) requestScope
+                , fromMaybe mempty requestScope
                 )
     return TokenGrant
         { grantTokenType = "access_token"
