@@ -7,6 +7,8 @@ module Network.OAuth2.Server.Types where
 import Control.Applicative
 import Control.Monad
 import Data.Aeson
+import Data.ByteString (ByteString)
+import Data.Map (Map)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Clock
@@ -21,12 +23,13 @@ newtype Token = Token { unToken :: Text }
 
 -- | Grant types for OAuth2 requests.
 data GrantType
-    = GrantRefreshToken
-    | GrantCode
-    | GrantAuthorizationCode
-    | GrantToken
-    | GrantPassword
+    = GrantAuthorizationCode
     | GrantClient
+    | GrantCode
+    | GrantPassword
+    | GrantRefreshToken
+    | GrantToken
+    -- | Extension grant_types.
     | GrantExtension { grantName :: Text }
 
 instance ToJSON GrantType where
@@ -39,6 +42,7 @@ instance ToJSON GrantType where
         GrantClient -> "client_credentials"
         GrantExtension g -> g
 
+-- | Map a grant_type name to a 'GrantType'.
 grantType :: Text -> GrantType
 grantType t = case t of
     "refresh_token" -> GrantRefreshToken
@@ -47,7 +51,7 @@ grantType t = case t of
     "token" -> GrantToken
     "password" -> GrantPassword
     "client_credentials" -> GrantClient
-    g -> GrantExtension g
+    extension -> GrantExtension extension
 
 instance FromJSON GrantType where
     parseJSON (String t) = return $ grantType t
@@ -65,6 +69,11 @@ data AccessRequest
         { requestClientIDReq     :: Text
         , requestClientSecretReq :: Text
         , requestScope           :: Maybe Scope }
+    -- | Request using a custom grant_type.
+    | RequestExtension
+        { requestExtension :: Text -- ^ grant_type URL.
+        , requestParams    :: Map ByteString ByteString
+        }
 
 -- | A response containing an OAuth2 access token grant.
 data AccessResponse = AccessResponse

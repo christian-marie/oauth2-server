@@ -24,6 +24,7 @@ Library
       base >=4.7 && <4.8
     , aeson
     , bytestring
+    , containers
     , random
     , text
     , time
