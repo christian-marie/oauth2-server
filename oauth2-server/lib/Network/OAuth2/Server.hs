@@ -28,16 +28,22 @@ createGrant request = do
     refresh <- newToken
     t <- liftIO getCurrentTime
     let (client, user, scope) = case request of
-         RequestPassword{..} ->
-             ( requestClientID
-             , Just requestUsername
-             , fromMaybe (Scope []) requestScope
-             )
-         RequestClient{..} ->
-             ( Just requestClientIDReq
-             , Nothing
-             , fromMaybe (Scope []) requestScope
-             )
+            RequestPassword{..} ->
+                ( requestClientID
+                , Just requestUsername
+                , fromMaybe (Scope []) requestScope
+                )
+            RequestClient{..} ->
+                ( Just requestClientIDReq
+                , Nothing
+                , fromMaybe (Scope []) requestScope
+                )
+            -- TODO: These details should be copied from the original grant.
+            RequestRefresh{..} ->
+                ( requestClientID
+                , Nothing
+                , fromMaybe (Scope []) requestScope
+                )
     return TokenGrant
         { grantTokenType = "access_token"
         , grantAccessToken = Token access
