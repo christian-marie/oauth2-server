@@ -8,17 +8,11 @@ import Data.Aeson
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as B
 import Data.Monoid
-import Data.Text (Text)
-import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Time.Clock
 import Snap
-import Snap.Snaplet
-import qualified Snap.Types.Headers as S
 
 import Network.OAuth2.Server
-import Network.OAuth2.Server.Configuration
-import Network.OAuth2.Server.Types
 
 -- | Snaplet state for OAuth2 server.
 data OAuth2 m b = OAuth2 { oauth2Configuration :: OAuth2Server m }
@@ -143,25 +137,32 @@ serveToken token = do
 -- | Endpoint: /check
 --
 -- Check that the supplied token is valid for the specified scope.
+--
+-- TODO: Move the actual check of this operation into the oauth2-server
+-- package.
 checkEndpoint
     :: Handler b (OAuth2 IO b) ()
 checkEndpoint = do
     OAuth2 Configuration{..} <- get
-    scope' <- getParam "scope"
-    scope <- case scope' of
-        Just scope -> return $ T.decodeUtf8 scope
-        _ -> missingParam "scope"
-    token' <- getParam "token"
-    token <- case token' of
-        Just token -> return . Token . T.decodeUtf8 $ token
-        _ -> missingParam "token"
+    -- Get the token and scope parameters.
+    token <- fmap (Token . T.decodeUtf8) <$> getParam "token" >>=
+        maybe (missingParam "token") return
+    _scope <- fmap T.decodeUtf8 <$> getParam "scope" >>=
+        maybe (missingParam "scope") return
+    -- Load the grant.
     tokenGrant <- liftIO $ tokenStoreLoad oauth2Store token
+    -- Check the token is valid.
     res <- case tokenGrant of
         Nothing -> return False
         Just TokenGrant{..} -> do
             t <- liftIO getCurrentTime
             return $ t > grantExpires
-    unless res $ do
-        modifyResponse $ setResponseStatus 401 "Invalid Token"
-        r <- getResponse
-        finishWith r
+    if res
+        then do
+            modifyResponse $ setResponseStatus 200 "OK"
+            r <- getResponse
+            finishWith r
+        else do
+            modifyResponse $ setResponseStatus 401 "Invalid Token"
+            r <- getResponse
+            finishWith r
