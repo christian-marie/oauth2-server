@@ -7,6 +7,7 @@ module Network.OAuth2.Server (
 ) where
 
 import Control.Applicative
+import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Reader
@@ -15,6 +16,7 @@ import Data.Maybe
 import Data.Monoid
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import Data.Time.Clock
 import OpenSSL
 import System.Random
@@ -54,8 +56,7 @@ createGrant key request =
                 , _tokenClientID = client
                 , _tokenScope = scope
                 }
-        let makeToken = error "makeToken not defined"
-        access <- makeToken key token
+            access = T.decodeUtf8 $ review (signedBlob key) token
         return TokenGrant
             { grantTokenType = "access_token"
             , grantAccessToken = Token access
