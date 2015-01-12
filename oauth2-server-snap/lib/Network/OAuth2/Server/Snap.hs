@@ -90,27 +90,34 @@ tokenEndpoint = do
                         { requestClientIDReq = client_id
                         , requestClientSecretReq = client_secret
                         , requestScope = Nothing }
-                _ -> error "not implemented"
+                _ -> oauth2Error $ UnsupportedGrantType "This grant_type is not supported."
         _ -> missingParam "grant_type"
     OAuth2 cfg <- get
     valid <- liftIO $ oauth2CheckCredentials cfg request
     if valid
         then createAndServeToken request
-        else oauthError $ InvalidRequest "Cannot issue a token with those credentials."
+        else oauth2Error $ InvalidRequest "Cannot issue a token with those credentials."
 
-missingParam :: MonadSnap m => BS.ByteString -> m a
-missingParam p = do
-    modifyResponse $ setResponseStatus 400 ("Bad Request: missing parameter \"" <> p <> "\"")
-    r <- getResponse
-    finishWith r
+-- | Send an 'OAuth2Error' response about a missing request parameter.
+--
+-- This terminates request handling.
+missingParam
+    :: MonadSnap m
+    => BS.ByteString
+    -> m a
+missingParam p = oauth2Error . InvalidRequest . T.decodeUtf8 $
+    "Missing parameter \"" <> p <> "\""
 
 -- | Send an 'OAuth2Error' to the client and terminate the request.
-oauthError
+--
+-- This terminates request handling.
+oauth2Error
     :: (MonadSnap m)
     => OAuth2Error
     -> m a
-oauthError err = do
+oauth2Error err = do
     modifyResponse $ setResponseStatus 400 "Bad Request"
+                   . setContentType "application/json"
     writeBS . B.toStrict . encode $ err
     r <- getResponse
     finishWith r
@@ -133,6 +140,9 @@ serveToken token = do
     modifyResponse $ setContentType "application/json"
     writeBS . B.toStrict . encode $ token
 
+-- | Endpoint: /check
+--
+-- Check that the supplied token is valid for the specified scope.
 checkEndpoint
     :: Handler b (OAuth2 IO b) ()
 checkEndpoint = do
@@ -144,7 +154,7 @@ checkEndpoint = do
     token' <- getParam "token"
     token <- case token' of
         Just token -> return . Token . T.decodeUtf8 $ token
-        _ -> missingParam "scope"
+        _ -> missingParam "token"
     tokenGrant <- liftIO $ tokenStoreLoad oauth2Store token
     res <- case tokenGrant of
         Nothing -> return False
