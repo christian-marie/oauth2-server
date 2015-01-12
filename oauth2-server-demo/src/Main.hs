@@ -12,7 +12,6 @@ import Control.Monad.IO.Class
 import Data.IORef
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
-import Data.Maybe
 import Data.Set (Set)
 import qualified Data.Set as S
 import Data.Text (Text)
@@ -50,15 +49,12 @@ oauth2Conf = do
     loadToken ref token = (M.lookup token . sTokens) <$> readIORef ref
     checkCredentials ref creds = check creds <$> readIORef ref
       where
-        check RequestPassword{..} st =
-            let s = sCreds st
-            in (requestUsername, requestPassword) `S.member` s
-        check RequestClient{..} st =
-            let s = sCreds st
-            in (requestClientIDReq, requestClientSecretReq) `S.member` s
-        check RequestRefresh{..} st =
-            let r = sRefresh st
-            in isJust $ M.lookup requestRefreshToken r
+        check RequestPassword{..} =
+            S.member (requestUsername, requestPassword) . sCreds
+        check RequestClient{..} =
+            S.member (requestClientIDReq, requestClientSecretReq) . sCreds
+        check RequestRefresh{..} =
+            M.member requestRefreshToken . sRefresh
 
 -- * Snap Application
 
