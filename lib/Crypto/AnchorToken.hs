@@ -7,7 +7,8 @@
 -- the 3-clause BSD licence.
 --
 
-{-# LANGUAGE GADTs #-}
+{-# LANGUAGE GADTs           #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 -- | API for manipulating anchor tokens.
 module Crypto.AnchorToken
@@ -21,6 +22,13 @@ module Crypto.AnchorToken
     getPayload,
 
     -- * Types
+    AnchorToken,
+    tokenType,
+    tokenExpires,
+    tokenUserName,
+    tokenClientID,
+    tokenScope,
+
     AnchorCryptoState,
     Pair,
     Public,
@@ -28,11 +36,15 @@ module Crypto.AnchorToken
 
 import           Control.Applicative
 import           Control.Exception
+import           Control.Lens
 import           Control.Monad.IO.Class
 import           Control.Monad.Trans.Except
+import           Data.Aeson.TH
 import           Data.ByteString            (ByteString)
 import qualified Data.ByteString            as S
 import           Data.Monoid
+import           Data.Text                  (Text)
+import           Data.Time.Clock
 import           OpenSSL
 import           OpenSSL.EVP.Digest
 import           OpenSSL.EVP.PKey
@@ -41,6 +53,18 @@ import           OpenSSL.EVP.Verify
 import           OpenSSL.PEM
 import           System.IO.Unsafe
 
+-- | A crypto-token that ends up being represented as a Base64 encoding of a
+-- signed blob of json.
+data AnchorToken = AnchorToken
+    { _tokenType     :: Text
+    , _tokenExpires  :: UTCTime
+    , _tokenUserName :: Maybe Text
+    , _tokenClientID :: Maybe Text
+    , _tokenScope    :: [Text]
+    }
+  deriving (Eq, Show)
+makeLenses ''AnchorToken
+$(deriveJSON defaultOptions ''AnchorToken)
 
 -- | Phantom type for Public keys
 data Public

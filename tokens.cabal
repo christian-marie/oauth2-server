@@ -24,6 +24,10 @@ library
   build-depends:       base >=4.7 && <4.8
                      , HsOpenSSL >= 0.11.1
                      , bytestring
+                     , lens
+                     , text
+                     , time
+                     , aeson
                      , transformers >= 0.4.0.0
 
 test-suite             roundtrip
