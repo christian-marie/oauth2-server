@@ -25,8 +25,10 @@ library
                      , HsOpenSSL >= 0.11.1
                      , bytestring
                      , lens
+                     , base64-bytestring
                      , text
                      , time
+                     , errors
                      , aeson
                      , transformers >= 0.4.0.0
 

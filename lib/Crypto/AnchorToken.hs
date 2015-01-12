@@ -18,6 +18,10 @@ module Crypto.AnchorToken
     initPubKey,
     initPrivKey,
 
+    -- * Lenses
+    verifiedBlob,
+    signedBlob,
+
     -- * Token manipulation
     signPayload,
     getPayload,
@@ -39,13 +43,18 @@ module Crypto.AnchorToken
 ) where
 
 import           Control.Applicative
+import           Control.Error.Util
 import           Control.Exception
 import           Control.Lens
+import           Control.Monad
 import           Control.Monad.IO.Class
 import           Control.Monad.Trans.Except
+import           Data.Aeson
 import           Data.Aeson.TH
 import           Data.ByteString            (ByteString)
 import qualified Data.ByteString            as S
+import qualified Data.ByteString.Base64     as B64
+import           Data.ByteString.Lazy       (toStrict)
 import           Data.Monoid
 import           Data.Text                  (Text)
 import           Data.Time.Clock
@@ -70,14 +79,31 @@ data AnchorToken = AnchorToken
 makeLenses ''AnchorToken
 $(deriveJSON defaultOptions ''AnchorToken)
 
--- verifiedBlob :: AnchorCryptoState a -> Fold ByteString AnchorToken
--- verifiedBlob k = _
+-- | Attempt to extract a token.
 --
--- signedBlob :: AnchorCryptoState Pair -> Prism' ByteString AnchorToken
--- signedBlob = prism' enc dec
---   where
---     enc tok = signPayload $ encode (toJSON tok)
---     dec = Nothing
+-- Intended to be used like:
+--
+--   preview verifiedBlob key
+--
+verifiedBlob :: AnchorCryptoState a -> Fold ByteString AnchorToken
+verifiedBlob k = folding (hush . B64.decode >=> getPayload k >=> decodeStrict)
+
+-- | Prism between ByteStrings and tokens, signing and encoding one way,
+-- verifying and decoding the other.
+--
+-- Encoding:
+--
+--    review signedBlob token
+--
+-- Decoding:
+--
+--    preview  signedBlob token
+--
+signedBlob :: AnchorCryptoState Pair -> Prism' ByteString AnchorToken
+signedBlob pair = prism' enc dec
+  where
+    enc = B64.encode . signPayload pair . toStrict .  encode . toJSON
+    dec = hush . B64.decode >=> getPayload pair >=> decodeStrict
 
 -- | Phantom type for Public keys
 data Public
@@ -134,10 +160,10 @@ initPrivKey fp =
 -- bytes.
 --
 -- Requires a key pair, not just the public key.
-signPayload :: AnchorCryptoState Pair -> ByteString -> IO ByteString
-signPayload (PrivKey key_pair dig) msg = do
-    signature <- withOpenSSL $ signBS dig key_pair msg
-    return $ signature <> msg
+signPayload :: AnchorCryptoState Pair -> ByteString -> ByteString
+signPayload (PrivKey key_pair dig) msg =
+    let signature = unsafePerformIO . withOpenSSL $ signBS dig key_pair msg
+    in signature <> msg
 
 -- | Grab the payload from a token, you will only get the payload if the
 -- signature is correct.
@@ -148,6 +174,6 @@ getPayload (PubKey key dig) = getPayload' key dig
 getPayload' :: PublicKey key => key -> Digest -> ByteString -> Maybe ByteString
 getPayload' key dig msg =
     let (sig,payload) = S.splitAt 256 msg
-    in case unsafePerformIO (withOpenSSL $ verifyBS dig sig key payload) of
+    in case unsafePerformIO . withOpenSSL $ verifyBS dig sig key payload of
         VerifySuccess -> Just payload
         VerifyFailure -> Nothing
