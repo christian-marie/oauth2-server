@@ -22,6 +22,7 @@ Executable oauth2-server-demo
       base                      >= 4     && < 5
     , MonadCatchIO-transformers >= 0.2.1 && < 0.4
     , bytestring                >= 0.9.1 && < 0.11
+    , containers
     , lens
     , mtl                       >= 2     && < 3
     , oauth2-server
@@ -30,6 +31,7 @@ Executable oauth2-server-demo
     , snap-core                 >= 0.9   && < 0.10
     , snap-server               >= 0.9   && < 0.10
     , text
+    , transformers
 
   ghc-options: -threaded -Wall -fwarn-tabs -funbox-strict-fields -O2
                -fno-warn-unused-do-bind
