@@ -16,7 +16,9 @@ module Crypto.AnchorToken
 (
     -- * Initialization
     initPubKey,
+    initPubKey',
     initPrivKey,
+    initPrivKey',
 
     -- * Accessing tokens
     verifyToken,
@@ -187,6 +189,14 @@ initPubKey
 initPubKey fp =
     liftIO . withOpenSSL . runExceptT $ PubKey <$> getPublic fp <*> getDigest
 
+-- | Initialize OpenSSL state, given a path to a PEM encoded public RSA key
+initPubKey'
+    :: MonadIO m
+    => SomePublicKey
+    -> m (Either String (AnchorCryptoState Public))
+initPubKey' key =
+    liftIO . withOpenSSL . runExceptT $ PubKey key <$> getDigest
+
 -- | Initialize OpenSSL state, given a path to a PEM encoded private RSA key
 initPrivKey
     :: MonadIO m
@@ -194,6 +204,14 @@ initPrivKey
     -> m (Either String (AnchorCryptoState Pair))
 initPrivKey fp =
     liftIO . withOpenSSL . runExceptT $ PrivKey <$> getPair fp <*> getDigest
+
+-- | Initialize OpenSSL state, given a path to a PEM encoded private RSA key
+initPrivKey'
+    :: MonadIO m
+    => SomeKeyPair
+    -> m (Either String (AnchorCryptoState Pair))
+initPrivKey' key =
+    liftIO . withOpenSSL . runExceptT $ PrivKey key <$> getDigest
 
 -- | Given a blob of data as the token payload, prepend a signature of 256
 -- bytes.
