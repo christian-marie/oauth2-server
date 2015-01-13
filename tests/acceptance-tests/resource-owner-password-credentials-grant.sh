@@ -10,9 +10,7 @@ ropcg() {
         scope=$3
         [ -n "$scope" ] || scope_param="-d scope=${scope}"
 
-        temp=$(mktemp -d --tmpdir oauth2-tests.XXXXXXXXXX)
-        touch "${temp}/headers"
-        touch "${temp}/body"
+        temp=$(testtempdir)
 
         curl --silent -X POST \
                 -d "grant_type=password" \
@@ -24,6 +22,8 @@ ropcg() {
                 $URL
 
         response_code=$(head -n 1 "${temp}/headers" | awk '{print $2}')
+        cat "${temp}/body"
+
         rm -rf "${temp}"
 
         if [ "200" = "$response_code" ]; then
@@ -34,11 +34,11 @@ ropcg() {
 }
 
 # ROPCG with invalid credentials returns an error
-ropcg "no-such-user" "bad-password" \
-        && fail "Should not be able to get a token with bad credentials" \
-        || pass "Bad credentials rejected by server."
+OUTPUT=$(ropcg "no-such-user" "bad-password") \
+        && fail "Got token with bad credentials." "$OUTPUT" \
+        || pass "Could not get token with bad credentials."
 
 # ROPCG with valid credentials returns a token
-ropcg "user" "password" > /dev/null \
+OUTPUT=$(ropcg "user" "password") \
         && pass "Got token with valid credentials." \
-        || fail "Could not get token with valid credentials."
+        || fail "Could not get token with valid credentials." "$OUTPUT"

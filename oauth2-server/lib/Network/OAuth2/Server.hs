@@ -15,7 +15,6 @@ import Data.Monoid
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Data.Time.Clock
-import OpenSSL
 
 import Crypto.AnchorToken as Token
 
@@ -26,42 +25,47 @@ import Network.OAuth2.Server.Types as X
 --
 -- The caller is responsible for saving the grant in the store.
 createGrant
-    :: (MonadIO m)
+    :: MonadIO m
     => AnchorCryptoState Pair
     -> AccessRequest
     -> m TokenGrant
-createGrant key request =
-    liftIO . withOpenSSL $ do
-        t <- liftIO getCurrentTime
-        let (client, user, Scope scope) = case request of
-             RequestPassword{..} ->
-                 ( requestClientID
-                 , Just requestUsername
-                 , fromMaybe (Scope mempty) requestScope
-                 )
-             RequestClient{..} ->
-                 ( Just requestClientIDReq
-                 , Nothing
-                 , fromMaybe (Scope mempty) requestScope
-                 )
-            expires = addUTCTime 1800 t
-            token = AnchorToken
-                { _tokenType = "access_token"
-                , _tokenExpires = expires
-                , _tokenUserName = user
-                , _tokenClientID = client
-                , _tokenScope = Set.toAscList scope
-                }
-            access = review (signed key) token
-        return TokenGrant
-            { grantTokenType = "access_token"
-            , grantAccessToken = Token access
-            , grantRefreshToken = Just (Token access)
-            , grantExpires = addUTCTime 1800 t
-            , grantClientID = client
-            , grantUsername = user
-            , grantScope = Scope scope
+createGrant key request = do
+    t <- liftIO getCurrentTime
+    let (client, user, Scope scope) = case request of
+            RequestPassword{..} ->
+                ( requestClientID
+                , Just requestUsername
+                , fromMaybe mempty requestScope
+                )
+            RequestClient{..} ->
+                ( Just requestClientIDReq
+                , Nothing
+                , fromMaybe mempty requestScope
+                )
+            -- TODO: These details should be copied from the original grant.
+            RequestRefresh{..} ->
+                ( requestClientID
+                , Nothing
+                , fromMaybe mempty requestScope
+                )
+        expires = addUTCTime 1800 t
+        token = AnchorToken
+            { _tokenType = "access_token"
+            , _tokenExpires = expires
+            , _tokenUserName = user
+            , _tokenClientID = client
+            , _tokenScope = Set.toAscList scope
             }
+        access = review (signed key) token
+    return TokenGrant
+        { grantTokenType = "access_token"
+        , grantAccessToken = Token access
+        , grantRefreshToken = Just (Token access)
+        , grantExpires = addUTCTime 1800 t
+        , grantClientID = client
+        , grantUsername = user
+        , grantScope = Scope scope
+        }
 
 -- | Check if the 'Token' is valid.
 checkToken
