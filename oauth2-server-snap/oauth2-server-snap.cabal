@@ -32,3 +32,4 @@ Library
     , text
     , time
     , tokens
+  ghc-options: -Wall -fwarn-tabs -funbox-strict-fields
