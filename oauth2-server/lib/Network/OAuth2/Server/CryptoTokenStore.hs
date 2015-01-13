@@ -16,6 +16,7 @@ cryptoTokenStore
 cryptoTokenStore key = TokenStore
     { tokenStoreSave = const $ return ()
     , tokenStoreLoad = load key
+    , tokenStoreDelete = const $ return ()
     }
 
 load

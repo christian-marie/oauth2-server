@@ -35,3 +35,4 @@ Library
     , time
     , tokens
     , transformers
+  ghc-options: -Wall -fwarn-tabs -funbox-strict-fields

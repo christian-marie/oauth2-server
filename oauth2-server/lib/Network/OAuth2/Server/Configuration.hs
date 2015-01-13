@@ -19,10 +19,12 @@ import Network.OAuth2.Server.Types
 -- | Actions, supplied by the client, which load and save tokens from a data
 -- store.
 data OAuth2TokenStore m = TokenStore
-    { tokenStoreSave :: TokenGrant -> m ()
+    { tokenStoreSave   :: TokenGrant -> m ()
     -- ^ Save a [new] token to the OAuth2 server database.
-    , tokenStoreLoad :: Token -> m (Maybe TokenGrant)
+    , tokenStoreLoad   :: Token -> m (Maybe TokenGrant)
     -- ^ Load a token from the OAuth2 server database.
+    , tokenStoreDelete :: Token -> m ()
+    -- ^ Delete a token from the OAuth2 server database (for revocation, etc.)
     }
 
 -- | The configuration for an OAuth2 server.

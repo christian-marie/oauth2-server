@@ -42,17 +42,24 @@ oauth2Conf = do
         , oauth2Store = TokenStore
             { tokenStoreSave = saveToken ref
             , tokenStoreLoad = loadToken ref
+            , tokenStoreDelete = deleteToken ref
             }
         , oauth2SigningKey = crypto
         }
   where
+    loadToken ref token = (M.lookup token . sTokens) <$> readIORef ref
     saveToken ref grant = modifyIORef ref (put grant)
       where
         put g@TokenGrant{..} (State ts rs ss) =
             let ts' = M.insert grantAccessToken g ts
                 rs' = maybe rs (\t -> M.insert t g rs) grantRefreshToken
             in State ts' rs' ss
-    loadToken ref token = (M.lookup token . sTokens) <$> readIORef ref
+    deleteToken ref token = modifyIORef ref (del token)
+      where
+        del t (State ts rs ss) =
+            let ts' = M.delete t ts
+                rs' = M.delete t rs
+            in State ts' rs' ss
     checkCredentials ref creds = check creds <$> readIORef ref
       where
         check RequestPassword{..} =
