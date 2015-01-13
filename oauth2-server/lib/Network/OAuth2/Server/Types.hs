@@ -76,7 +76,6 @@ data AccessRequest
         , requestScope        :: Maybe Scope
         }
     | RequestClient
-        -- ^ 'GrantClient'
         { requestClientIDReq     :: Text
         , requestClientSecretReq :: Text
         , requestScope           :: Maybe Scope
@@ -131,7 +130,7 @@ grantResponse TokenGrant{..} = AccessResponse
     }
 
 instance ToJSON Scope where
-    toJSON (Scope ss) = String . T.intercalate " " . S.toList $ ss
+    toJSON (Scope ss) = String . T.intercalate " " . S.toAscList $ ss
 
 instance FromJSON Scope where
     parseJSON (String t) = return . mkScope $ t

@@ -12,6 +12,8 @@
 
 module Network.OAuth2.Server.Configuration where
 
+import Crypto.AnchorToken
+
 import Network.OAuth2.Server.Types
 
 -- | Actions, supplied by the client, which load and save tokens from a data
@@ -29,4 +31,6 @@ data OAuth2Server m = Configuration
     -- ^ Load and store tokens.
     , oauth2CheckCredentials :: AccessRequest -> m Bool
     -- ^ Check the credentials provided by the resource owner.
+    , oauth2SigningKey       :: AnchorCryptoState Pair
+    -- ^ Key used to sign tokens.
     }

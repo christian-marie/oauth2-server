@@ -22,9 +22,13 @@ Library
       base >=4.7 && <4.8
     , aeson
     , bytestring
+    , containers
     , lens
+    , HsOpenSSL
+    , mtl
     , oauth2-server
     , snap
     , snap-core
     , text
     , time
+    , tokens
