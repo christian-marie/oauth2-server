@@ -191,11 +191,11 @@ initPubKey fp =
 
 -- | Initialize OpenSSL state, given a path to a PEM encoded public RSA key
 initPubKey'
-    :: MonadIO m
-    => SomePublicKey
+    :: (MonadIO m, PublicKey k)
+    => k
     -> m (Either String (AnchorCryptoState Public))
 initPubKey' key =
-    liftIO . withOpenSSL . runExceptT $ PubKey key <$> getDigest
+    liftIO . withOpenSSL . runExceptT $ PubKey (fromPublicKey key) <$> getDigest
 
 -- | Initialize OpenSSL state, given a path to a PEM encoded private RSA key
 initPrivKey
@@ -207,11 +207,11 @@ initPrivKey fp =
 
 -- | Initialize OpenSSL state, given a path to a PEM encoded private RSA key
 initPrivKey'
-    :: MonadIO m
-    => SomeKeyPair
+    :: (MonadIO m, KeyPair k)
+    => k
     -> m (Either String (AnchorCryptoState Pair))
 initPrivKey' key =
-    liftIO . withOpenSSL . runExceptT $ PrivKey key <$> getDigest
+    liftIO . withOpenSSL . runExceptT $ PrivKey (fromKeyPair key) <$> getDigest
 
 -- | Given a blob of data as the token payload, prepend a signature of 256
 -- bytes.
