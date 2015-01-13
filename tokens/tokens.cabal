@@ -1,0 +1,45 @@
+name:                tokens
+version:             0.1.0.0
+synopsis:            Public key signatures for auth
+description:         Public key signatures for auth
+homepage:            https://github.com/anchor/tokens
+license:             BSD3
+license-file:        LICENSE
+author:              Anchor Engineering <engineering@anchor.com.au>
+maintainer:          Anchor Engineering <engineering@anchor.com.au>
+copyright:           (c) 2015 Anchor Systems, Pty Ltd and Others
+category:            Development
+build-type:          Simple
+extra-source-files:  README.md, tests/key.pem, tests/key.pub
+cabal-version:       >=1.10
+
+source-repository HEAD
+  type: git
+  location: https://github.com/anchor/tokens
+
+library
+  default-language:    Haskell2010
+  hs-source-dirs:      lib
+  exposed-modules:     Crypto.AnchorToken
+  build-depends:       base >=4.7 && <4.8
+                     , HsOpenSSL >= 0.11.1
+                     , bytestring
+                     , lens
+                     , base64-bytestring
+                     , text
+                     , time
+                     , errors
+                     , aeson
+                     , transformers >= 0.4.0.0
+
+test-suite             roundtrip
+  type:                exitcode-stdio-1.0
+  build-depends:       base >=4.6 && <5,
+                       bytestring,
+                       hspec,
+                       QuickCheck,
+                       lens,
+                       tokens
+  hs-source-dirs:      tests
+  main-is:             roundtrip.hs
+  default-language:    Haskell2010
