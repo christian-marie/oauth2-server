@@ -1,18 +1,22 @@
+{-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 module Network.OAuth2.Server (
     module X,
     createGrant,
+    checkToken,
 ) where
 
+import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class
 import Data.Maybe
 import Data.Monoid
+import qualified Data.Set as Set
 import Data.Text (Text)
-import qualified Data.Text as T
 import Data.Time.Clock
-import System.Random
+
+import Crypto.AnchorToken as Token
 
 import Network.OAuth2.Server.Configuration as X
 import Network.OAuth2.Server.Types as X
@@ -22,13 +26,12 @@ import Network.OAuth2.Server.Types as X
 -- The caller is responsible for saving the grant in the store.
 createGrant
     :: MonadIO m
-    => AccessRequest
+    => AnchorCryptoState Pair
+    -> AccessRequest
     -> m TokenGrant
-createGrant request = do
-    access <- newToken
-    refresh <- newToken
+createGrant key request = do
     t <- liftIO getCurrentTime
-    let (client, user, scope) = case request of
+    let (client, user, Scope scope) = case request of
             RequestPassword{..} ->
                 ( requestClientID
                 , Just requestUsername
@@ -45,19 +48,45 @@ createGrant request = do
                 , Nothing
                 , fromMaybe mempty requestScope
                 )
+        expires = addUTCTime 1800 t
+        token = AnchorToken
+            { _tokenType = "access_token"
+            , _tokenExpires = expires
+            , _tokenUserName = user
+            , _tokenClientID = client
+            , _tokenScope = Set.toAscList scope
+            }
+        access = review (signed key) token
     return TokenGrant
         { grantTokenType = "access_token"
         , grantAccessToken = Token access
-        , grantRefreshToken = Just (Token refresh)
+        , grantRefreshToken = Just (Token access)
         , grantExpires = addUTCTime 1800 t
         , grantClientID = client
         , grantUsername = user
-        , grantScope = scope
+        , grantScope = Scope scope
         }
-  where
-    newToken :: MonadIO m => m Text
-    newToken = do
-      tok <- liftIO . replicateM 64 $ do
-          n <- randomRIO (0,63)
-          return $ (['A'..'Z']++['a'..'z']++['0'..'9']++"+/") !! n
-      return . T.pack $ tok
+
+-- | Check if the 'Token' is valid.
+checkToken
+    :: Monad m
+    => OAuth2Server m
+    -> Token
+    -> Maybe Text
+    -> Maybe Text
+    -> Scope
+    -> m (Either String ())
+checkToken Configuration{..} token user client (Scope scope) = do
+    token' <- tokenStoreLoad oauth2Store token
+    return $ case token' of
+        Just TokenGrant{..} -> do
+            when (isJust grantUsername) $ do
+                unless (isJust user) $ fail "Username unspecified"
+                unless (user == grantUsername) $ fail "User incorrect"
+            when (isJust grantClientID) $ do
+                unless (isJust client) $ fail "ClientID unspecified"
+                unless (client == grantClientID) $ fail "ClientID incorrect"
+            let Scope scope' = grantScope
+            unless (scope `Set.isSubsetOf` scope') $
+                fail "Incorrect scope"
+        Nothing -> fail "Invalid Token"

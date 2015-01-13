@@ -4,14 +4,22 @@
 -- | Description: Run an OAuth2 server as a Snaplet.
 module Network.OAuth2.Server.Snap where
 
+import Control.Lens
+import Control.Monad.Reader
 import Data.Aeson
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as B
 import Data.Monoid
+import qualified Data.Set as Set
 import Data.Text (Text)
+import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Time.Clock
+import OpenSSL.PEM
 import Snap
+
+import Crypto.AnchorToken
 
 import Network.OAuth2.Server
 
@@ -26,6 +34,7 @@ initOAuth2Server cfg = makeSnaplet "oauth2" "" Nothing $ do
     addRoutes [ ("authorize", authorizeEndpoint)
               , ("token", tokenEndpoint)
               , ("check", checkEndpoint)
+              , ("key", keyEndpoint)
               ]
     return $ OAuth2 cfg
 
@@ -110,7 +119,7 @@ createAndServeToken
     -> Handler b (OAuth2 IO b) ()
 createAndServeToken request = do
     OAuth2 Configuration{..} <- get
-    grant <- createGrant request
+    grant <- createGrant oauth2SigningKey request
     liftIO $ tokenStoreSave oauth2Store grant
     serveToken $ grantResponse grant
 
@@ -125,31 +134,24 @@ serveToken token = do
 -- | Endpoint: /check
 --
 -- Check that the supplied token is valid for the specified scope.
---
--- TODO: Move the actual check of this operation into the oauth2-server
--- package.
 checkEndpoint
     :: Handler b (OAuth2 IO b) ()
 checkEndpoint = do
-    OAuth2 Configuration{..} <- get
+    OAuth2 conf@Configuration{..} <- ask
     -- Get the token and scope parameters.
     token <- Token <$> getRequestParameter "token"
     scope <- mkScope <$> getRequestParameter "scope"
-    -- Load the grant.
-    tokenGrant <- liftIO $ tokenStoreLoad oauth2Store token
+    user <- getRequestParameter' "username"
+    client <- getRequestParameter' "client_id"
     -- Check the token is valid.
-    res <- case tokenGrant of
-        Nothing -> return False
-        Just TokenGrant{..} -> do
-            t <- liftIO getCurrentTime
-            return $ t > grantExpires
-    if res
-        then do
+    res <- liftIO $ checkToken conf token user client scope
+    case res of
+        Right () -> do
             modifyResponse $ setResponseStatus 200 "OK"
             r <- getResponse
             finishWith r
-        else do
-            modifyResponse $ setResponseStatus 401 "Invalid Token"
+        Left e -> do
+            modifyResponse $ setResponseStatus 401 (BSC.pack e)
             r <- getResponse
             finishWith r
 
@@ -168,3 +170,12 @@ getRequestParameter'
     -> m (Maybe Text)
 getRequestParameter' name =
     fmap T.decodeUtf8 <$> getParam name
+
+-- | Endpoint to get the public key used for token verification.
+keyEndpoint
+    :: Handler b (OAuth2 IO b) ()
+keyEndpoint = do
+    OAuth2 Configuration{..} <- get
+    key <- liftIO . writePublicKey . statePublicKey $ oauth2SigningKey
+    modifyResponse $ setContentType "application/pkcs8"
+    writeText $ T.pack key

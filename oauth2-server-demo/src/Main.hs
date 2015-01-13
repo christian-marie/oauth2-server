@@ -15,8 +15,11 @@ import qualified Data.Map.Strict as M
 import Data.Set (Set)
 import qualified Data.Set as S
 import Data.Text (Text)
+import OpenSSL.RSA
 import Snap.Http.Server
 import Snap.Snaplet
+
+import Crypto.AnchorToken
 
 import Network.OAuth2.Server
 import Network.OAuth2.Server.Snap
@@ -32,6 +35,8 @@ data State = State
 oauth2Conf :: IO (OAuth2Server IO)
 oauth2Conf = do
     ref <- newIORef (State M.empty M.empty $ S.singleton ("user", "password"))
+    key <- generateRSAKey' 512 3
+    Right crypto <- initPrivKey' key
     return Configuration
         { oauth2CheckCredentials = checkCredentials ref
         , oauth2Store = TokenStore
@@ -39,6 +44,7 @@ oauth2Conf = do
             , tokenStoreLoad = loadToken ref
             , tokenStoreDelete = deleteToken ref
             }
+        , oauth2SigningKey = crypto
         }
   where
     loadToken ref token = (M.lookup token . sTokens) <$> readIORef ref

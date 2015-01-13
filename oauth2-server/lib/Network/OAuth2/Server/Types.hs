@@ -23,6 +23,16 @@ newtype Scope = Scope { unScope :: Set Text }
 mkScope :: Text -> Scope
 mkScope t = Scope . S.fromList . T.splitOn " " $ t
 
+-- | Check that a 'Scope' is compatible with another.
+--
+-- Essentially, scope1 less scope2 is the empty set.
+compatibleScope
+    :: Scope
+    -> Scope
+    -> Bool
+compatibleScope (Scope s1) (Scope s2) =
+    S.null $ s1 `S.difference` s2
+
 -- | A token is a unique piece of text.
 newtype Token = Token { unToken :: Text }
   deriving (Eq, Ord, Show)
@@ -76,16 +86,15 @@ data AccessRequest
         , requestScope        :: Maybe Scope
         }
     | RequestClient
-        -- ^ 'GrantClient'
         { requestClientIDReq     :: Text
         , requestClientSecretReq :: Text
         , requestScope           :: Maybe Scope
         }
     | RequestRefresh
         -- ^ 'GrantRefreshToken'
-        { requestRefreshToken :: Token
-        , requestClientID     :: Maybe Text
+        { requestClientID     :: Maybe Text
         , requestClientSecret :: Maybe Text
+        , requestRefreshToken :: Token
         , requestScope        :: Maybe Scope
         }
 
@@ -131,7 +140,7 @@ grantResponse TokenGrant{..} = AccessResponse
     }
 
 instance ToJSON Scope where
-    toJSON (Scope ss) = String . T.intercalate " " . S.toList $ ss
+    toJSON (Scope ss) = String . T.intercalate " " . S.toAscList $ ss
 
 instance FromJSON Scope where
     parseJSON (String t) = return . mkScope $ t
