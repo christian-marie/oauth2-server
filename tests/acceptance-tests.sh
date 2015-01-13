@@ -11,6 +11,8 @@ ROOT=$(git rev-parse --show-toplevel)
 SERVER=oauth2-server-demo
 $ROOT/$SERVER/dist/build/$SERVER/$SERVER > /dev/null 2>&1 &
 
+sleep 5
+
 declare -g URL="http://127.0.0.1:8000/oauth2/token"
 
 declare -g ERRORS=""
