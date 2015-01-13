@@ -35,7 +35,7 @@ data State = State
 oauth2Conf :: IO (OAuth2Server IO)
 oauth2Conf = do
     ref <- newIORef (State M.empty M.empty $ S.singleton ("user", "password"))
-    key <- generateRSAKey' 4096 3
+    key <- generateRSAKey' 512 3
     Right crypto <- initPrivKey' key
     return Configuration
         { oauth2CheckCredentials = checkCredentials ref
