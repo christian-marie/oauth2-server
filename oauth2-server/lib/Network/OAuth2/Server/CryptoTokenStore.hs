@@ -17,6 +17,7 @@ cryptoTokenStore
 cryptoTokenStore key = TokenStore
     { tokenStoreSave = const $ return ()
     , tokenStoreLoad = load key
+    , tokenStoreDelete = const $ return ()
     }
 
 -- | Given a key pair, /load/ a 'TokenGrant' by decrypting a 'Token'.
