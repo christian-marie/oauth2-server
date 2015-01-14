@@ -1,14 +1,15 @@
 {-# LANGUAGE RecordWildCards #-}
 module Network.OAuth2.Server.CryptoTokenStore where
 
+import Control.Lens
 import Control.Monad.IO.Class
 import qualified Data.Set as Set
 
 import Crypto.AnchorToken
 
-import Network.OAuth2.Server.Configuration
-import Network.OAuth2.Server.Types
+import Network.OAuth2.Server
 
+-- | Given a key pair, /load/ a 'TokenGrant' by decrypting a 'Token'.
 cryptoTokenStore
     :: MonadIO m
     => AnchorCryptoState Pair
@@ -19,21 +20,14 @@ cryptoTokenStore key = TokenStore
     , tokenStoreDelete = const $ return ()
     }
 
+-- | Given a key pair, /load/ a 'TokenGrant' by decrypting a 'Token'.
 load
     :: MonadIO m
-    => AnchorCryptoState a
+    => AnchorCryptoState Pair
     -> Token
     -> m (Maybe TokenGrant)
 load key (Token token) = do
     tok <- liftIO $ verifyToken key token
     case tok of
         Left _ -> return Nothing
-        Right AnchorToken{..} -> return $ Just TokenGrant
-            { grantTokenType = _tokenType
-            , grantAccessToken = Token token
-            , grantRefreshToken = Just $ Token token
-            , grantExpires = _tokenExpires
-            , grantUsername = _tokenUserName
-            , grantClientID = _tokenClientID
-            , grantScope = Scope $ Set.fromList _tokenScope
-            }
+        Right t -> return $ preview (anchorTokenTokenGrant key) t

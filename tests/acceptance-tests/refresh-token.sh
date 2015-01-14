@@ -39,5 +39,11 @@ OUTPUT=$(refresh "bad-token") \
 # Refresh with a valid token returns a new token.
 TOKEN=$(ropcg "user" "password" | tr "," "\n" | grep refresh | cut -d\" -f4)
 OUTPUT=$(refresh "$TOKEN") \
-        && pass "Got refresh with valid token." \
-        || fail "Could not refresh with valid token ($TOKEN)." "$OUTPUT"
+        && pass "Could refresh with valid refresh token." \
+        || fail "Could not refresh with valid refresh token ($TOKEN)." "$OUTPUT"
+
+# Refresh with an access token returns an error.
+TOKEN=$(ropcg "user" "password" | tr "," "\n" | grep access | cut -d\" -f4)
+OUTPUT=$(refresh "$TOKEN") \
+        && fail "Got refresh with valid access token." "$OUTPUT" \
+        || pass "Could not refresh with valid access token."
