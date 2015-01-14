@@ -116,8 +116,7 @@ data AccessResponse = AccessResponse
 -- future.
 data TokenGrant = TokenGrant
     { grantTokenType    :: Text
-    , grantAccessToken  :: Token
-    , grantRefreshToken :: Maybe Token
+    , grantToken        :: Token
     , grantExpires      :: UTCTime
     , grantUsername     :: Maybe Text
     , grantClientID     :: Maybe Text
@@ -127,12 +126,13 @@ data TokenGrant = TokenGrant
 
 -- | Convert a 'TokenGrant' into an 'AccessResponse'.
 grantResponse
-    :: TokenGrant
+    :: TokenGrant -- ^ Token details.
+    -> Maybe Token  -- ^ Associated refresh token.
     -> AccessResponse
-grantResponse TokenGrant{..} = AccessResponse
+grantResponse TokenGrant{..} refresh = AccessResponse
     { tokenType     = grantTokenType
-    , accessToken   = grantAccessToken
-    , refreshToken  = grantRefreshToken
+    , accessToken   = grantToken
+    , refreshToken  = refresh
     , tokenExpires  = grantExpires
     , tokenUsername = grantUsername
     , tokenClientID = grantClientID

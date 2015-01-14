@@ -4,18 +4,15 @@
 -- | Description: Run an OAuth2 server as a Snaplet.
 module Network.OAuth2.Server.Snap where
 
-import Control.Lens
 import Control.Monad.Reader
 import Data.Aeson
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as B
 import Data.Monoid
-import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import Data.Time.Clock
 import OpenSSL.PEM
 import Snap
 
@@ -119,9 +116,10 @@ createAndServeToken
     -> Handler b (OAuth2 IO b) ()
 createAndServeToken request = do
     OAuth2 Configuration{..} <- get
-    grant <- createGrant oauth2SigningKey request
-    liftIO $ tokenStoreSave oauth2Store grant
-    serveToken $ grantResponse grant
+    (access_grant, refresh_grant) <- createGrant oauth2SigningKey request
+    liftIO $ tokenStoreSave oauth2Store access_grant
+    liftIO $ tokenStoreSave oauth2Store refresh_grant
+    serveToken $ grantResponse access_grant (Just $ grantToken refresh_grant)
 
 -- | Send an access token to the client.
 serveToken

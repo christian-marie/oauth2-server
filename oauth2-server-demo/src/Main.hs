@@ -28,13 +28,12 @@ import Network.OAuth2.Server.Snap
 
 data State = State
     { sTokens  :: Map Token TokenGrant
-    , sRefresh :: Map Token TokenGrant
     , sCreds   :: Set (Text, Text)
     }
 
 oauth2Conf :: IO (OAuth2Server IO)
 oauth2Conf = do
-    ref <- newIORef (State M.empty M.empty $ S.singleton ("user", "password"))
+    ref <- newIORef (State M.empty $ S.singleton ("user", "password"))
     key <- generateRSAKey' 512 3
     Right crypto <- initPrivKey' key
     return Configuration
@@ -48,19 +47,20 @@ oauth2Conf = do
   where
     saveToken ref grant = modifyIORef ref (put grant)
       where
-        put g@TokenGrant{..} (State ts rs ss) =
-            let ts' = M.insert grantAccessToken g ts
-                rs' = maybe rs (\t -> M.insert t g rs) grantRefreshToken
-            in State ts' rs' ss
+        put g@TokenGrant{..} (State ts ss) =
+            let ts' = M.insert grantToken g ts
+            in State ts' ss
     loadToken ref token = (M.lookup token . sTokens) <$> readIORef ref
     checkCredentials ref creds = check creds <$> readIORef ref
       where
-        check RequestPassword{..} =
-            S.member (requestUsername, requestPassword) . sCreds
-        check RequestClient{..} =
-            S.member (requestClientIDReq, requestClientSecretReq) . sCreds
-        check RequestRefresh{..} =
-            M.member requestRefreshToken . sRefresh
+        check RequestPassword{..} st =
+            S.member (requestUsername, requestPassword) . sCreds $ st
+        check RequestClient{..} st =
+            S.member (requestClientIDReq, requestClientSecretReq) . sCreds $ st
+        check RequestRefresh{..} st =
+            case M.lookup requestRefreshToken $ sTokens st of
+                Nothing -> False
+                Just t -> grantTokenType t == "refresh_token"
 
 -- * Snap Application
 
