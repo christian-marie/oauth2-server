@@ -6,6 +6,8 @@
 module Network.OAuth2.Server.Types where
 
 import Control.Applicative
+import Control.Lens.Iso
+import qualified Control.Lens.Operators as L
 import Control.Monad
 import Data.Aeson
 import Data.Monoid
@@ -19,9 +21,12 @@ import Data.Time.Clock
 newtype Scope = Scope { unScope :: Set Text }
   deriving (Eq, Show, Monoid)
 
--- | Construct a 'Scope' from a space-separated list.
-mkScope :: Text -> Scope
-mkScope t = Scope . S.fromList . T.splitOn " " $ t
+-- | Convert between a Scope and a space seperated Text blob, ready for
+-- transmission.
+scopeText :: Iso' Scope Text
+scopeText =
+    iso (T.intercalate " " . S.toList .  unScope)
+        (Scope . S.fromList . filter (/= mempty) . T.splitOn " ")
 
 -- | Check that a 'Scope' is compatible with another.
 --
@@ -115,12 +120,12 @@ data AccessResponse = AccessResponse
 -- This is recorded in the OAuth2 server and used to verify tokens in the
 -- future.
 data TokenGrant = TokenGrant
-    { grantTokenType    :: Text
-    , grantToken        :: Token
-    , grantExpires      :: UTCTime
-    , grantUsername     :: Maybe Text
-    , grantClientID     :: Maybe Text
-    , grantScope        :: Scope
+    { grantTokenType :: Text
+    , grantToken     :: Token
+    , grantExpires   :: UTCTime
+    , grantUsername  :: Maybe Text
+    , grantClientID  :: Maybe Text
+    , grantScope     :: Scope
     }
   deriving (Eq, Show)
 
@@ -140,10 +145,10 @@ grantResponse TokenGrant{..} refresh = AccessResponse
     }
 
 instance ToJSON Scope where
-    toJSON (Scope ss) = String . T.intercalate " " . S.toAscList $ ss
+    toJSON ss = String $ ss L.^. scopeText
 
 instance FromJSON Scope where
-    parseJSON (String t) = return . mkScope $ t
+    parseJSON (String t) = return $ t L.^. from scopeText
     parseJSON _ = mzero
 
 instance ToJSON Token where
