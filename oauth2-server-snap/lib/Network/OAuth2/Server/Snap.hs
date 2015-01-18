@@ -4,6 +4,8 @@
 -- | Description: Run an OAuth2 server as a Snaplet.
 module Network.OAuth2.Server.Snap where
 
+import Control.Lens.Iso
+import qualified Control.Lens.Operators as L
 import Control.Monad.Reader
 import Data.Aeson
 import qualified Data.ByteString as BS
@@ -55,7 +57,7 @@ tokenEndpoint
     :: Handler b (OAuth2 IO b) ()
 tokenEndpoint = do
     grant_type <- grantType <$> getRequestParameter "grant_type"
-    requestScope <- fmap mkScope <$> getRequestParameter' "scope"
+    requestScope <- fmap (L.^. from scopeText) <$> getRequestParameter' "scope"
 
     request <- case grant_type of
         -- Resource Owner Password Credentials Grant
@@ -138,7 +140,7 @@ checkEndpoint = do
     OAuth2 conf@Configuration{..} <- ask
     -- Get the token and scope parameters.
     token <- Token <$> getRequestParameter "token"
-    scope <- mkScope <$> getRequestParameter "scope"
+    scope <- (L.^. from scopeText) <$> getRequestParameter "scope"
     user <- getRequestParameter' "username"
     client <- getRequestParameter' "client_id"
     -- Check the token is valid.
