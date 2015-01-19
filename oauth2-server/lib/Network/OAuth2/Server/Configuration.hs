@@ -12,8 +12,9 @@
 
 module Network.OAuth2.Server.Configuration where
 
-import Crypto.AnchorToken
+import Control.Monad.Trans.Except
 
+import Crypto.AnchorToken
 import Network.OAuth2.Server.Types
 
 -- | Actions, supplied by the client, which load and save tokens from a data
@@ -31,7 +32,7 @@ data OAuth2TokenStore m = TokenStore
 data OAuth2Server m = Configuration
     { oauth2Store            :: OAuth2TokenStore m
     -- ^ Load and store tokens.
-    , oauth2CheckCredentials :: AccessRequest -> m Bool
+    , oauth2CheckCredentials :: AccessRequest -> ExceptT String m AccessRequest
     -- ^ Check the credentials provided by the resource owner.
     , oauth2SigningKey       :: AnchorCryptoState Pair
     -- ^ Key used to sign tokens.
