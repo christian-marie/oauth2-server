@@ -1,9 +1,7 @@
-{-# LANGUAGE RecordWildCards #-}
 module Network.OAuth2.Server.CryptoTokenStore where
 
 import Control.Lens
 import Control.Monad.IO.Class
-import qualified Data.Set as Set
 
 import Crypto.AnchorToken
 

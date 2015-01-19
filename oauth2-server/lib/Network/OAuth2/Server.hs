@@ -31,7 +31,7 @@ anchorTokenTokenGrant
 anchorTokenTokenGrant key = iso packitallup unpackitall
   where
     packitallup t@AnchorToken{..} =
-        let token = review (signed key) t
+        let token = signToken key t
         in TokenGrant
             { grantTokenType = _tokenType
             , grantToken = Token token
