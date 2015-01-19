@@ -8,7 +8,9 @@ module Main where
 
 import Control.Applicative
 import Control.Lens
+import Control.Monad.Error.Class
 import Control.Monad.IO.Class
+import Control.Monad.Trans.Except
 import Data.IORef
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
@@ -27,8 +29,8 @@ import Network.OAuth2.Server.Snap
 -- * OAuth2 Server
 
 data State = State
-    { sTokens  :: Map Token TokenGrant
-    , sCreds   :: Set (Text, Text)
+    { sTokens :: Map Token TokenGrant
+    , sCreds  :: Set (Text, Text)
     }
 
 oauth2Conf :: IO (OAuth2Server IO)
@@ -57,16 +59,23 @@ oauth2Conf = do
         del t (State ts ss) =
             let ts' = M.delete t ts
             in State ts' ss
-    checkCredentials ref creds = check creds <$> readIORef ref
+    checkCredentials :: MonadIO m => IORef State -> AccessRequest -> ExceptT String m AccessRequest
+    checkCredentials ref creds = liftIO (readIORef ref) >>= check creds
       where
         check RequestPassword{..} st =
-            S.member (requestUsername, requestPassword) . sCreds $ st
+            case S.member (requestUsername, requestPassword) . sCreds $ st of
+                True -> return creds
+                False -> throwError "Bad credentials."
         check RequestClient{..} st =
-            S.member (requestClientIDReq, requestClientSecretReq) . sCreds $ st
+            case S.member (requestClientIDReq, requestClientSecretReq) . sCreds $ st of
+                True -> return creds
+                False -> throwError "Bad credentials."
         check RequestRefresh{..} st =
             case M.lookup requestRefreshToken $ sTokens st of
-                Nothing -> False
-                Just t -> grantTokenType t == "refresh_token"
+                Nothing -> throwError "Invalid token."
+                Just t -> case grantTokenType t == "refresh_token" of
+                        True -> return creds
+                        False -> throwError "Not a refresh token."
 
 -- * Snap Application
 

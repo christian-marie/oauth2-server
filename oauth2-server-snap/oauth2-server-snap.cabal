@@ -20,11 +20,11 @@ Library
       Network.OAuth2.Server.Snap
   build-depends:
       base >=4.7 && <4.8
+    , HsOpenSSL
     , aeson
     , bytestring
     , containers
     , lens
-    , HsOpenSSL
     , mtl
     , oauth2-server
     , snap
@@ -32,4 +32,5 @@ Library
     , text
     , time
     , tokens
+    , transformers
   ghc-options: -Wall -fwarn-tabs -funbox-strict-fields

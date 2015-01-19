@@ -7,11 +7,13 @@ module Network.OAuth2.Server.Snap where
 import Control.Lens.Iso
 import qualified Control.Lens.Operators as L
 import Control.Monad.Reader
+import Control.Monad.Trans.Except
 import Data.Aeson
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as B
 import Data.Monoid
+import Data.String
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -81,10 +83,10 @@ tokenEndpoint = do
         -- Unknown grant type.
         _ -> oauth2Error $ UnsupportedGrantType "This grant_type is not supported."
     OAuth2 cfg <- get
-    valid <- liftIO $ oauth2CheckCredentials cfg request
-    if valid
-        then createAndServeToken request
-        else oauth2Error $ InvalidRequest "Cannot issue requested token."
+    valid <- liftIO . runExceptT $ oauth2CheckCredentials cfg request
+    case valid of
+        Left e -> oauth2Error . InvalidRequest . fromString $ "Cannot issue requested token: " <> e
+        Right request' -> createAndServeToken request'
 
 -- | Send an 'OAuth2Error' response about a missing request parameter.
 --
