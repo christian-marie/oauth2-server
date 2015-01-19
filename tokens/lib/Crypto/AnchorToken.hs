@@ -7,9 +7,10 @@
 -- the 3-clause BSD licence.
 --
 
-{-# LANGUAGE GADTs           #-}
-{-# LANGUAGE RankNTypes      #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE GADTs             #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes        #-}
+{-# LANGUAGE TemplateHaskell   #-}
 
 -- | API for manipulating anchor tokens.
 module Crypto.AnchorToken
@@ -20,11 +21,9 @@ module Crypto.AnchorToken
     initPrivKey,
     initPrivKey',
 
-    -- * Accessing tokens
+    -- * Working with tokens
+    signToken,
     verifyToken,
-
-    -- * Lenses
-    signed,
 
     -- * Token manipulation
     signPayload,
@@ -46,30 +45,29 @@ module Crypto.AnchorToken
     Public,
 ) where
 
-import           Control.Applicative
-import           Control.Error.Util
-import           Control.Exception
-import           Control.Lens
-import           Control.Monad
-import           Control.Monad.IO.Class
-import           Control.Monad.Trans.Except
-import           Data.Aeson
-import           Data.Aeson.TH
-import           Data.ByteString            (ByteString)
-import qualified Data.ByteString            as S
-import qualified Data.ByteString.Base64     as B64
-import           Data.ByteString.Lazy       (toStrict)
-import           Data.Monoid
-import           Data.Text                  (Text)
-import           Data.Text.Encoding
-import           Data.Time.Clock
-import           OpenSSL
-import           OpenSSL.EVP.Digest
-import           OpenSSL.EVP.PKey
-import           OpenSSL.EVP.Sign
-import           OpenSSL.EVP.Verify
-import           OpenSSL.PEM
-import           System.IO.Unsafe
+import Control.Applicative
+import Control.Error.Util
+import Control.Exception
+import Control.Lens
+import Control.Monad.IO.Class
+import Control.Monad.Trans.Except
+import Data.Aeson
+import Data.Aeson.TH
+import Data.ByteString (ByteString)
+import qualified Data.ByteString.Base64 as B64
+import qualified Data.ByteString.Char8 as S
+import Data.ByteString.Lazy (toStrict)
+import Data.Monoid
+import Data.Text (Text)
+import Data.Text.Encoding
+import Data.Time.Clock
+import OpenSSL
+import OpenSSL.EVP.Digest
+import OpenSSL.EVP.PKey
+import OpenSSL.EVP.Sign
+import OpenSSL.EVP.Verify
+import OpenSSL.PEM
+import System.IO.Unsafe
 
 -- | A crypto-token that ends up being represented as a Base64 encoding of a
 -- signed blob of json.
@@ -80,7 +78,35 @@ data AnchorToken = AnchorToken
     , _tokenClientID :: Maybe Text
     , _tokenScope    :: [Text]
     }
-  deriving (Eq, Show)
+  deriving (Show)
+
+-- | An intemediary datatype used only to represent our double Base64 encoded
+-- format.
+data SignedAnchorToken =
+    SignedAnchorToken { _signature :: ByteString
+                      , _payload   :: ByteString
+                      }
+
+signedTokenByteString :: Prism' Text SignedAnchorToken
+signedTokenByteString = prism' f g
+  where
+    f (SignedAnchorToken sig tok) =
+        decodeUtf8 . B64.encode $ B64.encode sig <> ";" <> B64.encode tok
+
+    g txt = do
+        outer <- hush . B64.decode $ encodeUtf8 txt
+        let split = S.tail <$> S.break (==';') outer
+        uncurry SignedAnchorToken <$> both (hush . B64.decode) split
+
+instance Eq AnchorToken where
+    -- JSON is a bit lossy, so we allow a bit of slack on the time.
+    AnchorToken a b c d e == AnchorToken a' b' c' d' e' =
+           a == a'
+        && b `diffUTCTime` b' < 1
+        && c == c'
+        && d == d'
+        && e == e'
+
 makeLenses ''AnchorToken
 $(deriveJSON defaultOptions ''AnchorToken)
 
@@ -93,39 +119,29 @@ verifyToken
     -> m (Either String AnchorToken)
 verifyToken k txt = liftIO $ do
     now <- getCurrentTime
-
-    return . (B64.decode . encodeUtf8
-              >=> note "Bad signature" . getPayload k
-              >=> eitherDecodeStrict
-              >=> checkExpiry now) $ txt
+    return $ do
+        SignedAnchorToken sig payload <-
+            note "Failed to base64 decode" $ preview signedTokenByteString txt
+        note "Bad signature" (getPayload k sig payload)
+          >>= eitherDecodeStrict
+          >>= checkExpiry now
   where
     checkExpiry now tok
         | now > tok ^. tokenExpires = Left "Token expired"
         | otherwise                 = Right tok
 
 
--- | Prism between ByteStrings and tokens, signing and encoding one way,
--- checking signature and decoding the other.
+-- | Sign a token, to get something back out use verifyToken
 --
--- NOTE: This does not check the token's expiry! Do /not/ use this to verify a
--- token.
---
--- Encoding:
---
---    review signedBlob token
---
--- Decoding:
---
---    preview signedBlob token
---
-signed
+-- You'll need a key pair for this.
+signToken
     :: AnchorCryptoState Pair
-    -> Prism' Text AnchorToken
-signed pair = prism' enc dec
-  where
-    enc = decodeUtf8 . B64.encode . signPayload pair
-          . toStrict .  encode . toJSON
-    dec = hush . B64.decode . encodeUtf8 >=> getPayload pair >=> decodeStrict
+    -> AnchorToken
+    -> Text
+signToken key tok =
+    let payload = toStrict $ encode tok
+        sig = signPayload key payload
+    in SignedAnchorToken sig payload ^. re signedTokenByteString
 
 -- | Phantom type for Public keys
 data Public
@@ -213,8 +229,8 @@ initPrivKey'
 initPrivKey' key =
     liftIO . withOpenSSL . runExceptT $ PrivKey (fromKeyPair key) <$> getDigest
 
--- | Given a blob of data as the token payload, prepend a signature of 256
--- bytes.
+-- | Given a blob of data as the token payload, return a variable length
+-- signature.
 --
 -- Requires a key pair, not just the public key.
 signPayload
@@ -222,13 +238,13 @@ signPayload
     -> ByteString
     -> ByteString
 signPayload (PrivKey key_pair dig) msg =
-    let signature = unsafePerformIO . withOpenSSL $ signBS dig key_pair msg
-    in signature <> msg
+    unsafePerformIO . withOpenSSL $ signBS dig key_pair msg
 
 -- | Grab the payload from a token, you will only get the payload if the
 -- signature is correct.
 getPayload
     :: AnchorCryptoState a
+    -> ByteString
     -> ByteString
     -> Maybe ByteString
 getPayload (PrivKey key_pair dig) = getPayload' key_pair dig
@@ -239,9 +255,9 @@ getPayload'
     => key
     -> Digest
     -> ByteString
+    -> ByteString
     -> Maybe ByteString
-getPayload' key dig msg =
-    let (sig,payload) = S.splitAt 256 msg
-    in case unsafePerformIO . withOpenSSL $ verifyBS dig sig key payload of
+getPayload' key dig sig payload =
+    case unsafePerformIO . withOpenSSL $ verifyBS dig sig key payload of
         VerifySuccess -> Just payload
         VerifyFailure -> Nothing
