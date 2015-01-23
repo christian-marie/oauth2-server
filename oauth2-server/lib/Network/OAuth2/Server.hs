@@ -88,8 +88,8 @@ createGrant key request = do
         -- Create a refresh token with these details.
         refresh_expires = addUTCTime (3600 * 24 * 7) t
         refresh_token = access_token
-            { _tokenType = "refresh_token"
-            , _tokenExpires = refresh_expires
+            { Token._tokenType = "refresh_token"
+            , Token._tokenExpires = refresh_expires
             }
         refresh_grant = refresh_token ^. anchorTokenTokenGrant key
     return (access_grant, refresh_grant)

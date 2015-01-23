@@ -1,6 +1,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE RecordWildCards            #-}
+{-# LANGUAGE TemplateHaskell            #-}
 
 -- | Description: Data types for OAuth2 server.
 module Network.OAuth2.Server.Types where
@@ -8,6 +9,7 @@ module Network.OAuth2.Server.Types where
 import Control.Applicative
 import Control.Lens.Iso
 import qualified Control.Lens.Operators as L
+import Control.Lens.TH
 import Control.Monad
 import Data.Aeson
 import Data.Monoid
@@ -105,15 +107,16 @@ data AccessRequest
 
 -- | A response containing an OAuth2 access token grant.
 data AccessResponse = AccessResponse
-    { tokenType     :: Text
-    , accessToken   :: Token
-    , refreshToken  :: Maybe Token
-    , tokenExpires  :: UTCTime
-    , tokenUsername :: Maybe Text
-    , tokenClientID :: Maybe Text
-    , tokenScope    :: Scope
+    { _tokenType     :: Text
+    , _accessToken   :: Token
+    , _refreshToken  :: Maybe Token
+    , _tokenExpires  :: UTCTime
+    , _tokenUsername :: Maybe Text
+    , _tokenClientID :: Maybe Text
+    , _tokenScope    :: Scope
     }
   deriving (Eq, Show)
+makeLenses ''AccessResponse
 
 -- | A token grant.
 --
@@ -135,13 +138,13 @@ grantResponse
     -> Maybe Token  -- ^ Associated refresh token.
     -> AccessResponse
 grantResponse TokenGrant{..} refresh = AccessResponse
-    { tokenType     = grantTokenType
-    , accessToken   = grantToken
-    , refreshToken  = refresh
-    , tokenExpires  = grantExpires
-    , tokenUsername = grantUsername
-    , tokenClientID = grantClientID
-    , tokenScope    = grantScope
+    { _tokenType     = grantTokenType
+    , _accessToken   = grantToken
+    , _refreshToken  = refresh
+    , _tokenExpires  = grantExpires
+    , _tokenUsername = grantUsername
+    , _tokenClientID = grantClientID
+    , _tokenScope    = grantScope
     }
 
 instance ToJSON Scope where
@@ -160,14 +163,14 @@ instance FromJSON Token where
 
 instance ToJSON AccessResponse where
     toJSON AccessResponse{..} =
-        let token = [ "access_token" .= toJSON accessToken
-                    , "token_type" .= toJSON tokenType
-                    , "expires" .= toJSON tokenExpires
-                    , "scope" .= toJSON tokenScope
+        let token = [ "access_token" .= toJSON _accessToken
+                    , "token_type" .= toJSON _tokenType
+                    , "expires" .= toJSON _tokenExpires
+                    , "scope" .= toJSON _tokenScope
                     ]
-            ref = maybe [] (\t -> ["refresh_token" .= unToken t]) refreshToken
-            uname = maybe [] (\s -> ["username" .= toJSON s]) tokenUsername
-            client = maybe [] (\s -> ["client_id" .= toJSON s]) tokenClientID
+            ref = maybe [] (\t -> ["refresh_token" .= unToken t]) _refreshToken
+            uname = maybe [] (\s -> ["username" .= toJSON s]) _tokenUsername
+            client = maybe [] (\s -> ["client_id" .= toJSON s]) _tokenClientID
         in object . concat $ [token, ref, uname, client]
 
 instance FromJSON AccessResponse where
