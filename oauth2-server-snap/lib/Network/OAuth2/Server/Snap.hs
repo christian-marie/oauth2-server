@@ -119,8 +119,8 @@ createAndServeToken
     :: AccessRequest
     -> Handler b (OAuth2 IO b) ()
 createAndServeToken request = do
-    OAuth2 Configuration{..} <- get
-    (access_grant, refresh_grant) <- createGrant oauth2SigningKey request
+    OAuth2 cfg@Configuration{..} <- get
+    (access_grant, refresh_grant) <- liftIO $ createGrant cfg request
     liftIO $ tokenStoreSave oauth2Store access_grant
     liftIO $ tokenStoreSave oauth2Store refresh_grant
     serveToken $ grantResponse access_grant (Just $ grantToken refresh_grant)
