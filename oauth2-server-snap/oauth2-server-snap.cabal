@@ -26,6 +26,7 @@ Library
     , containers
     , lens
     , mtl
+    , mtl-compat
     , oauth2-server
     , snap
     , snap-core

@@ -30,9 +30,12 @@ Library
     , containers
     , lens
     , mtl
+    , mtl-compat
     , random
     , text
     , time
     , tokens
     , transformers
+    , transformers-compat
+
   ghc-options: -Wall -fwarn-tabs -funbox-strict-fields

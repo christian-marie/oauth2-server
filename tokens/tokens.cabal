@@ -30,7 +30,8 @@ library
                      , time
                      , errors
                      , aeson
-                     , transformers >= 0.4.0.0
+                     , transformers
+                     , transformers-compat
 
 test-suite             roundtrip
   type:                exitcode-stdio-1.0

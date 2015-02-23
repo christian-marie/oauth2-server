@@ -25,7 +25,8 @@ Executable oauth2-server-demo
     , containers
     , HsOpenSSL
     , lens
-    , mtl                       >= 2     && < 3
+    , mtl
+    , mtl-compat
     , oauth2-server
     , oauth2-server-snap
     , snap                      >= 0.13  && < 0.14
@@ -34,6 +35,7 @@ Executable oauth2-server-demo
     , text
     , tokens
     , transformers
+    , transformers-compat
 
   ghc-options: -threaded -Wall -fwarn-tabs -funbox-strict-fields -O2
                -fno-warn-unused-do-bind
