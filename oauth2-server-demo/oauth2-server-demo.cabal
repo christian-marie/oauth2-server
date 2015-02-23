@@ -26,7 +26,6 @@ Executable oauth2-server-demo
     , HsOpenSSL
     , lens
     , mtl
-    , mtl-compat
     , oauth2-server
     , oauth2-server-snap
     , snap                      >= 0.13  && < 0.14

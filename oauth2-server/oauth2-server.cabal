@@ -30,7 +30,6 @@ Library
     , containers
     , lens
     , mtl
-    , mtl-compat
     , random
     , text
     , time
