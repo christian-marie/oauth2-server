@@ -63,19 +63,19 @@ oauth2Conf = do
     checkCredentials ref creds = liftIO (readIORef ref) >>= check creds
       where
         check RequestPassword{..} st =
-            case S.member (requestUsername, requestPassword) . sCreds $ st of
-                True -> return creds
-                False -> throwError "Bad credentials."
+            if S.member (requestUsername, requestPassword) $ sCreds st
+                then return creds
+                else throwError "Bad credentials."
         check RequestClient{..} st =
-            case S.member (requestClientIDReq, requestClientSecretReq) . sCreds $ st of
-                True -> return creds
-                False -> throwError "Bad credentials."
+            if S.member (requestClientIDReq, requestClientSecretReq) $ sCreds st
+                then return creds
+                else throwError "Bad credentials."
         check RequestRefresh{..} st =
             case M.lookup requestRefreshToken $ sTokens st of
                 Nothing -> throwError "Invalid token."
-                Just t -> case grantTokenType t == "refresh_token" of
-                        True -> return creds
-                        False -> throwError "Not a refresh token."
+                Just t -> if grantTokenType t == "refresh_token"
+                            then return creds
+                            else throwError "Not a refresh token."
 
 -- * Snap Application
 
