@@ -100,9 +100,11 @@ instance Function Token where
     function = functionMap unToken Token
 
 suite :: Spec
-suite = describe "Lens laws" $
+suite = describe "Lens laws" $ do
     prop "apply for anchorTokenTokenGrant" $ isIso $
         anchorTokenTokenGrant crypto
+
+    prop "apply for scopeText" $ isIso scopeText
 
 main :: IO ()
 main = hspec suite
