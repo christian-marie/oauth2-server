@@ -10,6 +10,7 @@ module Network.OAuth2.Server (
     anchorTokenTokenGrant,
 ) where
 
+import Control.Applicative
 import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class
@@ -48,35 +49,38 @@ anchorTokenTokenGrant key = iso packitallup unpackitall
         , _tokenScope = Set.toAscList . unScope $ grantScope
         }
 
-
 -- | Create a 'TokenGrant' representing a new token.
 --
 -- The caller is responsible for saving the grant in the store.
 createGrant
     :: MonadIO m
-    => AnchorCryptoState Pair
+    => OAuth2Server m
     -> AccessRequest
     -> m (TokenGrant, TokenGrant)
-createGrant key request = do
+createGrant Configuration{..} request = do
     t <- liftIO getCurrentTime
-    let (client, user, Scope scope) = case request of
+    (client, user, Scope scope) <- case request of
             RequestPassword{..} ->
+                return
                 ( requestClientID
                 , Just requestUsername
                 , fromMaybe mempty requestScope
                 )
             RequestClient{..} ->
+                return
                 ( Just requestClientIDReq
                 , Nothing
                 , fromMaybe mempty requestScope
                 )
-            -- TODO: These details should be copied from the original grant.
-            RequestRefresh{..} ->
-                ( requestClientID
-                , Nothing
-                , fromMaybe mempty requestScope
-                )
-        expires = addUTCTime 1800 t
+            RequestRefresh{..} -> do
+                -- Decode previous token so we can copy details across.
+                previous <- tokenStoreLoad oauth2Store requestRefreshToken
+                return
+                    ( requestClientID
+                    , join $ grantUsername <$> previous
+                    , fromMaybe mempty requestScope
+                    )
+    let expires = addUTCTime 1800 t
         access_token = AnchorToken
             { _tokenType = "access_token"
             , _tokenExpires = expires
@@ -84,14 +88,14 @@ createGrant key request = do
             , _tokenClientID = client
             , _tokenScope = Set.toAscList scope
             }
-        access_grant = access_token ^. anchorTokenTokenGrant key
+        access_grant = access_token ^. anchorTokenTokenGrant oauth2SigningKey
         -- Create a refresh token with these details.
         refresh_expires = addUTCTime (3600 * 24 * 7) t
         refresh_token = access_token
             { Token._tokenType = "refresh_token"
             , Token._tokenExpires = refresh_expires
             }
-        refresh_grant = refresh_token ^. anchorTokenTokenGrant key
+        refresh_grant = refresh_token ^. anchorTokenTokenGrant oauth2SigningKey
     return (access_grant, refresh_grant)
 
 -- | Check if the 'Token' is valid.
