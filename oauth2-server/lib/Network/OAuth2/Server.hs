@@ -78,7 +78,7 @@ createGrant Configuration{..} request = do
                 return
                     ( requestClientID
                     , join $ grantUsername <$> previous
-                    , fromMaybe mempty requestScope
+                    , fromMaybe mempty (requestScope <|> (grantScope <$> previous))
                     )
     let expires = addUTCTime 1800 t
         access_token = AnchorToken
