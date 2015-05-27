@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE RecordWildCards            #-}
@@ -9,7 +10,6 @@ module Network.OAuth2.Server.Types where
 import Control.Applicative
 import Control.Lens.Iso
 import qualified Control.Lens.Operators as L
-import Control.Monad
 import Data.Aeson
 import Data.Monoid
 import Data.Set (Set)
@@ -74,14 +74,12 @@ data AccessRequest
         , requestRefreshToken :: Token
         , requestScope        :: Maybe Scope
         }
-    | RequestInvalid
-        { requestError :: OAuth2Error }
 
-instance FromFormUrlEncoded AccessRequest where
+instance FromFormUrlEncoded (Either OAuth2Error AccessRequest) where
     fromFormUrlEncoded o = case lookup "grant_type" o of
-        Nothing -> return $ RequestInvalid $
+        Nothing -> return $ Left $
             InvalidRequest "Request must include grant_type."
-        Just x -> return $ RequestInvalid $
+        Just x -> return $ Left $
             UnsupportedGrantType $ x <> " not supported"
 
 instance ToFormUrlEncoded AccessRequest where
@@ -145,15 +143,13 @@ instance ToJSON Scope where
     toJSON ss = String $ ss L.^. scopeText
 
 instance FromJSON Scope where
-    parseJSON (String t) = return $ t L.^. from scopeText
-    parseJSON _ = mzero
+    parseJSON = withText "Scope" $ \t -> return $ t L.^. from scopeText
 
 instance ToJSON Token where
     toJSON (Token t) = String t
 
 instance FromJSON Token where
-    parseJSON (String t) = return (Token t)
-    parseJSON _ = mzero
+    parseJSON = withText "Token" $ \t -> return (Token t)
 
 instance ToJSON AccessResponse where
     toJSON AccessResponse{..} =
@@ -168,7 +164,7 @@ instance ToJSON AccessResponse where
         in object . concat $ [token, ref, uname, client]
 
 instance FromJSON AccessResponse where
-    parseJSON (Object o) = AccessResponse
+    parseJSON = withObject "AccessResponse" $ \o -> AccessResponse
         <$> o .: "token_type"
         <*> o .: "access_token"
         <*> o .:? "refresh_token"
@@ -176,7 +172,6 @@ instance FromJSON AccessResponse where
         <*> o .:? "username"
         <*> o .:? "client_id"
         <*> o .: "scope"
-    parseJSON _ = mzero
 
 -- | Standard OAuth2 errors.
 --
@@ -210,3 +205,11 @@ instance ToJSON OAuth2Error where
         [ "error" .= oauth2ErrorCode err
         , "error_description" .= errorDescription err
         ]
+
+instance FromJSON OAuth2Error where
+    parseJSON = withObject "OAuth2Error" $ \o -> do
+        code <- o .: "error"
+        description <- o .: "error_description"
+        case code of
+            "invalid_request" -> pure $ InvalidRequest description
+            _ -> fail $ code <> " is not a valid error code."
