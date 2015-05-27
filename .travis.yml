@@ -1,5 +1,7 @@
 language: haskell
-ghc: 7.8
+ghc:
+  - 7.8
+  - 7.10
 notifications:
   email:
     on_success: change
@@ -8,6 +10,5 @@ before_install:
   - 'echo'
 install:
   - 'echo'
-script: 
-  - 'sh tests/unit-tests.sh'
-  - 'bash tests/acceptance-tests.sh'
+script:
+  - cabal configure --enable-tests && cabal build && cabal test
