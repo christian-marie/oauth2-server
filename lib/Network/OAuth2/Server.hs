@@ -9,7 +9,6 @@ module Network.OAuth2.Server (
 ) where
 
 import Control.Applicative
-import Control.Monad
 import Control.Monad.IO.Class
 import Data.Maybe
 import Data.Monoid
@@ -46,8 +45,8 @@ createGrant Configuration{..} request = do
                 previous <- tokenStoreLoad oauth2Store requestRefreshToken
                 return
                     ( requestClientID
-                    , join $ grantUsername <$> previous
-                    , fromMaybe mempty (requestScope <|> (grantScope <$> previous))
+                    , tokenDetailsUsername =<< previous
+                    , fromMaybe mempty (requestScope <|> (tokenDetailsScope <$> previous))
                     )
     let expires = addUTCTime 1800 t
         access_grant = TokenGrant

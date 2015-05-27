@@ -29,6 +29,8 @@ Library
     , lens
     , mtl
     , random
+    , servant >=0.4 && <0.5
+    , servant-server >=0.4 && <0.5
     , text
     , time
     , transformers

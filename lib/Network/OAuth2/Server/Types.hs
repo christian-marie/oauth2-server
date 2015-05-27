@@ -17,6 +17,7 @@ import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Clock
+import Servant.API
 
 -- | A scope is a list of strings.
 newtype Scope = Scope { unScope :: Set Text }
@@ -43,40 +44,6 @@ compatibleScope (Scope s1) (Scope s2) =
 newtype Token = Token { unToken :: Text }
   deriving (Eq, Ord, Show)
 
--- | Grant types for OAuth2 requests.
-data GrantType
-    = GrantRefreshToken
-    | GrantCode
-    | GrantAuthorizationCode
-    | GrantToken
-    | GrantPassword
-    | GrantClient
-    | GrantExtension { grantName :: Text }
-
-instance ToJSON GrantType where
-    toJSON grant = String $ case grant of
-        GrantRefreshToken -> "refresh_token"
-        GrantCode -> "code"
-        GrantAuthorizationCode -> "authorization_code"
-        GrantToken -> "token"
-        GrantPassword -> "password"
-        GrantClient -> "client_credentials"
-        GrantExtension g -> g
-
-grantType :: Text -> GrantType
-grantType t = case t of
-    "refresh_token" -> GrantRefreshToken
-    "code" -> GrantCode
-    "authorization_code" -> GrantAuthorizationCode
-    "token" -> GrantToken
-    "password" -> GrantPassword
-    "client_credentials" -> GrantClient
-    g -> GrantExtension g
-
-instance FromJSON GrantType where
-    parseJSON (String t) = return $ grantType t
-    parseJSON _ = mzero
-
 -- | A request to the token endpoint.
 --
 -- Each constructor represents a different type of supported request. Not all
@@ -84,7 +51,8 @@ instance FromJSON GrantType where
 -- 'AccessRequest' constructors are not implemented.
 data AccessRequest
     = RequestPassword
-        -- ^ 'GrantPassword'
+        -- ^ grant_type=password
+        -- http://tools.ietf.org/html/rfc6749#section-4.3.2
         { requestClientID     :: Maybe Text
         , requestClientSecret :: Maybe Text
         , requestUsername     :: Text
@@ -92,17 +60,32 @@ data AccessRequest
         , requestScope        :: Maybe Scope
         }
     | RequestClient
+        -- ^ grant_type=client_credentials
+        -- http://tools.ietf.org/html/rfc6749#section-4.4.2
         { requestClientIDReq     :: Text
         , requestClientSecretReq :: Text
         , requestScope           :: Maybe Scope
         }
     | RequestRefresh
-        -- ^ 'GrantRefreshToken'
+        -- ^ grant_type=refresh_token
+        -- http://tools.ietf.org/html/rfc6749#section-6
         { requestClientID     :: Maybe Text
         , requestClientSecret :: Maybe Text
         , requestRefreshToken :: Token
         , requestScope        :: Maybe Scope
         }
+    | RequestInvalid
+        { requestError :: OAuth2Error }
+
+instance FromFormUrlEncoded AccessRequest where
+    fromFormUrlEncoded o = case lookup "grant_type" o of
+        Nothing -> return $ RequestInvalid $
+            InvalidRequest "Request must include grant_type."
+        Just x -> return $ RequestInvalid $
+            UnsupportedGrantType $ x <> " not supported"
+
+instance ToFormUrlEncoded AccessRequest where
+    toFormUrlEncoded _ = []
 
 -- | A response containing an OAuth2 access token grant.
 data AccessResponse = AccessResponse
@@ -225,5 +208,5 @@ oauth2ErrorCode err = case err of
 instance ToJSON OAuth2Error where
     toJSON err = object
         [ "error" .= oauth2ErrorCode err
-        , "description" .= errorDescription err
+        , "error_description" .= errorDescription err
         ]
