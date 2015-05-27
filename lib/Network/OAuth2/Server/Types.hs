@@ -11,11 +11,13 @@ import Control.Applicative
 import Control.Lens.Iso
 import qualified Control.Lens.Operators as L
 import Data.Aeson
+import Data.ByteString (ByteString)
 import Data.Monoid
 import Data.Set (Set)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import Data.Time.Clock
 import Servant.API
 
@@ -41,7 +43,7 @@ compatibleScope (Scope s1) (Scope s2) =
     S.null $ s1 `S.difference` s2
 
 -- | A token is a unique piece of text.
-newtype Token = Token { unToken :: Text }
+newtype Token = Token { unToken :: ByteString }
   deriving (Eq, Ord, Show)
 
 -- | A request to the token endpoint.
@@ -74,6 +76,7 @@ data AccessRequest
         , requestRefreshToken :: Token
         , requestScope        :: Maybe Scope
         }
+    deriving (Eq)
 
 instance FromFormUrlEncoded (Either OAuth2Error AccessRequest) where
     fromFormUrlEncoded o = case lookup "grant_type" o of
@@ -146,10 +149,10 @@ instance FromJSON Scope where
     parseJSON = withText "Scope" $ \t -> return $ t L.^. from scopeText
 
 instance ToJSON Token where
-    toJSON (Token t) = String t
+    toJSON (Token t) = String $ T.decodeUtf8 t
 
 instance FromJSON Token where
-    parseJSON = withText "Token" $ \t -> return (Token t)
+    parseJSON = withText "Token" $ \t -> return (Token $ T.encodeUtf8 t)
 
 instance ToJSON AccessResponse where
     toJSON AccessResponse{..} =
@@ -158,7 +161,7 @@ instance ToJSON AccessResponse where
                     , "expires" .= tokenExpires
                     , "scope" .= tokenScope
                     ]
-            ref = maybe [] (\t -> ["refresh_token" .= unToken t]) refreshToken
+            ref = maybe [] (\t -> ["refresh_token" .= T.decodeUtf8 (unToken t)]) refreshToken
             uname = maybe [] (\s -> ["username" .= toJSON s]) tokenUsername
             client = maybe [] (\s -> ["client_id" .= toJSON s]) tokenClientID
         in object . concat $ [token, ref, uname, client]
