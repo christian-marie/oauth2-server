@@ -79,10 +79,18 @@ data AccessRequest
     deriving (Eq)
 
 instance FromFormUrlEncoded (Either OAuth2Error AccessRequest) where
+    fromFormUrlEncoded o = case fromFormUrlEncoded o of
+        Right x -> return $ Right x
+        Left  _ -> Left <$> fromFormUrlEncoded o
+
+instance FromFormUrlEncoded AccessRequest where
+    fromFormUrlEncoded o = Left "unimplemented"
+
+instance FromFormUrlEncoded OAuth2Error where
     fromFormUrlEncoded o = case lookup "grant_type" o of
-        Nothing -> return $ Left $
+        Nothing -> return $
             InvalidRequest "Request must include grant_type."
-        Just x -> return $ Left $
+        Just x -> return $
             UnsupportedGrantType $ x <> " not supported"
 
 instance ToFormUrlEncoded AccessRequest where
