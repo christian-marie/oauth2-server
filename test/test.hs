@@ -91,7 +91,7 @@ suite = do
             fromFormUrlEncoded (toFormUrlEncoded x) ===
             (Right x :: Either String AccessRequest)
 
-        prop "JSON OAuth2Error" $ \x ->
+        prop "JSON AccessResponse" $ \x ->
             fromJSON (toJSON x) ===
             (Success x :: Result AccessResponse)
 

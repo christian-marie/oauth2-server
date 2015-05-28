@@ -262,5 +262,10 @@ instance FromJSON OAuth2Error where
         code <- o .: "error"
         description <- o .: "error_description"
         case code of
+            "invalid_client" -> pure $ InvalidClient description
+            "invalid_grant" -> pure $ InvalidGrant description
             "invalid_request" -> pure $ InvalidRequest description
+            "invalid_scope" -> pure $ InvalidScope description
+            "unauthorized_client" -> pure $ UnauthorizedClient description
+            "unsupported_grant_type" -> pure $ UnsupportedGrantType description
             _ -> fail $ code <> " is not a valid error code."
