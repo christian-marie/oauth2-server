@@ -47,6 +47,7 @@ test-suite test
                      , bytestring
                      , containers
                      , hspec
+                     , lens
                      , lens-properties
                      , oauth2-server
                      , QuickCheck

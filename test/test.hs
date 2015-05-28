@@ -4,6 +4,8 @@ module Main where
 
 import Control.Applicative
 import Control.Lens.Properties
+import Control.Lens (re)
+import Control.Lens.Operators
 import Data.Aeson
 import qualified Data.ByteString as B
 import qualified Data.Set as S
@@ -50,28 +52,36 @@ instance Arbitrary Scope where
     arbitrary = Scope <$> (S.insert <$> arbitrary <*> arbitrary)
 
 instance Arbitrary ScopeToken where
-    arbitrary = ScopeToken . B.pack <$> listOf1 (elements nqchar)
+    arbitrary = do
+        b <- B.pack <$> listOf1 (elements nqchar)
+        case b ^? scopeTokenByteString of
+            Nothing -> fail "instance Arbitrary ScopeToken is broken"
+            Just x -> return x
 
 instance CoArbitrary Scope where
     coarbitrary = coarbitrary . unScope
 
 instance CoArbitrary ScopeToken where
-    coarbitrary = coarbitrary . unScopeToken
+    coarbitrary = coarbitrary . (^.re scopeTokenByteString)
 
 instance Function Scope where
     function = functionMap unScope Scope
 
 instance Function ScopeToken where
-    function = functionMap unScopeToken ScopeToken
+    function = functionShow
 
 instance Arbitrary Token where
-    arbitrary = Token . B.pack <$> listOf1 (elements vschar)
+    arbitrary = do
+        b <- B.pack <$> listOf1 (elements vschar)
+        case b ^? tokenByteString of
+            Nothing -> fail "instance Arbitrary Token is broken"
+            Just x -> return x
 
 instance CoArbitrary Token where
-    coarbitrary = coarbitrary . unToken
+    coarbitrary = coarbitrary . (^.re tokenByteString)
 
 instance Function Token where
-    function = functionMap unToken Token
+    function = functionShow
 
 instance Function B.ByteString where
     function = functionMap B.unpack B.pack

@@ -5,7 +5,21 @@
 {-# LANGUAGE TemplateHaskell            #-}
 
 -- | Description: Data types for OAuth2 server.
-module Network.OAuth2.Server.Types where
+module Network.OAuth2.Server.Types (
+  TokenDetails (..),
+  AccessRequest(..),
+  AccessResponse(..),
+  TokenGrant(..),
+  Token,
+  tokenByteString,
+  Scope(..),
+  scopeByteString,
+  ScopeToken,
+  scopeTokenByteString,
+  OAuth2Error(..),
+  vschar,
+  nqchar,
+) where
 
 import Control.Applicative
 import Control.Lens.Prism
@@ -28,7 +42,13 @@ import Data.Word
 import Servant.API
 
 newtype ScopeToken = ScopeToken { unScopeToken :: ByteString }
-  deriving (Eq, Show, Ord)
+  deriving (Eq, Ord)
+
+instance Show ScopeToken where
+    show = show . (^.re scopeTokenByteString)
+
+instance Read ScopeToken where
+    readsPrec n s = [ (x,rest) | (b,rest) <- readsPrec n s, Just x <- [b ^? scopeTokenByteString]]
 
 -- | A scope is a list of strings.
 newtype Scope = Scope { unScope :: Set ScopeToken }
@@ -41,15 +61,24 @@ scopeByteString =
     prism' s2b b2s
   where
     s2b :: Scope -> ByteString
-    s2b s = B.intercalate " " . fmap unScopeToken . S.toList .  unScope $ s
+    s2b s = B.intercalate " " . fmap (^.re scopeTokenByteString) . S.toList .  unScope $ s
     b2s :: ByteString -> Maybe Scope
     b2s b = either fail return $ parseOnly (scope <* endOfInput) b
 
     scope :: Parser Scope
     scope = Scope . S.fromList <$> sepBy1 scopeToken (word8 0x20)
 
-    scopeToken :: Parser ScopeToken
-    scopeToken = ScopeToken <$> takeWhile1 (`elem` nqchar)
+scopeTokenByteString :: Prism' ByteString ScopeToken
+scopeTokenByteString =
+    prism' s2b b2s
+  where
+    s2b :: ScopeToken -> ByteString
+    s2b s = unScopeToken s
+    b2s :: ByteString -> Maybe ScopeToken
+    b2s b = either fail return $ parseOnly (scopeToken <* endOfInput) b
+
+scopeToken :: Parser ScopeToken
+scopeToken = ScopeToken <$> takeWhile1 (`elem` nqchar)
 
 nqchar :: [Word8]
 nqchar = [0x21] <> [0x23..0x5B] <> [0x5D..0x7E]
@@ -66,7 +95,13 @@ compatibleScope (Scope s1) (Scope s2) =
 
 -- | A token is a unique piece of text.
 newtype Token = Token { unToken :: ByteString }
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord)
+
+instance Show Token where
+    show = show . (^.re tokenByteString)
+
+instance Read Token where
+    readsPrec n s = [ (x,rest) | (b,rest) <- readsPrec n s, Just x <- [b ^? tokenByteString]]
 
 tokenByteString :: Prism' ByteString Token
 tokenByteString = prism' t2b b2t
