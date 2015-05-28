@@ -14,18 +14,15 @@ module Network.OAuth2.Server.Configuration where
 
 import Control.Monad.Trans.Except
 
-import Crypto.AnchorToken
 import Network.OAuth2.Server.Types
 
 -- | Actions, supplied by the client, which load and save tokens from a data
 -- store.
 data OAuth2TokenStore m = TokenStore
-    { tokenStoreSave   :: TokenGrant -> m ()
+    { tokenStoreSave   :: TokenGrant -> m TokenDetails
     -- ^ Save a [new] token to the OAuth2 server database.
-    , tokenStoreLoad   :: Token -> m (Maybe TokenGrant)
+    , tokenStoreLoad   :: Token -> m (Maybe TokenDetails)
     -- ^ Load a token from the OAuth2 server database.
-    , tokenStoreDelete :: Token -> m ()
-    -- ^ Delete a token from the OAuth2 server database (for revocation, etc.)
     }
 
 -- | The configuration for an OAuth2 server.
@@ -34,6 +31,4 @@ data OAuth2Server m = Configuration
     -- ^ Load and store tokens.
     , oauth2CheckCredentials :: AccessRequest -> ExceptT String m AccessRequest
     -- ^ Check the credentials provided by the resource owner.
-    , oauth2SigningKey       :: AnchorCryptoState Pair
-    -- ^ Key used to sign tokens.
     }
