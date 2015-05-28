@@ -111,7 +111,11 @@ data AccessRequest
 instance FromFormUrlEncoded (Either OAuth2Error AccessRequest) where
     fromFormUrlEncoded o = case fromFormUrlEncoded o of
         Right x -> return $ Right x
-        Left  _ -> Left <$> fromFormUrlEncoded o
+        Left  _ -> Left <$> case lookup "grant_type" o of
+            Nothing ->
+                return $ InvalidRequest "Request must include grant_type."
+            Just x ->
+                return $ UnsupportedGrantType $ x <> " not supported"
 
 lookupEither :: (Eq a, Show a) => a -> [(a,b)] -> Either String b
 lookupEither v vs = case lookup v vs of
@@ -151,13 +155,6 @@ instance FromFormUrlEncoded AccessRequest where
                         Just x' -> return $ Just x'
                 return $ RequestRefresh{..}
             x -> Left $ T.unpack x <> " not supported"
-
-instance FromFormUrlEncoded OAuth2Error where
-    fromFormUrlEncoded o = case lookup "grant_type" o of
-        Nothing -> return $
-            InvalidRequest "Request must include grant_type."
-        Just x -> return $
-            UnsupportedGrantType $ x <> " not supported"
 
 instance ToFormUrlEncoded AccessRequest where
     toFormUrlEncoded RequestPassword{..} =
