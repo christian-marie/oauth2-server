@@ -12,6 +12,7 @@ import Control.Lens.Prism
 import Control.Lens.Review
 import Control.Lens.Operators hiding ((.=))
 import Control.Monad
+import Control.Monad.IO.Class
 import Data.Aeson
 import Data.Attoparsec.ByteString
 import Data.ByteString (ByteString)
@@ -119,7 +120,7 @@ instance FromFormUrlEncoded (Either OAuth2Error AccessRequest) where
         Left  _ -> Left <$> fromFormUrlEncoded o
 
 instance FromFormUrlEncoded AccessRequest where
-    fromFormUrlEncoded o = Left "unimplemented"
+    fromFormUrlEncoded _ = Left "unimplemented"
 
 instance FromFormUrlEncoded OAuth2Error where
     fromFormUrlEncoded o = case lookup "grant_type" o of
@@ -133,13 +134,13 @@ instance ToFormUrlEncoded AccessRequest where
 
 -- | A response containing an OAuth2 access token grant.
 data AccessResponse = AccessResponse
-    { tokenType     :: Text
-    , accessToken   :: Token
-    , refreshToken  :: Maybe Token
-    , tokenExpires  :: UTCTime
-    , tokenUsername :: Maybe Text
-    , tokenClientID :: Maybe Text
-    , tokenScope    :: Scope
+    { tokenType      :: Text
+    , accessToken    :: Token
+    , refreshToken   :: Maybe Token
+    , tokenExpiresIn :: Int
+    , tokenUsername  :: Maybe Text
+    , tokenClientID  :: Maybe Text
+    , tokenScope     :: Scope
     }
   deriving (Eq, Show)
 
@@ -172,18 +173,22 @@ data TokenDetails = TokenDetails
 
 -- | Convert a 'TokenGrant' into an 'AccessResponse'.
 grantResponse
-    :: TokenDetails -- ^ Token details.
+    :: (MonadIO m)
+    => TokenDetails -- ^ Token details.
     -> Maybe Token  -- ^ Associated refresh token.
-    -> AccessResponse
-grantResponse TokenDetails{..} refresh = AccessResponse
-    { tokenType     = tokenDetailsTokenType
-    , accessToken   = tokenDetailsToken
-    , refreshToken  = refresh
-    , tokenExpires  = tokenDetailsExpires
-    , tokenUsername = tokenDetailsUsername
-    , tokenClientID = tokenDetailsClientID
-    , tokenScope    = tokenDetailsScope
-    }
+    -> m AccessResponse
+grantResponse TokenDetails{..} refresh = do
+    t <- liftIO getCurrentTime
+    let expires_in = truncate $ diffUTCTime tokenDetailsExpires t
+    return $ AccessResponse
+        { tokenType      = tokenDetailsTokenType
+        , accessToken    = tokenDetailsToken
+        , refreshToken   = refresh
+        , tokenExpiresIn = expires_in
+        , tokenUsername  = tokenDetailsUsername
+        , tokenClientID  = tokenDetailsClientID
+        , tokenScope     = tokenDetailsScope
+        }
 
 instance ToJSON Scope where
     toJSON ss = String . T.decodeUtf8 $ ss ^.re scopeByteString
@@ -206,7 +211,7 @@ instance ToJSON AccessResponse where
     toJSON AccessResponse{..} =
         let token = [ "access_token" .= accessToken
                     , "token_type" .= tokenType
-                    , "expires" .= tokenExpires
+                    , "expires_in" .= tokenExpiresIn
                     , "scope" .= tokenScope
                     ]
             ref = maybe [] (\t -> ["refresh_token" .= T.decodeUtf8 (unToken t)]) refreshToken
@@ -219,7 +224,7 @@ instance FromJSON AccessResponse where
         <$> o .: "token_type"
         <*> o .: "access_token"
         <*> o .:? "refresh_token"
-        <*> o .: "expires"
+        <*> o .: "expires_in"
         <*> o .:? "username"
         <*> o .:? "client_id"
         <*> o .: "scope"
