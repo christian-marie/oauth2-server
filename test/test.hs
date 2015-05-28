@@ -65,7 +65,13 @@ instance Function ScopeToken where
     function = functionMap unScopeToken ScopeToken
 
 instance Arbitrary Token where
-    arbitrary = Token <$> arbitrary
+    arbitrary = Token . B.pack <$> listOf1 (elements vschar)
+
+instance CoArbitrary Token where
+    coarbitrary = coarbitrary . unToken
+
+instance Function Token where
+    function = functionMap unToken Token
 
 instance Function B.ByteString where
     function = functionMap B.unpack B.pack
@@ -95,6 +101,9 @@ suite = do
 
         prop "isPrism scopeByteString" $
             isPrism scopeByteString
+
+        prop "isPrism tokenByteString" $
+            isPrism tokenByteString
 
 main :: IO ()
 main = hspec suite

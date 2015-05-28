@@ -11,6 +11,7 @@ import Control.Applicative
 import Control.Lens.Prism
 import Control.Lens.Review
 import Control.Lens.Operators hiding ((.=))
+import Control.Monad
 import Data.Aeson
 import Data.Attoparsec.ByteString
 import Data.ByteString (ByteString)
@@ -65,6 +66,20 @@ compatibleScope (Scope s1) (Scope s2) =
 -- | A token is a unique piece of text.
 newtype Token = Token { unToken :: ByteString }
   deriving (Eq, Ord, Show)
+
+tokenByteString :: Prism' ByteString Token
+tokenByteString = prism' t2b b2t
+  where
+    t2b :: Token -> ByteString
+    t2b t = unToken t
+    b2t :: ByteString -> Maybe Token
+    b2t b = do
+        guard . not $ B.null b
+        guard $ B.all (`elem` vschar) b
+        return (Token b)
+
+vschar :: [Word8]
+vschar = [0x20..0x7E]
 
 -- | A request to the token endpoint.
 --
@@ -180,11 +195,13 @@ instance FromJSON Scope where
             Just s -> return s
 
 instance ToJSON Token where
-    toJSON (Token t) = String $ T.decodeUtf8 t
+    toJSON t = String . T.decodeUtf8 $ t ^.re tokenByteString
 
 instance FromJSON Token where
-    parseJSON = withText "Token" $ \t -> return (Token $ T.encodeUtf8 t)
-
+    parseJSON = withText "Token" $ \t ->
+        case T.encodeUtf8 t ^? tokenByteString of
+            Nothing -> fail $ T.unpack t <> " is not a valid Token."
+            Just s -> return s
 instance ToJSON AccessResponse where
     toJSON AccessResponse{..} =
         let token = [ "access_token" .= accessToken
