@@ -2,6 +2,7 @@ OAuth2 Server
 =============
 
 [![Build Status][badge]][status]
+[![Coverage Status](https://coveralls.io/repos/anchor/oauth2-server/badge.svg)](https://coveralls.io/r/anchor/oauth2-server)
 
 [badge]: https://travis-ci.org/anchor/oauth2-server.svg?branch=master
 [status]: https://travis-ci.org/anchor/oauth2-server
