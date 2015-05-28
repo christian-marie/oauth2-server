@@ -8,10 +8,13 @@
 module Network.OAuth2.Server.Types where
 
 import Control.Applicative
-import Control.Lens.Iso
-import qualified Control.Lens.Operators as L
+import Control.Lens.Prism
+import Control.Lens.Review
+import Control.Lens.Operators hiding ((.=))
 import Data.Aeson
+import Data.Attoparsec.ByteString
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as B
 import Data.Monoid
 import Data.Set (Set)
 import qualified Data.Set as S
@@ -19,18 +22,35 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Time.Clock
+import Data.Word
 import Servant.API
 
+newtype ScopeToken = ScopeToken { unScopeToken :: ByteString }
+  deriving (Eq, Show, Ord)
+
 -- | A scope is a list of strings.
-newtype Scope = Scope { unScope :: Set Text }
+newtype Scope = Scope { unScope :: Set ScopeToken }
   deriving (Eq, Show, Monoid)
 
 -- | Convert between a Scope and a space seperated Text blob, ready for
 -- transmission.
-scopeText :: Iso' Scope Text
-scopeText =
-    iso (T.intercalate " " . S.toList .  unScope)
-        (Scope . S.fromList . filter (/= mempty) . T.splitOn " ")
+scopeByteString :: Prism' ByteString Scope
+scopeByteString =
+    prism' s2b b2s
+  where
+    s2b :: Scope -> ByteString
+    s2b s = B.intercalate " " . fmap unScopeToken . S.toList .  unScope $ s
+    b2s :: ByteString -> Maybe Scope
+    b2s b = either fail return $ parseOnly (scope <* endOfInput) b
+
+    scope :: Parser Scope
+    scope = Scope . S.fromList <$> sepBy1 scopeToken (word8 0x20)
+
+    scopeToken :: Parser ScopeToken
+    scopeToken = ScopeToken <$> takeWhile1 (`elem` nqchar)
+
+nqchar :: [Word8]
+nqchar = [0x21] <> [0x23..0x5B] <> [0x5D..0x7E]
 
 -- | Check that a 'Scope' is compatible with another.
 --
@@ -151,10 +171,13 @@ grantResponse TokenDetails{..} refresh = AccessResponse
     }
 
 instance ToJSON Scope where
-    toJSON ss = String $ ss L.^. scopeText
+    toJSON ss = String . T.decodeUtf8 $ ss ^.re scopeByteString
 
 instance FromJSON Scope where
-    parseJSON = withText "Scope" $ \t -> return $ t L.^. from scopeText
+    parseJSON = withText "Scope" $ \t ->
+        case T.encodeUtf8 t ^? scopeByteString of
+            Nothing -> fail $ T.unpack t <> " is not a valid Scope."
+            Just s -> return s
 
 instance ToJSON Token where
     toJSON (Token t) = String $ T.decodeUtf8 t

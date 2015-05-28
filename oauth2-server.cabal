@@ -22,6 +22,7 @@ Library
   build-depends:
       base >=4.7 && <4.8
     , aeson
+    , attoparsec
     , bytestring
     , containers
     , lens
@@ -43,7 +44,10 @@ test-suite test
   main-is:             test.hs
   build-depends:       base >=4.7 && <5
                      , aeson
+                     , bytestring
+                     , containers
                      , hspec
+                     , lens-properties
                      , oauth2-server
                      , QuickCheck
                      , quickcheck-instances

@@ -3,12 +3,16 @@
 module Main where
 
 import Control.Applicative
+import Control.Lens.Properties
 import Data.Aeson
+import qualified Data.ByteString as B
+import qualified Data.Set as S
 import Servant.API
 
 import Test.Hspec
 import Test.Hspec.QuickCheck
 import Test.QuickCheck hiding (Result(..))
+import Test.QuickCheck.Function
 import Test.QuickCheck.Instances ()
 
 import Network.OAuth2.Server
@@ -43,10 +47,28 @@ instance Arbitrary OAuth2Error where
         ]
 
 instance Arbitrary Scope where
-    arbitrary = Scope <$> arbitrary
+    arbitrary = Scope <$> (S.insert <$> arbitrary <*> arbitrary)
+
+instance Arbitrary ScopeToken where
+    arbitrary = ScopeToken . B.pack <$> listOf1 (elements nqchar)
+
+instance CoArbitrary Scope where
+    coarbitrary = coarbitrary . unScope
+
+instance CoArbitrary ScopeToken where
+    coarbitrary = coarbitrary . unScopeToken
+
+instance Function Scope where
+    function = functionMap unScope Scope
+
+instance Function ScopeToken where
+    function = functionMap unScopeToken ScopeToken
 
 instance Arbitrary Token where
     arbitrary = Token <$> arbitrary
+
+instance Function B.ByteString where
+    function = functionMap B.unpack B.pack
 
 suite :: Spec
 suite = do
@@ -70,6 +92,9 @@ suite = do
         prop "JSON OAuth2Error" $ \x ->
             fromJSON (toJSON x) ===
             (Success x :: Result OAuth2Error)
+
+        prop "isPrism scopeByteString" $
+            isPrism scopeByteString
 
 main :: IO ()
 main = hspec suite
