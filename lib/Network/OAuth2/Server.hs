@@ -12,6 +12,7 @@ import Control.Applicative
 import Control.Monad.IO.Class
 import Data.Maybe
 import Data.Monoid
+import Data.Text (Text)
 import Data.Time.Clock
 
 import Network.OAuth2.Server.Configuration as X
@@ -23,29 +24,27 @@ import Network.OAuth2.Server.Types as X
 createGrant
     :: MonadIO m
     => OAuth2Server m
+    -> Maybe Text
     -> AccessRequest
     -> m (TokenGrant, TokenGrant)
-createGrant Configuration{..} request = do
+createGrant Configuration{..} client_id request = do
     t <- liftIO getCurrentTime
-    (client, user, scope) <- case request of
+    (user, scope) <- case request of
             RequestPassword{..} ->
                 return
-                ( requestClientID
-                , Just requestUsername
+                ( Just requestUsername
                 , fromMaybe mempty requestScope
                 )
             RequestClient{..} ->
                 return
-                ( Just requestClientIDReq
-                , Nothing
+                ( Nothing
                 , fromMaybe mempty requestScope
                 )
             RequestRefresh{..} -> do
                 -- Decode previous token so we can copy details across.
                 previous <- tokenStoreLoad oauth2Store requestRefreshToken
                 return
-                    ( requestClientID
-                    , tokenDetailsUsername =<< previous
+                    ( tokenDetailsUsername =<< previous
                     , fromMaybe mempty (requestScope <|> (tokenDetailsScope <$> previous))
                     )
     let expires = addUTCTime 1800 t
@@ -53,7 +52,7 @@ createGrant Configuration{..} request = do
             { grantTokenType = "access_token"
             , grantExpires = expires
             , grantUsername = user
-            , grantClientID = client
+            , grantClientID = client_id
             , grantScope = scope
             }
         -- Create a refresh token with these details.

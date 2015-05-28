@@ -21,9 +21,9 @@ deriving instance Show AccessRequest
 
 instance Arbitrary AccessRequest where
     arbitrary = oneof
-        [ RequestPassword <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
-        , RequestClient <$> arbitrary <*> arbitrary <*> arbitrary
-        , RequestRefresh <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+        [ RequestPassword <$> arbitrary <*> arbitrary <*> arbitrary
+        , RequestClient <$> arbitrary
+        , RequestRefresh <$> arbitrary <*> arbitrary
         ]
 
 instance Arbitrary AccessResponse where

@@ -91,25 +91,19 @@ data AccessRequest
     = RequestPassword
         -- ^ grant_type=password
         -- http://tools.ietf.org/html/rfc6749#section-4.3.2
-        { requestClientID     :: Maybe Text
-        , requestClientSecret :: Maybe Text
-        , requestUsername     :: Text
+        { requestUsername     :: Text
         , requestPassword     :: Text
         , requestScope        :: Maybe Scope
         }
     | RequestClient
         -- ^ grant_type=client_credentials
         -- http://tools.ietf.org/html/rfc6749#section-4.4.2
-        { requestClientIDReq     :: Text
-        , requestClientSecretReq :: Text
-        , requestScope           :: Maybe Scope
+        { requestScope           :: Maybe Scope
         }
     | RequestRefresh
         -- ^ grant_type=refresh_token
         -- http://tools.ietf.org/html/rfc6749#section-6
-        { requestClientID     :: Maybe Text
-        , requestClientSecret :: Maybe Text
-        , requestRefreshToken :: Token
+        { requestRefreshToken :: Token
         , requestScope        :: Maybe Scope
         }
     deriving (Eq)
@@ -119,8 +113,44 @@ instance FromFormUrlEncoded (Either OAuth2Error AccessRequest) where
         Right x -> return $ Right x
         Left  _ -> Left <$> fromFormUrlEncoded o
 
+lookupEither :: (Eq a, Show a) => a -> [(a,b)] -> Either String b
+lookupEither v vs = case lookup v vs of
+    Nothing -> Left $ "missing required key " <> show v
+    Just x -> Right x
+
 instance FromFormUrlEncoded AccessRequest where
-    fromFormUrlEncoded _ = Left "unimplemented"
+    fromFormUrlEncoded xs = do
+        grant_type <- lookupEither "grant_type" xs
+        case grant_type of
+            "password" -> do
+                requestUsername <- lookupEither "username" xs
+                requestPassword <- lookupEither "password" xs
+                requestScope <- case lookup "scope" xs of
+                    Nothing -> return Nothing
+                    Just x -> case T.encodeUtf8 x ^? scopeByteString of
+                        Nothing -> Left $ "invalid scope " <> show x
+                        Just x' -> return $ Just x'
+                return $ RequestPassword{..}
+            "client_credentials" -> do
+                requestScope <- case lookup "scope" xs of
+                    Nothing -> return Nothing
+                    Just x -> case T.encodeUtf8 x ^? scopeByteString of
+                        Nothing -> Left $ "invalid scope " <> show x
+                        Just x' -> return $ Just x'
+                return $ RequestClient{..}
+            "refresh_token" -> do
+                refresh_token <- lookupEither "refresh_token" xs
+                requestRefreshToken <-
+                    case T.encodeUtf8 refresh_token ^? tokenByteString of
+                        Nothing -> Left $ "invalid refresh_token " <> show refresh_token
+                        Just x  -> return x
+                requestScope <- case lookup "scope" xs of
+                    Nothing -> return Nothing
+                    Just x -> case T.encodeUtf8 x ^? scopeByteString of
+                        Nothing -> Left $ "invalid scope " <> show x
+                        Just x' -> return $ Just x'
+                return $ RequestRefresh{..}
+            x -> Left $ T.unpack x <> " not supported"
 
 instance FromFormUrlEncoded OAuth2Error where
     fromFormUrlEncoded o = case lookup "grant_type" o of
@@ -130,7 +160,21 @@ instance FromFormUrlEncoded OAuth2Error where
             UnsupportedGrantType $ x <> " not supported"
 
 instance ToFormUrlEncoded AccessRequest where
-    toFormUrlEncoded _ = []
+    toFormUrlEncoded RequestPassword{..} =
+        [ ("grant_type", "password")
+        , ("username", requestUsername)
+        , ("password", requestPassword)
+        ] <> [ ("scope", T.decodeUtf8 $ scope ^.re scopeByteString)
+             | Just scope <- return requestScope ]
+    toFormUrlEncoded RequestClient{..} =
+        [("grant_type", "client_credentials")
+        ] <> [ ("scope", T.decodeUtf8 $ scope ^.re scopeByteString)
+             | Just scope <- return requestScope ]
+    toFormUrlEncoded RequestRefresh{..} =
+        [ ("grant_type", "refresh_token")
+        , ("refresh_token", T.decodeUtf8 $ requestRefreshToken ^.re tokenByteString)
+        ] <> [ ("scope", T.decodeUtf8 $ scope ^.re scopeByteString)
+             | Just scope <- return requestScope ]
 
 -- | A response containing an OAuth2 access token grant.
 data AccessResponse = AccessResponse
