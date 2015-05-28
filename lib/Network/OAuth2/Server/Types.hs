@@ -19,6 +19,8 @@ module Network.OAuth2.Server.Types (
   OAuth2Error(..),
   vschar,
   nqchar,
+  grantResponse,
+  compatibleScope,
 ) where
 
 import Control.Applicative

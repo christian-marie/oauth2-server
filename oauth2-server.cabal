@@ -20,7 +20,7 @@ Library
     , Network.OAuth2.Server.Configuration
     , Network.OAuth2.Server.Types
   build-depends:
-      base >=4.7 && <4.8
+      base >=4.7 && <4.9
     , aeson
     , attoparsec
     , bytestring
@@ -34,7 +34,7 @@ Library
     , transformers
     , transformers-compat
 
-  ghc-options: -O2 -Wall -fwarn-tabs -funbox-strict-fields
+  ghc-options: -Wall -fwarn-tabs -funbox-strict-fields
 
 
 test-suite test
@@ -42,7 +42,7 @@ test-suite test
   default-language:    Haskell2010
   hs-source-dirs:      test
   main-is:             test.hs
-  build-depends:       base >=4.7 && <5
+  build-depends:       base
                      , aeson
                      , bytestring
                      , containers
