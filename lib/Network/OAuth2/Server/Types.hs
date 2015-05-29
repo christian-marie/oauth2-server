@@ -20,7 +20,8 @@ module Network.OAuth2.Server.Types (
   password,
   Scope,
   scope,
-  scopeB,
+  scopeToBs,
+  bsToScope,
   ScopeToken,
   scopeToken,
   Token,
@@ -95,17 +96,13 @@ newtype Scope = Scope { unScope :: Set ScopeToken }
 scope :: Prism' (Set ScopeToken) Scope
 scope = prism' unScope (\x -> (guard . not . S.null $ x) >> return (Scope x))
 
--- | Convert between a Scope and a space seperated Text blob, ready for
--- transmission.
-scopeB :: Prism' ByteString Scope
-scopeB =
-    prism' s2b b2s
-  where
-    s2b :: Scope -> ByteString
-    s2b s = B.intercalate " " . fmap (review scopeToken) . S.toList .  unScope $ s
-    b2s :: ByteString -> Maybe Scope
-    b2s b = either fail return $ parseOnly (scopeParser <* endOfInput) b
+scopeToBs :: Scope -> ByteString
+scopeToBs =
+    B.intercalate " " . fmap (review scopeToken) . S.toList .  unScope
 
+bsToScope :: ByteString -> Maybe Scope
+bsToScope b = either fail return $ parseOnly (scopeParser <* endOfInput) b
+  where
     scopeParser :: Parser Scope
     scopeParser = Scope . S.fromList <$> sepBy1 scopeTokenParser (word8 0x20)
 
@@ -258,14 +255,14 @@ instance FromFormUrlEncoded AccessRequest where
                     Just x -> return $ x
                 requestScope <- case lookup "scope" xs of
                     Nothing -> return Nothing
-                    Just x -> case T.encodeUtf8 x ^? scopeB of
+                    Just x -> case bsToScope $ T.encodeUtf8 x of
                         Nothing -> Left $ "invalid scope " <> show x
                         Just x' -> return $ Just x'
                 return $ RequestPassword{..}
             "client_credentials" -> do
                 requestScope <- case lookup "scope" xs of
                     Nothing -> return Nothing
-                    Just x -> case T.encodeUtf8 x ^? scopeB of
+                    Just x -> case bsToScope $ T.encodeUtf8 x of
                         Nothing -> Left $ "invalid scope " <> show x
                         Just x' -> return $ Just x'
                 return $ RequestClient{..}
@@ -277,7 +274,7 @@ instance FromFormUrlEncoded AccessRequest where
                         Just x  -> return x
                 requestScope <- case lookup "scope" xs of
                     Nothing -> return Nothing
-                    Just x -> case T.encodeUtf8 x ^? scopeB of
+                    Just x -> case bsToScope $ T.encodeUtf8 x of
                         Nothing -> Left $ "invalid scope " <> show x
                         Just x' -> return $ Just x'
                 return $ RequestRefresh{..}
@@ -288,16 +285,16 @@ instance ToFormUrlEncoded AccessRequest where
         [ ("grant_type", "password")
         , ("username", requestUsername ^.re username)
         , ("password", requestPassword ^.re password)
-        ] <> [ ("scope", T.decodeUtf8 $ s ^.re scopeB)
+        ] <> [ ("scope", T.decodeUtf8 $ scopeToBs s)
              | Just s <- return requestScope ]
     toFormUrlEncoded RequestClient{..} =
         [("grant_type", "client_credentials")
-        ] <> [ ("scope", T.decodeUtf8 $ s ^.re scopeB)
+        ] <> [ ("scope", T.decodeUtf8 $ scopeToBs s)
              | Just s <- return requestScope ]
     toFormUrlEncoded RequestRefresh{..} =
         [ ("grant_type", "refresh_token")
         , ("refresh_token", T.decodeUtf8 $ requestRefreshToken ^.re token)
-        ] <> [ ("scope", T.decodeUtf8 $ s ^.re scopeB)
+        ] <> [ ("scope", T.decodeUtf8 $ scopeToBs s)
              | Just s <- return requestScope ]
 
 -- | A response containing an OAuth2 access token grant.
@@ -359,11 +356,11 @@ grantResponse TokenDetails{..} refresh = do
         }
 
 instance ToJSON Scope where
-    toJSON ss = String . T.decodeUtf8 $ ss ^.re scopeB
+    toJSON = String . T.decodeUtf8 . scopeToBs
 
 instance FromJSON Scope where
     parseJSON = withText "Scope" $ \t ->
-        case T.encodeUtf8 t ^? scopeB of
+        case bsToScope $ T.encodeUtf8 t of
             Nothing -> fail $ T.unpack t <> " is not a valid Scope."
             Just s -> return s
 

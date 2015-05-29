@@ -159,14 +159,14 @@ suite = do
             fromJSON (toJSON x) ===
             (Success x :: Result OAuth2Error)
 
+        prop "bsToScope (scopeToBs x) === Just x" $ \x ->
+            bsToScope (scopeToBs x) === Just x
+
         prop "isPrism scope" $
             isPrism scope
 
         prop "isPrism scopeToken" $
             isPrism scopeToken
-
-        prop "isPrism scopeB" $
-            isPrism scopeB
 
         prop "isPrism token" $
             isPrism token
