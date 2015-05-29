@@ -83,7 +83,7 @@ newtype ScopeToken = ScopeToken { unScopeToken :: ByteString }
   deriving (Eq, Ord)
 
 instance Show ScopeToken where
-    show = show . (^.re scopeToken)
+    show = show . review scopeToken
 
 instance Read ScopeToken where
     readsPrec n s = [ (x,rest) | (b,rest) <- readsPrec n s, Just x <- [b ^? scopeToken]]
@@ -102,7 +102,7 @@ scopeB =
     prism' s2b b2s
   where
     s2b :: Scope -> ByteString
-    s2b s = B.intercalate " " . fmap (^.re scopeToken) . S.toList .  unScope $ s
+    s2b s = B.intercalate " " . fmap (review scopeToken) . S.toList .  unScope $ s
     b2s :: ByteString -> Maybe Scope
     b2s b = either fail return $ parseOnly (scopeParser <* endOfInput) b
 
@@ -136,7 +136,7 @@ newtype Token = Token { unToken :: ByteString }
   deriving (Eq, Ord)
 
 instance Show Token where
-    show = show . (^.re token)
+    show = show . review token
 
 instance Read Token where
     readsPrec n s = [ (x,rest) | (b,rest) <- readsPrec n s, Just x <- [b ^? token]]
@@ -160,13 +160,13 @@ username =
     prism' unUsername (\t -> guard (T.all unicodecharnocrlf t) >> return (Username t))
 
 instance Show Username where
-    show = show . (^.re username)
+    show = show . review username
 
 instance Read Username where
     readsPrec n s = [ (x,rest) | (t,rest) <- readsPrec n s, Just x <- [t ^? username]]
 
 instance ToJSON Username where
-    toJSON = String . (^.re username)
+    toJSON = String . review username
 
 instance FromJSON Username where
     parseJSON = withText "Username" $ \t ->
@@ -189,7 +189,7 @@ clientID =
     prism' unClientID (\t -> guard (B.all vschar t) >> return (ClientID t))
 
 instance Show ClientID where
-    show = show . (^.re clientID)
+    show = show . review clientID
 
 instance Read ClientID where
     readsPrec n s = [ (x,rest) | (t,rest) <- readsPrec n s, Just x <- [t ^? clientID]]
