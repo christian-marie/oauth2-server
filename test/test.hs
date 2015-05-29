@@ -1,20 +1,24 @@
-{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE RankNTypes          #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving  #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Main where
 
 import Control.Applicative
-import Control.Lens.Properties
 import Control.Lens (review)
 import Control.Lens.Operators
+import Control.Lens.Properties
 import Data.Aeson
 import qualified Data.ByteString as B
+import Data.Monoid
+import Data.Proxy
 import qualified Data.Set as S
 import qualified Data.Text as T
 import Servant.API
 
 import Test.Hspec
 import Test.Hspec.QuickCheck
-import Test.QuickCheck hiding (Result(..))
+import Test.QuickCheck hiding (Result (..))
 import Test.QuickCheck.Function
 import Test.QuickCheck.Instances ()
 
@@ -136,28 +140,34 @@ instance Function Token where
 instance Function B.ByteString where
     function = functionMap B.unpack B.pack
 
+hasCorrectJSON
+    :: forall a. (FromJSON a, ToJSON a, Arbitrary a, Show a, Eq a)
+    => String -> Proxy a -> Spec
+hasCorrectJSON name _ = do
+    prop ("forall (x :: "<>name<>"). fromJSON (toJSON x) === Success x") $ \x ->
+            fromJSON (toJSON x) ===
+            (Success x :: Result a)
+
+hasCorrectFormUrlEncoded
+    :: forall a. (FromFormUrlEncoded a, ToFormUrlEncoded a, Arbitrary a, Show a, Eq a)
+     => String -> Proxy a -> Spec
+hasCorrectFormUrlEncoded name _ = do
+    prop ("forall (x :: "<>name<>"). fromFormUrlEncoded (toFormUrlEncoded x) === Right x") $ \x ->
+            fromFormUrlEncoded (toFormUrlEncoded x) ===
+            (Right x :: Either String a)
+
 suite :: Spec
 suite = do
     describe "Marshalling" $ do
-        prop "JSON Scope" $ \x ->
-            fromJSON (toJSON x) ===
-            (Success x :: Result Scope)
+        hasCorrectJSON "Scope" (Proxy :: Proxy Scope)
 
-        prop "JSON Token" $ \x ->
-            fromJSON (toJSON x) ===
-            (Success x :: Result Token)
+        hasCorrectJSON "Token" (Proxy :: Proxy Token)
 
-        prop "FormUrlEncoded AccessRequest" $ \x ->
-            fromFormUrlEncoded (toFormUrlEncoded x) ===
-            (Right x :: Either String AccessRequest)
+        hasCorrectJSON "AccessResponse" (Proxy :: Proxy AccessResponse)
 
-        prop "JSON AccessResponse" $ \x ->
-            fromJSON (toJSON x) ===
-            (Success x :: Result AccessResponse)
+        hasCorrectJSON "OAuth2Error" (Proxy :: Proxy OAuth2Error)
 
-        prop "JSON OAuth2Error" $ \x ->
-            fromJSON (toJSON x) ===
-            (Success x :: Result OAuth2Error)
+        hasCorrectFormUrlEncoded "AccessRequest" (Proxy :: Proxy AccessRequest)
 
         prop "bsToScope (scopeToBs x) === Just x" $ \x ->
             bsToScope (scopeToBs x) === Just x
