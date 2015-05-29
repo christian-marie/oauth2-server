@@ -4,6 +4,7 @@
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- | Description: Data types for OAuth2 server.
 module Network.OAuth2.Server.Types (
@@ -16,6 +17,10 @@ module Network.OAuth2.Server.Types (
   nqchar,
   nqschar,
   OAuth2Error(..),
+  ErrorCode(..),
+  errorCode,
+  ErrorDescription,
+  errorDescription,
   Password,
   password,
   Scope,
@@ -53,6 +58,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Time.Clock
 import Data.Word
+import Network.URI
 import Servant.API
 
 vschar :: Word8 -> Bool
@@ -231,9 +237,9 @@ instance FromFormUrlEncoded (Either OAuth2Error AccessRequest) where
         Right x -> return $ Right x
         Left  _ -> Left <$> case lookup "grant_type" o of
             Nothing ->
-                return $ InvalidRequest "Request must include grant_type."
-            Just x ->
-                return $ UnsupportedGrantType $ x <> " not supported"
+                return $ OAuth2Error InvalidRequest Nothing Nothing
+            Just _ ->
+                return $ OAuth2Error UnsupportedGrantType Nothing Nothing
 
 lookupEither :: (Eq a, Show a) => a -> [(a,b)] -> Either String b
 lookupEither v vs = case lookup v vs of
@@ -395,48 +401,103 @@ instance FromJSON AccessResponse where
         <*> o .:? "client_id"
         <*> o .: "scope"
 
+newtype ErrorDescription = ErrorDescription { unErrorDescription :: ByteString }
+    deriving (Eq)
+
+errorDescription :: Prism' ByteString ErrorDescription
+errorDescription =
+    prism' unErrorDescription $ \b -> do
+        guard . not $ B.null b
+        guard $ B.all nqschar b
+        return (ErrorDescription b)
+
+instance Show ErrorDescription where
+    show = show . review errorDescription
+
+instance Read ErrorDescription where
+    readsPrec n s = [ (x,rest) | (t,rest) <- readsPrec n s, Just x <- [t ^? errorDescription]]
+
+instance ToJSON ErrorDescription where
+    toJSON c = String . T.decodeUtf8 $ c ^.re errorDescription
+
+instance FromJSON ErrorDescription where
+    parseJSON = withText "ErrorDescription" $ \t ->
+        case T.encodeUtf8 t ^? errorDescription of
+            Nothing -> fail $ T.unpack t <> " is not a valid ErrorDescription."
+            Just s -> return s
+
 -- | Standard OAuth2 errors.
 --
 -- The creator should supply a human-readable message explaining the specific
 -- error which will be returned to the client.
 --
 -- http://tools.ietf.org/html/rfc6749#section-5.2
-data OAuth2Error
-    = InvalidClient { errorDescription :: Text }
-    | InvalidGrant { errorDescription :: Text }
-    | InvalidRequest { errorDescription :: Text }
-    | InvalidScope { errorDescription :: Text }
-    | UnauthorizedClient { errorDescription :: Text }
-    | UnsupportedGrantType { errorDescription :: Text }
+data OAuth2Error = OAuth2Error
+    { oauth2ErrorCode :: ErrorCode
+    , oauth2ErrorDescription :: Maybe ErrorDescription
+    , oauth2ErrorURI :: Maybe URI
+    }
+  deriving (Eq, Show)
+
+data ErrorCode
+    = InvalidClient
+    | InvalidGrant
+    | InvalidRequest
+    | InvalidScope
+    | UnauthorizedClient
+    | UnsupportedGrantType
   deriving (Eq, Show)
 
 -- | Get the OAuth2 error code for an error case.
-oauth2ErrorCode
-    :: OAuth2Error
-    -> Text
-oauth2ErrorCode err = case err of
-    InvalidClient{} -> "invalid_client"
-    InvalidGrant{} -> "invalid_grant"
-    InvalidRequest{} -> "invalid_request"
-    InvalidScope{} -> "invalid_scope"
-    UnauthorizedClient{} -> "unauthorized_client"
-    UnsupportedGrantType{} -> "unsupported_grant_type"
+errorCode :: Prism' ByteString ErrorCode
+errorCode = prism' fromErrorCode toErrorCode
+  where
+    fromErrorCode :: ErrorCode -> ByteString
+    fromErrorCode e = case e of
+        InvalidClient -> "invalid_client"
+        InvalidGrant -> "invalid_grant"
+        InvalidRequest -> "invalid_request"
+        InvalidScope -> "invalid_scope"
+        UnauthorizedClient -> "unauthorized_client"
+        UnsupportedGrantType -> "unsupported_grant_type"
+
+    toErrorCode :: ByteString -> Maybe ErrorCode
+    toErrorCode code = case code of
+        "invalid_client" -> pure InvalidClient
+        "invalid_grant" -> pure InvalidGrant
+        "invalid_request" -> pure InvalidRequest
+        "invalid_scope" -> pure InvalidScope
+        "unauthorized_client" -> pure UnauthorizedClient
+        "unsupported_grant_type" -> pure UnsupportedGrantType
+        _ -> fail $ show code <> " is not a valid error code."
+
+instance ToJSON ErrorCode where
+    toJSON c = String . T.decodeUtf8 $ c ^.re errorCode
+
+instance FromJSON ErrorCode where
+    parseJSON = withText "ErrorCode" $ \t ->
+        case T.encodeUtf8 t ^? errorCode of
+            Nothing -> fail $ T.unpack t <> " is not a valid URI."
+            Just s -> return s
+
+instance ToJSON URI where
+    toJSON = toJSON . show
+
+instance FromJSON URI where
+    parseJSON = withText "URI" $ \t ->
+        case parseURI (T.unpack t) of
+            Nothing -> fail $ T.unpack t <> " is not a valid URI."
+            Just s -> return s
 
 instance ToJSON OAuth2Error where
-    toJSON err = object
-        [ "error" .= oauth2ErrorCode err
-        , "error_description" .= errorDescription err
-        ]
+    toJSON OAuth2Error{..} = object $
+        [ "error" .= oauth2ErrorCode ] <>
+        [ "error_description" .= desc | Just desc <- [oauth2ErrorDescription]] <>
+        [ "error_uri" .= uri | Just uri <- [oauth2ErrorURI]]
 
 instance FromJSON OAuth2Error where
-    parseJSON = withObject "OAuth2Error" $ \o -> do
-        code <- o .: "error"
-        description <- o .: "error_description"
-        case code of
-            "invalid_client" -> pure $ InvalidClient description
-            "invalid_grant" -> pure $ InvalidGrant description
-            "invalid_request" -> pure $ InvalidRequest description
-            "invalid_scope" -> pure $ InvalidScope description
-            "unauthorized_client" -> pure $ UnauthorizedClient description
-            "unsupported_grant_type" -> pure $ UnsupportedGrantType description
-            _ -> fail $ code <> " is not a valid error code."
+    parseJSON = withObject "OAuth2Error" $ \o -> OAuth2Error
+        <$> o .: "error"
+        <*> o .:? "error_description"
+        <*> o .:? "error_uri"
+

@@ -10,10 +10,12 @@ import Control.Lens.Operators
 import Control.Lens.Properties
 import Data.Aeson
 import qualified Data.ByteString as B
+import Data.Char
 import Data.Monoid
 import Data.Proxy
 import qualified Data.Set as S
 import qualified Data.Text as T
+import Network.URI
 import Servant.API
 
 import Test.Hspec
@@ -88,15 +90,42 @@ instance Arbitrary AccessResponse where
         <*> arbitrary
         <*> arbitrary
 
-instance Arbitrary OAuth2Error where
-    arbitrary = oneof
-        [ InvalidClient <$> arbitrary
-        , InvalidGrant <$> arbitrary
-        , InvalidRequest <$> arbitrary
-        , InvalidScope <$> arbitrary
-        , UnauthorizedClient <$> arbitrary
-        , UnsupportedGrantType <$> arbitrary
+instance Arbitrary ErrorCode where
+    arbitrary = elements
+        [ InvalidClient
+        , InvalidGrant
+        , InvalidRequest
+        , InvalidScope
+        , UnauthorizedClient
+        , UnsupportedGrantType
         ]
+
+instance Arbitrary ErrorDescription where
+    arbitrary = do
+        b <- B.pack <$> listOf1 (arbitrary `suchThat` nqschar)
+        case b ^? errorDescription of
+            Nothing -> fail "instance Arbitrary ErrorDescription is broken"
+            Just x -> return x
+
+instance Arbitrary URIAuth where
+    arbitrary = URIAuth
+        <$> pure ""
+        <*> pure "www.haskell.org"
+        <*> pure ""
+
+instance Arbitrary URI where
+    arbitrary = URI
+        <$> elements ["https:", "http:"]
+        <*> arbitrary
+        <*> pure ""
+        <*> pure ""
+        <*> pure ""
+
+instance Arbitrary OAuth2Error where
+    arbitrary = OAuth2Error
+        <$> arbitrary
+        <*> arbitrary
+        <*> arbitrary
 
 instance Arbitrary Scope where
     arbitrary = do
