@@ -8,13 +8,16 @@ import Control.Applicative
 import Control.Lens (review)
 import Control.Lens.Operators
 import Control.Lens.Properties
+import Control.Monad
 import Data.Aeson
 import qualified Data.ByteString as B
 import Data.Char
+import Data.List
 import Data.Monoid
 import Data.Proxy
 import qualified Data.Set as S
 import qualified Data.Text as T
+import Data.Word
 import Network.URI
 import Servant.API
 
@@ -38,7 +41,7 @@ instance Arbitrary Password where
     arbitrary = do
         t <- T.pack <$> listOf (arbitrary `suchThat` unicodecharnocrlf)
         case t ^? password of
-            Nothing -> fail "instance Arbitrary Password is broken"
+            Nothing -> fail $ "instance Arbitrary Password is broken" <> show t
             Just x -> return x
 
 instance CoArbitrary Password where
@@ -51,7 +54,7 @@ instance Arbitrary Username where
     arbitrary = do
         t <- T.pack <$> listOf (arbitrary `suchThat` unicodecharnocrlf)
         case t ^? username of
-            Nothing -> fail "instance Arbitrary Username is broken"
+            Nothing -> fail $ "instance Arbitrary Username is broken" <> show t
             Just x -> return x
 
 instance CoArbitrary Username where
@@ -64,7 +67,8 @@ instance Arbitrary ClientID where
     arbitrary = do
         b <- B.pack <$> listOf (arbitrary `suchThat` vschar)
         case b ^? clientID of
-            Nothing -> fail "instance Arbitrary ClientID is broken"
+            Nothing ->
+                fail $ "instance Arbitrary ClientID is broken: " <> show b
             Just x -> return x
 
 instance CoArbitrary ClientID where
@@ -104,22 +108,56 @@ instance Arbitrary ErrorDescription where
     arbitrary = do
         b <- B.pack <$> listOf1 (arbitrary `suchThat` nqschar)
         case b ^? errorDescription of
-            Nothing -> fail "instance Arbitrary ErrorDescription is broken"
+            Nothing ->
+                fail $ "instance Arbitrary ErrorDescription is broken: " <> show b
             Just x -> return x
 
 instance Arbitrary URIAuth where
     arbitrary = URIAuth
-        <$> pure ""
-        <*> pure "www.haskell.org"
-        <*> pure ""
+        <$> genUserInfo
+        <*> genRegName
+        <*> genPort
+      where
+        alpha = arbitrary `suchThat` (\x -> isAlpha x && isAscii x)
+        digit = elements ['0'..'9']
+        genUserInfo = oneof
+            [ pure ""
+            , concat <$> sequence [listOf alpha, pure "@"]
+            ]
+        genRegName = oneof
+            [ intercalate "." . map show <$> replicateM 4 (arbitrary :: Gen Word8)
+            ]
+        genPort = oneof
+            [ pure ""
+            , concat <$> sequence [pure ":", listOf digit]
+            ]
 
 instance Arbitrary URI where
-    arbitrary = URI
-        <$> elements ["https:", "http:"]
-        <*> arbitrary
-        <*> pure ""
-        <*> pure ""
-        <*> pure ""
+    arbitrary = do
+        uri <- genURI
+        case parseURI (show uri) of
+            Nothing -> fail $ "instance Arbitrary URI is broken: " <> show uri
+            Just  _ -> return uri
+      where
+        genURI = URI
+            <$> genScheme
+            <*> arbitrary
+            <*> genPath
+            <*> genQuery
+            <*> genFragment
+        alpha = arbitrary `suchThat` (\x -> isAlpha x && isAscii x)
+        digit = elements ['0'..'9']
+        genScheme = concat <$> sequence
+            [ (:[]) <$> alpha
+            , listOf (oneof [alpha, digit, elements "+-."])
+            , pure ":"
+            ]
+        genPath = oneof
+            [ pure "" ]
+        genQuery = oneof
+            [ pure "" ]
+        genFragment = oneof
+            [ pure "" ]
 
 instance Arbitrary OAuth2Error where
     arbitrary = OAuth2Error
