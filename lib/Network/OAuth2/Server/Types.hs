@@ -3,24 +3,34 @@
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- | Description: Data types for OAuth2 server.
 module Network.OAuth2.Server.Types (
-  TokenDetails (..),
   AccessRequest(..),
   AccessResponse(..),
-  TokenGrant(..),
-  Token,
-  tokenByteString,
-  Scope(..),
-  scopeByteString,
-  ScopeToken,
-  scopeTokenByteString,
-  OAuth2Error(..),
-  vschar,
-  nqchar,
-  grantResponse,
+  ClientID,
+  clientID,
   compatibleScope,
+  grantResponse,
+  nqchar,
+  nqschar,
+  OAuth2Error(..),
+  Password,
+  password,
+  Scope,
+  scope,
+  scopeB,
+  ScopeToken,
+  scopeToken,
+  Token,
+  token,
+  TokenDetails(..),
+  TokenGrant(..),
+  unicodecharnocrlf,
+  Username,
+  username,
+  vschar,
 ) where
 
 import Control.Applicative
@@ -33,6 +43,7 @@ import Data.Aeson
 import Data.Attoparsec.ByteString
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
+import Data.Char
 import Data.Monoid
 import Data.Set (Set)
 import qualified Data.Set as S
@@ -43,47 +54,72 @@ import Data.Time.Clock
 import Data.Word
 import Servant.API
 
+vschar :: Word8 -> Bool
+vschar c = c>=0x20 && c<=0x7E
+
+nqchar :: Word8 -> Bool
+nqchar c = or
+    [ c==0x21
+    , c>=0x23 && c<=0x5B
+    , c>=0x5D && c<=0x7E
+    ]
+
+nqschar :: Word8 -> Bool
+nqschar c = or
+    [ c>=0x22 && c<=0x21
+    , c>=0x23 && c<=0x5B
+    , c>=0x5D && c<=0x7E
+    ]
+
+unicodecharnocrlf :: Char -> Bool
+unicodecharnocrlf (ord -> c) = or
+    [ c==0x09
+    , c>=0x20 && c<=0x7E
+    , c>=0x80 && c<=0xD7FF
+    , c>=0xE000 && c<=0xFFFD
+    ]
+
 newtype ScopeToken = ScopeToken { unScopeToken :: ByteString }
   deriving (Eq, Ord)
 
 instance Show ScopeToken where
-    show = show . (^.re scopeTokenByteString)
+    show = show . (^.re scopeToken)
 
 instance Read ScopeToken where
-    readsPrec n s = [ (x,rest) | (b,rest) <- readsPrec n s, Just x <- [b ^? scopeTokenByteString]]
+    readsPrec n s = [ (x,rest) | (b,rest) <- readsPrec n s, Just x <- [b ^? scopeToken]]
 
 -- | A scope is a list of strings.
 newtype Scope = Scope { unScope :: Set ScopeToken }
-  deriving (Eq, Show, Monoid)
+  deriving (Eq, Read, Show)
+
+scope :: Prism' (Set ScopeToken) Scope
+scope = prism' unScope (\x -> (guard . not . S.null $ x) >> return (Scope x))
 
 -- | Convert between a Scope and a space seperated Text blob, ready for
 -- transmission.
-scopeByteString :: Prism' ByteString Scope
-scopeByteString =
+scopeB :: Prism' ByteString Scope
+scopeB =
     prism' s2b b2s
   where
     s2b :: Scope -> ByteString
-    s2b s = B.intercalate " " . fmap (^.re scopeTokenByteString) . S.toList .  unScope $ s
+    s2b s = B.intercalate " " . fmap (^.re scopeToken) . S.toList .  unScope $ s
     b2s :: ByteString -> Maybe Scope
-    b2s b = either fail return $ parseOnly (scope <* endOfInput) b
+    b2s b = either fail return $ parseOnly (scopeParser <* endOfInput) b
 
-    scope :: Parser Scope
-    scope = Scope . S.fromList <$> sepBy1 scopeToken (word8 0x20)
+    scopeParser :: Parser Scope
+    scopeParser = Scope . S.fromList <$> sepBy1 scopeTokenParser (word8 0x20)
 
-scopeTokenByteString :: Prism' ByteString ScopeToken
-scopeTokenByteString =
+scopeToken :: Prism' ByteString ScopeToken
+scopeToken =
     prism' s2b b2s
   where
     s2b :: ScopeToken -> ByteString
     s2b s = unScopeToken s
     b2s :: ByteString -> Maybe ScopeToken
-    b2s b = either fail return $ parseOnly (scopeToken <* endOfInput) b
+    b2s b = either fail return $ parseOnly (scopeTokenParser <* endOfInput) b
 
-scopeToken :: Parser ScopeToken
-scopeToken = ScopeToken <$> takeWhile1 (`elem` nqchar)
-
-nqchar :: [Word8]
-nqchar = [0x21] <> [0x23..0x5B] <> [0x5D..0x7E]
+scopeTokenParser :: Parser ScopeToken
+scopeTokenParser = ScopeToken <$> takeWhile1 nqchar
 
 -- | Check that a 'Scope' is compatible with another.
 --
@@ -100,24 +136,72 @@ newtype Token = Token { unToken :: ByteString }
   deriving (Eq, Ord)
 
 instance Show Token where
-    show = show . (^.re tokenByteString)
+    show = show . (^.re token)
 
 instance Read Token where
-    readsPrec n s = [ (x,rest) | (b,rest) <- readsPrec n s, Just x <- [b ^? tokenByteString]]
+    readsPrec n s = [ (x,rest) | (b,rest) <- readsPrec n s, Just x <- [b ^? token]]
 
-tokenByteString :: Prism' ByteString Token
-tokenByteString = prism' t2b b2t
+token :: Prism' ByteString Token
+token = prism' t2b b2t
   where
     t2b :: Token -> ByteString
     t2b t = unToken t
     b2t :: ByteString -> Maybe Token
     b2t b = do
         guard . not $ B.null b
-        guard $ B.all (`elem` vschar) b
+        guard $ B.all vschar b
         return (Token b)
 
-vschar :: [Word8]
-vschar = [0x20..0x7E]
+newtype Username = Username { unUsername :: Text }
+    deriving (Eq)
+
+username :: Prism' Text Username
+username =
+    prism' unUsername (\t -> guard (T.all unicodecharnocrlf t) >> return (Username t))
+
+instance Show Username where
+    show = show . (^.re username)
+
+instance Read Username where
+    readsPrec n s = [ (x,rest) | (t,rest) <- readsPrec n s, Just x <- [t ^? username]]
+
+instance ToJSON Username where
+    toJSON = String . (^.re username)
+
+instance FromJSON Username where
+    parseJSON = withText "Username" $ \t ->
+        case t ^? username of
+            Nothing -> fail $ show t <> " is not a valid Username."
+            Just s -> return s
+
+newtype Password = Password { unPassword :: Text }
+    deriving (Eq)
+
+password :: Prism' Text Password
+password =
+    prism' unPassword (\t -> guard (T.all unicodecharnocrlf t) >> return (Password t))
+
+newtype ClientID = ClientID { unClientID :: ByteString }
+    deriving (Eq)
+
+clientID :: Prism' ByteString ClientID
+clientID =
+    prism' unClientID (\t -> guard (B.all vschar t) >> return (ClientID t))
+
+instance Show ClientID where
+    show = show . (^.re clientID)
+
+instance Read ClientID where
+    readsPrec n s = [ (x,rest) | (t,rest) <- readsPrec n s, Just x <- [t ^? clientID]]
+
+instance ToJSON ClientID where
+    toJSON c = String . T.decodeUtf8 $ c ^.re clientID
+
+instance FromJSON ClientID where
+    parseJSON = withText "ClientID" $ \t ->
+        case T.encodeUtf8 t ^? clientID of
+            Nothing -> fail $ T.unpack t <> " is not a valid ClientID."
+            Just s -> return s
 
 -- | A request to the token endpoint.
 --
@@ -128,8 +212,8 @@ data AccessRequest
     = RequestPassword
         -- ^ grant_type=password
         -- http://tools.ietf.org/html/rfc6749#section-4.3.2
-        { requestUsername     :: Text
-        , requestPassword     :: Text
+        { requestUsername     :: Username
+        , requestPassword     :: Password
         , requestScope        :: Maybe Scope
         }
     | RequestClient
@@ -164,30 +248,36 @@ instance FromFormUrlEncoded AccessRequest where
         grant_type <- lookupEither "grant_type" xs
         case grant_type of
             "password" -> do
-                requestUsername <- lookupEither "username" xs
-                requestPassword <- lookupEither "password" xs
+                u <- lookupEither "username" xs
+                requestUsername <- case u ^? username of
+                    Nothing -> Left $ "invalid username " <> show u
+                    Just x -> return $ x
+                p <- lookupEither "password" xs
+                requestPassword <- case p ^? password of
+                    Nothing -> Left $ "invalid password " <> show p
+                    Just x -> return $ x
                 requestScope <- case lookup "scope" xs of
                     Nothing -> return Nothing
-                    Just x -> case T.encodeUtf8 x ^? scopeByteString of
+                    Just x -> case T.encodeUtf8 x ^? scopeB of
                         Nothing -> Left $ "invalid scope " <> show x
                         Just x' -> return $ Just x'
                 return $ RequestPassword{..}
             "client_credentials" -> do
                 requestScope <- case lookup "scope" xs of
                     Nothing -> return Nothing
-                    Just x -> case T.encodeUtf8 x ^? scopeByteString of
+                    Just x -> case T.encodeUtf8 x ^? scopeB of
                         Nothing -> Left $ "invalid scope " <> show x
                         Just x' -> return $ Just x'
                 return $ RequestClient{..}
             "refresh_token" -> do
                 refresh_token <- lookupEither "refresh_token" xs
                 requestRefreshToken <-
-                    case T.encodeUtf8 refresh_token ^? tokenByteString of
+                    case T.encodeUtf8 refresh_token ^? token of
                         Nothing -> Left $ "invalid refresh_token " <> show refresh_token
                         Just x  -> return x
                 requestScope <- case lookup "scope" xs of
                     Nothing -> return Nothing
-                    Just x -> case T.encodeUtf8 x ^? scopeByteString of
+                    Just x -> case T.encodeUtf8 x ^? scopeB of
                         Nothing -> Left $ "invalid scope " <> show x
                         Just x' -> return $ Just x'
                 return $ RequestRefresh{..}
@@ -196,19 +286,19 @@ instance FromFormUrlEncoded AccessRequest where
 instance ToFormUrlEncoded AccessRequest where
     toFormUrlEncoded RequestPassword{..} =
         [ ("grant_type", "password")
-        , ("username", requestUsername)
-        , ("password", requestPassword)
-        ] <> [ ("scope", T.decodeUtf8 $ scope ^.re scopeByteString)
-             | Just scope <- return requestScope ]
+        , ("username", requestUsername ^.re username)
+        , ("password", requestPassword ^.re password)
+        ] <> [ ("scope", T.decodeUtf8 $ s ^.re scopeB)
+             | Just s <- return requestScope ]
     toFormUrlEncoded RequestClient{..} =
         [("grant_type", "client_credentials")
-        ] <> [ ("scope", T.decodeUtf8 $ scope ^.re scopeByteString)
-             | Just scope <- return requestScope ]
+        ] <> [ ("scope", T.decodeUtf8 $ s ^.re scopeB)
+             | Just s <- return requestScope ]
     toFormUrlEncoded RequestRefresh{..} =
         [ ("grant_type", "refresh_token")
-        , ("refresh_token", T.decodeUtf8 $ requestRefreshToken ^.re tokenByteString)
-        ] <> [ ("scope", T.decodeUtf8 $ scope ^.re scopeByteString)
-             | Just scope <- return requestScope ]
+        , ("refresh_token", T.decodeUtf8 $ requestRefreshToken ^.re token)
+        ] <> [ ("scope", T.decodeUtf8 $ s ^.re scopeB)
+             | Just s <- return requestScope ]
 
 -- | A response containing an OAuth2 access token grant.
 data AccessResponse = AccessResponse
@@ -216,8 +306,8 @@ data AccessResponse = AccessResponse
     , accessToken    :: Token
     , refreshToken   :: Maybe Token
     , tokenExpiresIn :: Int
-    , tokenUsername  :: Maybe Text
-    , tokenClientID  :: Maybe Text
+    , tokenUsername  :: Maybe Username
+    , tokenClientID  :: Maybe ClientID
     , tokenScope     :: Scope
     }
   deriving (Eq, Show)
@@ -229,9 +319,9 @@ data AccessResponse = AccessResponse
 data TokenGrant = TokenGrant
     { grantTokenType :: Text
     , grantExpires   :: UTCTime
-    , grantUsername  :: Maybe Text
-    , grantClientID  :: Maybe Text
-    , grantScope     :: Scope
+    , grantUsername  :: Maybe Username
+    , grantClientID  :: Maybe ClientID
+    , grantScope     :: Maybe Scope
     }
   deriving (Eq, Show)
 
@@ -243,8 +333,8 @@ data TokenDetails = TokenDetails
     { tokenDetailsTokenType :: Text
     , tokenDetailsToken     :: Token
     , tokenDetailsExpires   :: UTCTime
-    , tokenDetailsUsername  :: Maybe Text
-    , tokenDetailsClientID  :: Maybe Text
+    , tokenDetailsUsername  :: Maybe Username
+    , tokenDetailsClientID  :: Maybe ClientID
     , tokenDetailsScope     :: Scope
     }
   deriving (Eq, Show)
@@ -269,33 +359,34 @@ grantResponse TokenDetails{..} refresh = do
         }
 
 instance ToJSON Scope where
-    toJSON ss = String . T.decodeUtf8 $ ss ^.re scopeByteString
+    toJSON ss = String . T.decodeUtf8 $ ss ^.re scopeB
 
 instance FromJSON Scope where
     parseJSON = withText "Scope" $ \t ->
-        case T.encodeUtf8 t ^? scopeByteString of
+        case T.encodeUtf8 t ^? scopeB of
             Nothing -> fail $ T.unpack t <> " is not a valid Scope."
             Just s -> return s
 
 instance ToJSON Token where
-    toJSON t = String . T.decodeUtf8 $ t ^.re tokenByteString
+    toJSON t = String . T.decodeUtf8 $ t ^.re token
 
 instance FromJSON Token where
     parseJSON = withText "Token" $ \t ->
-        case T.encodeUtf8 t ^? tokenByteString of
+        case T.encodeUtf8 t ^? token of
             Nothing -> fail $ T.unpack t <> " is not a valid Token."
             Just s -> return s
+
 instance ToJSON AccessResponse where
     toJSON AccessResponse{..} =
-        let token = [ "access_token" .= accessToken
-                    , "token_type" .= tokenType
-                    , "expires_in" .= tokenExpiresIn
-                    , "scope" .= tokenScope
-                    ]
+        let tok = [ "access_token" .= accessToken
+                  , "token_type" .= tokenType
+                  , "expires_in" .= tokenExpiresIn
+                  , "scope" .= tokenScope
+                  ]
             ref = maybe [] (\t -> ["refresh_token" .= T.decodeUtf8 (unToken t)]) refreshToken
             uname = maybe [] (\s -> ["username" .= toJSON s]) tokenUsername
             client = maybe [] (\s -> ["client_id" .= toJSON s]) tokenClientID
-        in object . concat $ [token, ref, uname, client]
+        in object . concat $ [tok, ref, uname, client]
 
 instance FromJSON AccessResponse where
     parseJSON = withObject "AccessResponse" $ \o -> AccessResponse

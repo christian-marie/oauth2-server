@@ -57,3 +57,4 @@ test-suite test
                      , QuickCheck
                      , quickcheck-instances
                      , servant
+                     , text
