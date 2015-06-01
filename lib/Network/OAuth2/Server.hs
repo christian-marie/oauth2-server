@@ -1,8 +1,9 @@
+{-# LANGUAGE DataKinds         #-}
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes        #-}
 {-# LANGUAGE RecordWildCards   #-}
-{-# LANGUAGE DataKinds, TypeOperators #-}
+{-# LANGUAGE TypeOperators     #-}
 
 module Network.OAuth2.Server (
     module X,
@@ -18,7 +19,6 @@ import Control.Monad.Trans.Except
 import Data.Aeson
 import Data.ByteString (ByteString)
 import Data.ByteString.Conversion
-import Data.Maybe
 import Data.Time.Clock
 import Servant.API
 import Servant.Server
