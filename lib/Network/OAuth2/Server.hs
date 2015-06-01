@@ -2,18 +2,64 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes        #-}
 {-# LANGUAGE RecordWildCards   #-}
+{-# LANGUAGE DataKinds, TypeOperators #-}
 
 module Network.OAuth2.Server (
     module X,
     createGrant,
+    tokenEndpoint,
+    TokenEndpoint,
 ) where
 
 import Control.Applicative
+import Control.Monad.Error.Class
 import Control.Monad.IO.Class
+import Control.Monad.Trans.Except
+import Data.Aeson
+import Data.ByteString (ByteString)
+import Data.ByteString.Conversion
+import Data.Maybe
 import Data.Time.Clock
+import Servant.API
+import Servant.Server
 
 import Network.OAuth2.Server.Configuration as X
 import Network.OAuth2.Server.Types as X
+
+data NoStore = NoStore
+instance ToByteString NoStore where
+    builder _ = "no-store"
+
+data NoCache = NoCache
+instance ToByteString NoCache where
+    builder _ = "no-cache"
+
+type TokenEndpoint
+    = "token"
+    :> Header "Authorization" ByteString
+    :> ReqBody '[FormUrlEncoded] (Either OAuth2Error AccessRequest)
+    :> Post '[JSON] (Headers '[Header "Cache-Control" NoStore, Header "Pragma" NoCache] AccessResponse)
+
+throwOAuth2Error :: (MonadError ServantErr m) => OAuth2Error -> m a
+throwOAuth2Error e =
+    throwError err400 { errBody = encode e
+                      , errHeaders = [("Content-Type", "application/json")]
+                      }
+
+tokenEndpoint :: (MonadIO m, MonadError ServantErr m) => OAuth2Server m -> ServerT TokenEndpoint m
+tokenEndpoint _ _ (Left e) = throwOAuth2Error e
+tokenEndpoint conf@Configuration{..} auth (Right req) = do
+    res <- runExceptT $ oauth2CheckCredentials req
+    case res of
+        Left e -> throwOAuth2Error e
+        Right modified_req -> do
+            -- TODO: Client ID
+            (access_grant, refresh_grant) <- createGrant conf Nothing modified_req
+            access_details <- tokenStoreSave oauth2Store access_grant
+            refresh_details <- tokenStoreSave oauth2Store refresh_grant
+            response <- grantResponse access_details (Just $ tokenDetailsToken refresh_details)
+            return $ addHeader NoStore $ addHeader NoCache $ response
+
 
 -- | Create a 'TokenGrant' representing a new token.
 --

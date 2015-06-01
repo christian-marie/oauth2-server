@@ -29,6 +29,6 @@ data OAuth2TokenStore m = TokenStore
 data OAuth2Server m = Configuration
     { oauth2Store            :: OAuth2TokenStore m
     -- ^ Load and store tokens.
-    , oauth2CheckCredentials :: AccessRequest -> ExceptT String m AccessRequest
+    , oauth2CheckCredentials :: AccessRequest -> ExceptT OAuth2Error m AccessRequest
     -- ^ Check the credentials provided by the resource owner.
     }
