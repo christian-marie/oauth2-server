@@ -42,11 +42,11 @@ createGrant Configuration{..} client_id request = do
                 previous <- tokenStoreLoad oauth2Store requestRefreshToken
                 return
                     ( tokenDetailsUsername =<< previous
-                    , requestScope <|> (tokenDetailsScope <$> previous)
+                    , requestScope <|> (tokenDetailsScope =<< previous)
                     )
     let expires = addUTCTime 1800 t
         access_grant = TokenGrant
-            { grantTokenType = "access_token"
+            { grantTokenType = Bearer
             , grantExpires = expires
             , grantUsername = user
             , grantClientID = client_id
@@ -55,7 +55,7 @@ createGrant Configuration{..} client_id request = do
         -- Create a refresh token with these details.
         refresh_expires = addUTCTime (3600 * 24 * 7) t
         refresh_grant = access_grant
-            { grantTokenType = "refresh_token"
+            { grantTokenType = Refresh
             , grantExpires = refresh_expires
             }
     return (access_grant, refresh_grant)

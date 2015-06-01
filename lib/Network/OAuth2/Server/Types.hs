@@ -1,9 +1,10 @@
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiWayIf                 #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE TemplateHaskell            #-}
-{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE ViewPatterns               #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- | Description: Data types for OAuth2 server.
@@ -31,6 +32,7 @@ module Network.OAuth2.Server.Types (
   scopeToken,
   Token,
   token,
+  TokenType(..),
   TokenDetails(..),
   TokenGrant(..),
   unicodecharnocrlf,
@@ -40,15 +42,17 @@ module Network.OAuth2.Server.Types (
 ) where
 
 import Control.Applicative
+import Control.Lens.Fold
+import Control.Lens.Operators hiding ((.=))
 import Control.Lens.Prism
 import Control.Lens.Review
-import Control.Lens.Operators hiding ((.=))
 import Control.Monad
 import Control.Monad.IO.Class
 import Data.Aeson
 import Data.Attoparsec.ByteString
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
+import Data.CaseInsensitive
 import Data.Char
 import Data.Monoid
 import Data.Set (Set)
@@ -95,7 +99,7 @@ instance Show ScopeToken where
 instance Read ScopeToken where
     readsPrec n s = [ (x,rest) | (b,rest) <- readsPrec n s, Just x <- [b ^? scopeToken]]
 
--- | A scope is a list of strings.
+-- | A scope is a nonemty set of `ScopeToken`s
 newtype Scope = Scope { unScope :: Set ScopeToken }
   deriving (Eq, Read, Show)
 
@@ -110,7 +114,7 @@ bsToScope :: ByteString -> Maybe Scope
 bsToScope b = either fail return $ parseOnly (scopeParser <* endOfInput) b
   where
     scopeParser :: Parser Scope
-    scopeParser = Scope . S.fromList <$> sepBy1 scopeTokenParser (word8 0x20)
+    scopeParser = Scope . S.fromList <$> sepBy1 scopeTokenParser (word8 0x20 {- SP -})
 
 scopeToken :: Prism' ByteString ScopeToken
 scopeToken =
@@ -215,14 +219,14 @@ data AccessRequest
     = RequestPassword
         -- ^ grant_type=password
         -- http://tools.ietf.org/html/rfc6749#section-4.3.2
-        { requestUsername     :: Username
-        , requestPassword     :: Password
-        , requestScope        :: Maybe Scope
+        { requestUsername :: Username
+        , requestPassword :: Password
+        , requestScope    :: Maybe Scope
         }
     | RequestClient
         -- ^ grant_type=client_credentials
         -- http://tools.ietf.org/html/rfc6749#section-4.4.2
-        { requestScope           :: Maybe Scope
+        { requestScope :: Maybe Scope
         }
     | RequestRefresh
         -- ^ grant_type=refresh_token
@@ -303,15 +307,33 @@ instance ToFormUrlEncoded AccessRequest where
         ] <> [ ("scope", T.decodeUtf8 $ scopeToBs s)
              | Just s <- return requestScope ]
 
+-- http://tools.ietf.org/html/rfc6749#section-7.1
+data TokenType
+    = Bearer
+    | Refresh
+  deriving (Eq, Show)
+
+instance ToJSON TokenType where
+    toJSON t = String . T.decodeUtf8 $ case t of
+        Bearer -> "bearer"
+        Refresh -> "refresh"
+
+instance FromJSON TokenType where
+    parseJSON = withText "TokenType" $ \t -> do
+        let b = mk (T.encodeUtf8 t)
+        if | b == "bearer" -> return Bearer
+           | b == "refresh" -> return Refresh
+           | otherwise -> fail $ "Invalid TokenType: " <> show t
+
 -- | A response containing an OAuth2 access token grant.
 data AccessResponse = AccessResponse
-    { tokenType      :: Text
+    { tokenType      :: TokenType
     , accessToken    :: Token
     , refreshToken   :: Maybe Token
     , tokenExpiresIn :: Int
     , tokenUsername  :: Maybe Username
     , tokenClientID  :: Maybe ClientID
-    , tokenScope     :: Scope
+    , tokenScope     :: Maybe Scope
     }
   deriving (Eq, Show)
 
@@ -320,7 +342,7 @@ data AccessResponse = AccessResponse
 -- This is recorded in the OAuth2 server and used to verify tokens in the
 -- future.
 data TokenGrant = TokenGrant
-    { grantTokenType :: Text
+    { grantTokenType :: TokenType
     , grantExpires   :: UTCTime
     , grantUsername  :: Maybe Username
     , grantClientID  :: Maybe ClientID
@@ -333,12 +355,12 @@ data TokenGrant = TokenGrant
 -- This is recorded in the OAuth2 server and used to verify tokens in the
 -- future.
 data TokenDetails = TokenDetails
-    { tokenDetailsTokenType :: Text
+    { tokenDetailsTokenType :: TokenType
     , tokenDetailsToken     :: Token
     , tokenDetailsExpires   :: UTCTime
     , tokenDetailsUsername  :: Maybe Username
     , tokenDetailsClientID  :: Maybe ClientID
-    , tokenDetailsScope     :: Scope
+    , tokenDetailsScope     :: Maybe Scope
     }
   deriving (Eq, Show)
 
@@ -433,9 +455,9 @@ instance FromJSON ErrorDescription where
 --
 -- http://tools.ietf.org/html/rfc6749#section-5.2
 data OAuth2Error = OAuth2Error
-    { oauth2ErrorCode :: ErrorCode
+    { oauth2ErrorCode        :: ErrorCode
     , oauth2ErrorDescription :: Maybe ErrorDescription
-    , oauth2ErrorURI :: Maybe URI
+    , oauth2ErrorURI         :: Maybe URI
     }
   deriving (Eq, Show)
 

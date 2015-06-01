@@ -84,6 +84,9 @@ instance Arbitrary AccessRequest where
         , RequestRefresh <$> arbitrary <*> arbitrary
         ]
 
+instance Arbitrary TokenType where
+    arbitrary = elements [Bearer, Refresh]
+
 instance Arbitrary AccessResponse where
     arbitrary = AccessResponse
         <$> arbitrary
