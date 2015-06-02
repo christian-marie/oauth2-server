@@ -84,6 +84,12 @@ instance Arbitrary Code where
             Nothing -> fail "instance Arbitrary Token is broken"
             Just x -> return x
 
+instance CoArbitrary Code where
+    coarbitrary = coarbitrary . review code
+
+instance Function Code where
+    function = functionShow
+
 instance Arbitrary AccessRequest where
     arbitrary = oneof
         [ RequestAuthorizationCode <$> arbitrary <*> arbitrary <*> arbitrary
@@ -267,6 +273,9 @@ suite = do
 
         prop "isPrism clientID" $
             isPrism clientID
+
+        prop "isPrism code" $
+            isPrism code
 
 main :: IO ()
 main = hspec suite
