@@ -7,7 +7,7 @@
 
 module Network.OAuth2.Server (
     module X,
-    createGrant,
+    processTokenRequest,
     tokenEndpoint,
     TokenEndpoint,
 ) where
@@ -46,33 +46,26 @@ throwOAuth2Error e =
                       , errHeaders = [("Content-Type", "application/json")]
                       }
 
-tokenEndpoint :: (MonadIO m, MonadError ServantErr m) => OAuth2Server m -> ServerT TokenEndpoint m
+tokenEndpoint :: OAuth2Server (ExceptT OAuth2Error IO) -> Server TokenEndpoint
 tokenEndpoint _ _ (Left e) = throwOAuth2Error e
-tokenEndpoint conf@Configuration{..} auth (Right req) = do
-    res <- runExceptT $ oauth2CheckCredentials req
+tokenEndpoint conf auth (Right req) = do
+    t <- liftIO getCurrentTime
+    res <- liftIO $ runExceptT $ processTokenRequest conf t auth req
     case res of
         Left e -> throwOAuth2Error e
-        Right modified_req -> do
-            -- TODO: Client ID
-            (access_grant, refresh_grant) <- createGrant conf Nothing modified_req
-            access_details <- tokenStoreSave oauth2Store access_grant
-            refresh_details <- tokenStoreSave oauth2Store refresh_grant
-            response <- grantResponse access_details (Just $ tokenDetailsToken refresh_details)
+        Right response -> do
             return $ addHeader NoStore $ addHeader NoCache $ response
 
-
--- | Create a 'TokenGrant' representing a new token.
---
--- The caller is responsible for saving the grant in the store.
-createGrant
-    :: MonadIO m
+processTokenRequest
+    :: (MonadError OAuth2Error m)
     => OAuth2Server m
-    -> Maybe ClientID
+    -> UTCTime
+    -> Maybe ByteString
     -> AccessRequest
-    -> m (TokenGrant, TokenGrant)
-createGrant Configuration{..} client_id request = do
-    t <- liftIO getCurrentTime
-    (user, req_scope) <- case request of
+    -> m AccessResponse
+processTokenRequest Configuration{..} t client_auth req = do
+    (client_id, modified_req) <- oauth2CheckCredentials client_auth req
+    (user, req_scope) <- case modified_req of
             RequestPassword{..} ->
                 return
                 ( Just requestUsername
@@ -104,4 +97,6 @@ createGrant Configuration{..} client_id request = do
             { grantTokenType = Refresh
             , grantExpires = refresh_expires
             }
-    return (access_grant, refresh_grant)
+    access_details <- tokenStoreSave oauth2Store access_grant
+    refresh_details <- tokenStoreSave oauth2Store refresh_grant
+    return $ grantResponse t access_details (Just $ tokenDetailsToken refresh_details)

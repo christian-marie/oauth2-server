@@ -47,7 +47,6 @@ import Control.Lens.Operators hiding ((.=))
 import Control.Lens.Prism
 import Control.Lens.Review
 import Control.Monad
-import Control.Monad.IO.Class
 import Data.Aeson
 import Data.Attoparsec.ByteString
 import Data.ByteString (ByteString)
@@ -366,14 +365,13 @@ data TokenDetails = TokenDetails
 
 -- | Convert a 'TokenGrant' into an 'AccessResponse'.
 grantResponse
-    :: (MonadIO m)
-    => TokenDetails -- ^ Token details.
+    :: UTCTime      -- ^ Current Time
+    -> TokenDetails -- ^ Token details.
     -> Maybe Token  -- ^ Associated refresh token.
-    -> m AccessResponse
-grantResponse TokenDetails{..} refresh = do
-    t <- liftIO getCurrentTime
+    -> AccessResponse
+grantResponse t TokenDetails{..} refresh =
     let expires_in = truncate $ diffUTCTime tokenDetailsExpires t
-    return $ AccessResponse
+    in AccessResponse
         { tokenType      = tokenDetailsTokenType
         , accessToken    = tokenDetailsToken
         , refreshToken   = refresh

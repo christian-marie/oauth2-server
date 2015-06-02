@@ -12,16 +12,16 @@
 
 module Network.OAuth2.Server.Configuration where
 
-import Control.Monad.Trans.Except
+import Data.ByteString (ByteString)
 
 import Network.OAuth2.Server.Types
 
 -- | Actions, supplied by the client, which load and save tokens from a data
 -- store.
 data OAuth2TokenStore m = TokenStore
-    { tokenStoreSave   :: TokenGrant -> m TokenDetails
+    { tokenStoreSave :: TokenGrant -> m TokenDetails
     -- ^ Save a [new] token to the OAuth2 server database.
-    , tokenStoreLoad   :: Token -> m (Maybe TokenDetails)
+    , tokenStoreLoad :: Token -> m (Maybe TokenDetails)
     -- ^ Load a token from the OAuth2 server database.
     }
 
@@ -29,6 +29,6 @@ data OAuth2TokenStore m = TokenStore
 data OAuth2Server m = Configuration
     { oauth2Store            :: OAuth2TokenStore m
     -- ^ Load and store tokens.
-    , oauth2CheckCredentials :: AccessRequest -> ExceptT OAuth2Error m AccessRequest
+    , oauth2CheckCredentials :: Maybe ByteString -> AccessRequest -> m (Maybe ClientID, AccessRequest)
     -- ^ Check the credentials provided by the resource owner.
     }
