@@ -12,7 +12,6 @@ module Network.OAuth2.Server (
     TokenEndpoint,
 ) where
 
-import Control.Applicative
 import Control.Monad.Error.Class
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Except
@@ -64,34 +63,22 @@ processTokenRequest
     -> AccessRequest
     -> m AccessResponse
 processTokenRequest Configuration{..} t client_auth req = do
-    (client_id, modified_req) <- oauth2CheckCredentials client_auth req
-    (user, req_scope) <- case modified_req of
-            RequestAuthorizationCode{..} ->
-                return (Nothing, Nothing)
-            RequestPassword{..} ->
-                return
-                ( Just requestUsername
-                , requestScope
-                )
-            RequestClientCredentials{..} ->
-                return
-                ( Nothing
-                , requestScope
-                )
-            RequestRefreshToken{..} -> do
+    (client_id, modified_scope) <- oauth2CheckCredentials client_auth req
+    user <- case req of
+        RequestAuthorizationCode{} -> return Nothing
+        RequestPassword{..} -> return $ Just requestUsername
+        RequestClientCredentials{} -> return Nothing
+        RequestRefreshToken{..} -> do
                 -- Decode previous token so we can copy details across.
                 previous <- oauth2StoreLoad requestRefreshToken
-                return
-                    ( tokenDetailsUsername =<< previous
-                    , requestScope <|> (tokenDetailsScope =<< previous)
-                    )
+                return $ tokenDetailsUsername =<< previous
     let expires = addUTCTime 1800 t
         access_grant = TokenGrant
             { grantTokenType = Bearer
             , grantExpires = expires
             , grantUsername = user
             , grantClientID = client_id
-            , grantScope = req_scope
+            , grantScope = modified_scope
             }
         -- Create a refresh token with these details.
         refresh_expires = addUTCTime (3600 * 24 * 7) t

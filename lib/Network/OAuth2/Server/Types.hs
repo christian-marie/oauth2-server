@@ -27,6 +27,7 @@ module Network.OAuth2.Server.Types (
   OAuth2Error(..),
   Password,
   password,
+  RequestCode(..),
   Scope,
   scope,
   scopeToBs,
@@ -230,8 +231,39 @@ instance ToJSON Code where
 instance FromJSON Code where
     parseJSON = withText "Code" $ \t ->
         case T.encodeUtf8 t ^? code of
-            Nothing -> fail $ T.unpack t <> " is not a valid ClientID."
+            Nothing -> fail $ T.unpack t <> " is not a valid Code."
             Just s -> return s
+
+newtype ClientState = ClientState { unClientState :: ByteString }
+    deriving (Eq)
+
+clientState :: Prism' ByteString ClientState
+clientState =
+    prism' unClientState (\t -> guard (B.all vschar t) >> return (ClientState t))
+
+instance Show ClientState where
+    show = show . review clientState
+
+instance Read ClientState where
+    readsPrec n s = [ (x,rest) | (t,rest) <- readsPrec n s, Just x <- [t ^? clientState]]
+
+instance ToJSON ClientState where
+    toJSON c = String . T.decodeUtf8 $ c ^.re clientState
+
+instance FromJSON ClientState where
+    parseJSON = withText "ClientState" $ \t ->
+        case T.encodeUtf8 t ^? clientState of
+            Nothing -> fail $ T.unpack t <> " is not a valid ClientState."
+            Just s -> return s
+
+data RequestCode = RequestCode
+    { requestCodeCode        :: Code
+    , requestCodeExpires     :: UTCTime
+    , requestCodeClientID    :: ClientID
+    , requestCodeRedirectURI :: URI
+    , requestCodeScope       :: Maybe Scope
+    , requestCodeState       :: Maybe ClientState
+    }
 
 -- | A request to the token endpoint.
 --
@@ -387,7 +419,7 @@ data AccessResponse = AccessResponse
     , tokenExpiresIn :: Int
     , tokenUsername  :: Maybe Username
     , tokenClientID  :: Maybe ClientID
-    , tokenScope     :: Maybe Scope
+    , tokenScope     :: Scope
     }
   deriving (Eq, Show)
 
@@ -400,7 +432,7 @@ data TokenGrant = TokenGrant
     , grantExpires   :: UTCTime
     , grantUsername  :: Maybe Username
     , grantClientID  :: Maybe ClientID
-    , grantScope     :: Maybe Scope
+    , grantScope     :: Scope
     }
   deriving (Eq, Show)
 
@@ -414,7 +446,7 @@ data TokenDetails = TokenDetails
     , tokenDetailsExpires   :: UTCTime
     , tokenDetailsUsername  :: Maybe Username
     , tokenDetailsClientID  :: Maybe ClientID
-    , tokenDetailsScope     :: Maybe Scope
+    , tokenDetailsScope     :: Scope
     }
   deriving (Eq, Show)
 
