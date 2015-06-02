@@ -80,7 +80,7 @@ processTokenRequest Configuration{..} t client_auth req = do
                 )
             RequestRefreshToken{..} -> do
                 -- Decode previous token so we can copy details across.
-                previous <- tokenStoreLoad oauth2Store requestRefreshToken
+                previous <- oauth2StoreLoad requestRefreshToken
                 return
                     ( tokenDetailsUsername =<< previous
                     , requestScope <|> (tokenDetailsScope =<< previous)
@@ -99,6 +99,6 @@ processTokenRequest Configuration{..} t client_auth req = do
             { grantTokenType = Refresh
             , grantExpires = refresh_expires
             }
-    access_details <- tokenStoreSave oauth2Store access_grant
-    refresh_details <- tokenStoreSave oauth2Store refresh_grant
+    access_details <- oauth2StoreSave access_grant
+    refresh_details <- oauth2StoreSave refresh_grant
     return $ grantResponse t access_details (Just $ tokenDetailsToken refresh_details)

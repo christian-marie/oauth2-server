@@ -16,19 +16,12 @@ import Data.ByteString (ByteString)
 
 import Network.OAuth2.Server.Types
 
--- | Actions, supplied by the client, which load and save tokens from a data
--- store.
-data OAuth2TokenStore m = TokenStore
-    { tokenStoreSave :: TokenGrant -> m TokenDetails
-    -- ^ Save a [new] token to the OAuth2 server database.
-    , tokenStoreLoad :: Token -> m (Maybe TokenDetails)
-    -- ^ Load a token from the OAuth2 server database.
-    }
-
 -- | The configuration for an OAuth2 server.
 data OAuth2Server m = Configuration
-    { oauth2Store            :: OAuth2TokenStore m
-    -- ^ Load and store tokens.
+    { oauth2StoreSave        :: TokenGrant -> m TokenDetails
+    -- ^ Save a [new] token to the OAuth2 server database.
+    , oauth2StoreLoad        :: Token -> m (Maybe TokenDetails)
+    -- ^ Load a token from the OAuth2 server database.
     , oauth2CheckCredentials :: Maybe ByteString -> AccessRequest -> m (Maybe ClientID, AccessRequest)
     -- ^ Check the credentials provided by the resource owner.
     }
