@@ -17,7 +17,7 @@ import Data.ByteString (ByteString)
 import Network.OAuth2.Server.Types
 
 -- | The configuration for an OAuth2 server.
-data OAuth2Server m = Configuration
+data OAuth2Server m = OAuth2Server
     { oauth2StoreSave        :: TokenGrant -> m TokenDetails
     -- ^ Save a [new] token to the OAuth2 server database.
     , oauth2StoreLoad        :: Token -> m (Maybe TokenDetails)

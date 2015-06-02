@@ -1,4 +1,5 @@
 {-# LANGUAGE RankNTypes          #-}
+{-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving  #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -9,6 +10,7 @@ import Control.Lens (review)
 import Control.Lens.Operators
 import Control.Lens.Properties
 import Control.Monad
+import Control.Monad.Trans.Except
 import Data.Aeson
 import qualified Data.ByteString as B
 import Data.Char
@@ -26,6 +28,7 @@ import Test.Hspec.QuickCheck
 import Test.QuickCheck hiding (Result (..))
 import Test.QuickCheck.Function
 import Test.QuickCheck.Instances ()
+import qualified Test.QuickCheck.Property as QC
 
 import Network.OAuth2.Server
 
@@ -276,6 +279,24 @@ suite = do
 
         prop "isPrism code" $
             isPrism code
+
+    describe "Handlers" $ do
+        prop "processTokenRequest handles all requests" $ \req auth time client_id scope ->
+            let oauth2StoreSave TokenGrant{..} =
+                    return TokenDetails{}
+                oauth2StoreLoad t =
+                    return $ Just TokenDetails{}
+                oauth2RequestLoad c =
+                    return $ Just RequestCode{}
+                oauth2CheckCredentials auth' req' = do
+                    return $ (client_id, scope)
+                server = OAuth2Server{..}
+                res = case runExcept $ processTokenRequest server time auth req of
+                    Left e -> return $ show e
+                    Right AccessResponse{..}
+                        | tokenType /= Bearer -> Just $ show tokenType <> " /= Bearer"
+                        | otherwise -> Nothing
+            in maybe QC.succeeded (\reason -> QC.failed {QC.reason = reason})
 
 main :: IO ()
 main = hspec suite

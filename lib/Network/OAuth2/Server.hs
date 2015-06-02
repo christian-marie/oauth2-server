@@ -62,7 +62,7 @@ processTokenRequest
     -> Maybe ByteString
     -> AccessRequest
     -> m AccessResponse
-processTokenRequest Configuration{..} t client_auth req = do
+processTokenRequest OAuth2Server{..} t client_auth req = do
     (client_id, modified_scope) <- oauth2CheckCredentials client_auth req
     user <- case req of
         RequestAuthorizationCode{} -> return Nothing
