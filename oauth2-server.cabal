@@ -36,6 +36,8 @@ Library
     , aeson
     , attoparsec
     , bytestring
+    , bytestring-conversion
+    , case-insensitive
     , containers
     , lens
     , mtl

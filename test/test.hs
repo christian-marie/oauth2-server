@@ -77,12 +77,29 @@ instance CoArbitrary ClientID where
 instance Function ClientID where
     function = functionShow
 
+instance Arbitrary Code where
+    arbitrary = do
+        b <- B.pack <$> listOf1 (arbitrary `suchThat` vschar)
+        case b ^? code of
+            Nothing -> fail "instance Arbitrary Token is broken"
+            Just x -> return x
+
+instance CoArbitrary Code where
+    coarbitrary = coarbitrary . review code
+
+instance Function Code where
+    function = functionShow
+
 instance Arbitrary AccessRequest where
     arbitrary = oneof
-        [ RequestPassword <$> arbitrary <*> arbitrary <*> arbitrary
-        , RequestClient <$> arbitrary
-        , RequestRefresh <$> arbitrary <*> arbitrary
+        [ RequestAuthorizationCode <$> arbitrary <*> arbitrary <*> arbitrary
+        , RequestPassword <$> arbitrary <*> arbitrary <*> arbitrary
+        , RequestClientCredentials <$> arbitrary
+        , RequestRefreshToken <$> arbitrary <*> arbitrary
         ]
+
+instance Arbitrary TokenType where
+    arbitrary = elements [Bearer, Refresh]
 
 instance Arbitrary AccessResponse where
     arbitrary = AccessResponse
@@ -256,6 +273,9 @@ suite = do
 
         prop "isPrism clientID" $
             isPrism clientID
+
+        prop "isPrism code" $
+            isPrism code
 
 main :: IO ()
 main = hspec suite

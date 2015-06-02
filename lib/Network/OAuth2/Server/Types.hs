@@ -1,38 +1,43 @@
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiWayIf                 #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE TemplateHaskell            #-}
-{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE ViewPatterns               #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- | Description: Data types for OAuth2 server.
 module Network.OAuth2.Server.Types (
   AccessRequest(..),
   AccessResponse(..),
+  bsToScope,
   ClientID,
   clientID,
+  Code,
+  code,
   compatibleScope,
-  grantResponse,
-  nqchar,
-  nqschar,
-  OAuth2Error(..),
   ErrorCode(..),
   errorCode,
   ErrorDescription,
   errorDescription,
+  grantResponse,
+  nqchar,
+  nqschar,
+  OAuth2Error(..),
   Password,
   password,
+  RequestCode(..),
   Scope,
   scope,
   scopeToBs,
-  bsToScope,
   ScopeToken,
   scopeToken,
   Token,
   token,
   TokenDetails(..),
   TokenGrant(..),
+  TokenType(..),
   unicodecharnocrlf,
   Username,
   username,
@@ -40,15 +45,16 @@ module Network.OAuth2.Server.Types (
 ) where
 
 import Control.Applicative
+import Control.Lens.Fold
+import Control.Lens.Operators hiding ((.=))
 import Control.Lens.Prism
 import Control.Lens.Review
-import Control.Lens.Operators hiding ((.=))
 import Control.Monad
-import Control.Monad.IO.Class
 import Data.Aeson
 import Data.Attoparsec.ByteString
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
+import Data.CaseInsensitive
 import Data.Char
 import Data.Monoid
 import Data.Set (Set)
@@ -95,7 +101,7 @@ instance Show ScopeToken where
 instance Read ScopeToken where
     readsPrec n s = [ (x,rest) | (b,rest) <- readsPrec n s, Just x <- [b ^? scopeToken]]
 
--- | A scope is a list of strings.
+-- | A scope is a nonemty set of `ScopeToken`s
 newtype Scope = Scope { unScope :: Set ScopeToken }
   deriving (Eq, Read, Show)
 
@@ -110,7 +116,7 @@ bsToScope :: ByteString -> Maybe Scope
 bsToScope b = either fail return $ parseOnly (scopeParser <* endOfInput) b
   where
     scopeParser :: Parser Scope
-    scopeParser = Scope . S.fromList <$> sepBy1 scopeTokenParser (word8 0x20)
+    scopeParser = Scope . S.fromList <$> sepBy1 scopeTokenParser (word8 0x20 {- SP -})
 
 scopeToken :: Prism' ByteString ScopeToken
 scopeToken =
@@ -206,25 +212,85 @@ instance FromJSON ClientID where
             Nothing -> fail $ T.unpack t <> " is not a valid ClientID."
             Just s -> return s
 
+newtype Code = Code { unCode :: ByteString }
+    deriving (Eq)
+
+code :: Prism' ByteString Code
+code =
+    prism' unCode (\t -> guard (B.all vschar t) >> return (Code t))
+
+instance Show Code where
+    show = show . review code
+
+instance Read Code where
+    readsPrec n s = [ (x,rest) | (t,rest) <- readsPrec n s, Just x <- [t ^? code]]
+
+instance ToJSON Code where
+    toJSON c = String . T.decodeUtf8 $ c ^.re code
+
+instance FromJSON Code where
+    parseJSON = withText "Code" $ \t ->
+        case T.encodeUtf8 t ^? code of
+            Nothing -> fail $ T.unpack t <> " is not a valid Code."
+            Just s -> return s
+
+newtype ClientState = ClientState { unClientState :: ByteString }
+    deriving (Eq)
+
+clientState :: Prism' ByteString ClientState
+clientState =
+    prism' unClientState (\t -> guard (B.all vschar t) >> return (ClientState t))
+
+instance Show ClientState where
+    show = show . review clientState
+
+instance Read ClientState where
+    readsPrec n s = [ (x,rest) | (t,rest) <- readsPrec n s, Just x <- [t ^? clientState]]
+
+instance ToJSON ClientState where
+    toJSON c = String . T.decodeUtf8 $ c ^.re clientState
+
+instance FromJSON ClientState where
+    parseJSON = withText "ClientState" $ \t ->
+        case T.encodeUtf8 t ^? clientState of
+            Nothing -> fail $ T.unpack t <> " is not a valid ClientState."
+            Just s -> return s
+
+data RequestCode = RequestCode
+    { requestCodeCode        :: Code
+    , requestCodeExpires     :: UTCTime
+    , requestCodeClientID    :: ClientID
+    , requestCodeRedirectURI :: URI
+    , requestCodeScope       :: Maybe Scope
+    , requestCodeState       :: Maybe ClientState
+    }
+
 -- | A request to the token endpoint.
 --
 -- Each constructor represents a different type of supported request. Not all
 -- request types represented by 'GrantType' are supported, so some expected
 -- 'AccessRequest' constructors are not implemented.
 data AccessRequest
-    = RequestPassword
+    = RequestAuthorizationCode
+        -- ^ grant_type=authorization_code
+        -- http://tools.ietf.org/html/rfc6749#section-4.1.3
+        { requestCode        :: Code
+        , requestRedirectURI :: Maybe URI
+        , requestClientID    :: Maybe ClientID
+        }
+    | RequestPassword
         -- ^ grant_type=password
         -- http://tools.ietf.org/html/rfc6749#section-4.3.2
-        { requestUsername     :: Username
-        , requestPassword     :: Password
-        , requestScope        :: Maybe Scope
+        { requestUsername :: Username
+        , requestPassword :: Password
+        , requestScope    :: Maybe Scope
         }
-    | RequestClient
+    | RequestClientCredentials
         -- ^ grant_type=client_credentials
         -- http://tools.ietf.org/html/rfc6749#section-4.4.2
-        { requestScope           :: Maybe Scope
+        { requestScope :: Maybe Scope
         }
-    | RequestRefresh
+    | RequestRefreshToken
         -- ^ grant_type=refresh_token
         -- http://tools.ietf.org/html/rfc6749#section-6
         { requestRefreshToken :: Token
@@ -250,6 +316,22 @@ instance FromFormUrlEncoded AccessRequest where
     fromFormUrlEncoded xs = do
         grant_type <- lookupEither "grant_type" xs
         case grant_type of
+            "authorization_code" -> do
+                c <- lookupEither "code" xs
+                requestCode <- case T.encodeUtf8 c ^? code of
+                    Nothing -> Left $ "invalid code " <> show c
+                    Just x -> return $ x
+                requestRedirectURI <- case lookup "redirect_uri" xs of
+                    Nothing -> return Nothing
+                    Just r -> case parseURI $ T.unpack r of
+                        Nothing -> Left $ "invalid redirect_uri " <> show r
+                        Just x -> return $ Just x
+                requestClientID <- case lookup "client_id" xs of
+                    Nothing -> return Nothing
+                    Just cid -> case T.encodeUtf8 cid ^? clientID of
+                        Nothing -> Left $ "invalid client_id " <> show cid
+                        Just x -> return $ Just x
+                return $ RequestAuthorizationCode{..}
             "password" -> do
                 u <- lookupEither "username" xs
                 requestUsername <- case u ^? username of
@@ -271,7 +353,7 @@ instance FromFormUrlEncoded AccessRequest where
                     Just x -> case bsToScope $ T.encodeUtf8 x of
                         Nothing -> Left $ "invalid scope " <> show x
                         Just x' -> return $ Just x'
-                return $ RequestClient{..}
+                return $ RequestClientCredentials{..}
             "refresh_token" -> do
                 refresh_token <- lookupEither "refresh_token" xs
                 requestRefreshToken <-
@@ -283,29 +365,55 @@ instance FromFormUrlEncoded AccessRequest where
                     Just x -> case bsToScope $ T.encodeUtf8 x of
                         Nothing -> Left $ "invalid scope " <> show x
                         Just x' -> return $ Just x'
-                return $ RequestRefresh{..}
+                return $ RequestRefreshToken{..}
             x -> Left $ T.unpack x <> " not supported"
 
 instance ToFormUrlEncoded AccessRequest where
+    toFormUrlEncoded RequestAuthorizationCode{..} =
+        [ ("grant_type", "authorization_code")
+        , ("code", T.decodeUtf8 $ requestCode ^.re code)
+        ] <>
+        [ ("redirect_uri", T.pack $ show r)
+          | Just r <- return requestRedirectURI ] <>
+        [ ("client_id", T.decodeUtf8 $ c ^.re clientID)
+          | Just c <- return requestClientID ]
     toFormUrlEncoded RequestPassword{..} =
         [ ("grant_type", "password")
         , ("username", requestUsername ^.re username)
         , ("password", requestPassword ^.re password)
         ] <> [ ("scope", T.decodeUtf8 $ scopeToBs s)
              | Just s <- return requestScope ]
-    toFormUrlEncoded RequestClient{..} =
+    toFormUrlEncoded RequestClientCredentials{..} =
         [("grant_type", "client_credentials")
         ] <> [ ("scope", T.decodeUtf8 $ scopeToBs s)
              | Just s <- return requestScope ]
-    toFormUrlEncoded RequestRefresh{..} =
+    toFormUrlEncoded RequestRefreshToken{..} =
         [ ("grant_type", "refresh_token")
         , ("refresh_token", T.decodeUtf8 $ requestRefreshToken ^.re token)
         ] <> [ ("scope", T.decodeUtf8 $ scopeToBs s)
              | Just s <- return requestScope ]
 
+-- http://tools.ietf.org/html/rfc6749#section-7.1
+data TokenType
+    = Bearer
+    | Refresh
+  deriving (Eq, Show)
+
+instance ToJSON TokenType where
+    toJSON t = String . T.decodeUtf8 $ case t of
+        Bearer -> "bearer"
+        Refresh -> "refresh"
+
+instance FromJSON TokenType where
+    parseJSON = withText "TokenType" $ \t -> do
+        let b = mk (T.encodeUtf8 t)
+        if | b == "bearer" -> return Bearer
+           | b == "refresh" -> return Refresh
+           | otherwise -> fail $ "Invalid TokenType: " <> show t
+
 -- | A response containing an OAuth2 access token grant.
 data AccessResponse = AccessResponse
-    { tokenType      :: Text
+    { tokenType      :: TokenType
     , accessToken    :: Token
     , refreshToken   :: Maybe Token
     , tokenExpiresIn :: Int
@@ -320,11 +428,11 @@ data AccessResponse = AccessResponse
 -- This is recorded in the OAuth2 server and used to verify tokens in the
 -- future.
 data TokenGrant = TokenGrant
-    { grantTokenType :: Text
+    { grantTokenType :: TokenType
     , grantExpires   :: UTCTime
     , grantUsername  :: Maybe Username
     , grantClientID  :: Maybe ClientID
-    , grantScope     :: Maybe Scope
+    , grantScope     :: Scope
     }
   deriving (Eq, Show)
 
@@ -333,7 +441,7 @@ data TokenGrant = TokenGrant
 -- This is recorded in the OAuth2 server and used to verify tokens in the
 -- future.
 data TokenDetails = TokenDetails
-    { tokenDetailsTokenType :: Text
+    { tokenDetailsTokenType :: TokenType
     , tokenDetailsToken     :: Token
     , tokenDetailsExpires   :: UTCTime
     , tokenDetailsUsername  :: Maybe Username
@@ -344,14 +452,13 @@ data TokenDetails = TokenDetails
 
 -- | Convert a 'TokenGrant' into an 'AccessResponse'.
 grantResponse
-    :: (MonadIO m)
-    => TokenDetails -- ^ Token details.
+    :: UTCTime      -- ^ Current Time
+    -> TokenDetails -- ^ Token details.
     -> Maybe Token  -- ^ Associated refresh token.
-    -> m AccessResponse
-grantResponse TokenDetails{..} refresh = do
-    t <- liftIO getCurrentTime
+    -> AccessResponse
+grantResponse t TokenDetails{..} refresh =
     let expires_in = truncate $ diffUTCTime tokenDetailsExpires t
-    return $ AccessResponse
+    in AccessResponse
         { tokenType      = tokenDetailsTokenType
         , accessToken    = tokenDetailsToken
         , refreshToken   = refresh
@@ -433,9 +540,9 @@ instance FromJSON ErrorDescription where
 --
 -- http://tools.ietf.org/html/rfc6749#section-5.2
 data OAuth2Error = OAuth2Error
-    { oauth2ErrorCode :: ErrorCode
+    { oauth2ErrorCode        :: ErrorCode
     , oauth2ErrorDescription :: Maybe ErrorDescription
-    , oauth2ErrorURI :: Maybe URI
+    , oauth2ErrorURI         :: Maybe URI
     }
   deriving (Eq, Show)
 
@@ -462,14 +569,14 @@ errorCode = prism' fromErrorCode toErrorCode
         UnsupportedGrantType -> "unsupported_grant_type"
 
     toErrorCode :: ByteString -> Maybe ErrorCode
-    toErrorCode code = case code of
+    toErrorCode err_code = case err_code of
         "invalid_client" -> pure InvalidClient
         "invalid_grant" -> pure InvalidGrant
         "invalid_request" -> pure InvalidRequest
         "invalid_scope" -> pure InvalidScope
         "unauthorized_client" -> pure UnauthorizedClient
         "unsupported_grant_type" -> pure UnsupportedGrantType
-        _ -> fail $ show code <> " is not a valid error code."
+        _ -> fail $ show err_code <> " is not a valid error code."
 
 instance ToJSON ErrorCode where
     toJSON c = String . T.decodeUtf8 $ c ^.re errorCode
