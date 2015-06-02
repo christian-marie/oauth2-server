@@ -66,17 +66,19 @@ processTokenRequest
 processTokenRequest Configuration{..} t client_auth req = do
     (client_id, modified_req) <- oauth2CheckCredentials client_auth req
     (user, req_scope) <- case modified_req of
+            RequestAuthorizationCode{..} ->
+                return (Nothing, Nothing)
             RequestPassword{..} ->
                 return
                 ( Just requestUsername
                 , requestScope
                 )
-            RequestClient{..} ->
+            RequestClientCredentials{..} ->
                 return
                 ( Nothing
                 , requestScope
                 )
-            RequestRefresh{..} -> do
+            RequestRefreshToken{..} -> do
                 -- Decode previous token so we can copy details across.
                 previous <- tokenStoreLoad oauth2Store requestRefreshToken
                 return

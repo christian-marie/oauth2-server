@@ -77,11 +77,19 @@ instance CoArbitrary ClientID where
 instance Function ClientID where
     function = functionShow
 
+instance Arbitrary Code where
+    arbitrary = do
+        b <- B.pack <$> listOf1 (arbitrary `suchThat` vschar)
+        case b ^? code of
+            Nothing -> fail "instance Arbitrary Token is broken"
+            Just x -> return x
+
 instance Arbitrary AccessRequest where
     arbitrary = oneof
-        [ RequestPassword <$> arbitrary <*> arbitrary <*> arbitrary
-        , RequestClient <$> arbitrary
-        , RequestRefresh <$> arbitrary <*> arbitrary
+        [ RequestAuthorizationCode <$> arbitrary <*> arbitrary <*> arbitrary
+        , RequestPassword <$> arbitrary <*> arbitrary <*> arbitrary
+        , RequestClientCredentials <$> arbitrary
+        , RequestRefreshToken <$> arbitrary <*> arbitrary
         ]
 
 instance Arbitrary TokenType where

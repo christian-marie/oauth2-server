@@ -11,30 +11,32 @@
 module Network.OAuth2.Server.Types (
   AccessRequest(..),
   AccessResponse(..),
+  bsToScope,
   ClientID,
   clientID,
+  Code,
+  code,
   compatibleScope,
-  grantResponse,
-  nqchar,
-  nqschar,
-  OAuth2Error(..),
   ErrorCode(..),
   errorCode,
   ErrorDescription,
   errorDescription,
+  grantResponse,
+  nqchar,
+  nqschar,
+  OAuth2Error(..),
   Password,
   password,
   Scope,
   scope,
   scopeToBs,
-  bsToScope,
   ScopeToken,
   scopeToken,
   Token,
   token,
-  TokenType(..),
   TokenDetails(..),
   TokenGrant(..),
+  TokenType(..),
   unicodecharnocrlf,
   Username,
   username,
@@ -209,25 +211,54 @@ instance FromJSON ClientID where
             Nothing -> fail $ T.unpack t <> " is not a valid ClientID."
             Just s -> return s
 
+newtype Code = Code { unCode :: ByteString }
+    deriving (Eq)
+
+code :: Prism' ByteString Code
+code =
+    prism' unCode (\t -> guard (B.all vschar t) >> return (Code t))
+
+instance Show Code where
+    show = show . review code
+
+instance Read Code where
+    readsPrec n s = [ (x,rest) | (t,rest) <- readsPrec n s, Just x <- [t ^? code]]
+
+instance ToJSON Code where
+    toJSON c = String . T.decodeUtf8 $ c ^.re code
+
+instance FromJSON Code where
+    parseJSON = withText "Code" $ \t ->
+        case T.encodeUtf8 t ^? code of
+            Nothing -> fail $ T.unpack t <> " is not a valid ClientID."
+            Just s -> return s
+
 -- | A request to the token endpoint.
 --
 -- Each constructor represents a different type of supported request. Not all
 -- request types represented by 'GrantType' are supported, so some expected
 -- 'AccessRequest' constructors are not implemented.
 data AccessRequest
-    = RequestPassword
+    = RequestAuthorizationCode
+        -- ^ grant_type=authorization_code
+        -- http://tools.ietf.org/html/rfc6749#section-4.1.3
+        { requestCode        :: Code
+        , requestRedirectURI :: Maybe URI
+        , requestClientID    :: Maybe ClientID
+        }
+    | RequestPassword
         -- ^ grant_type=password
         -- http://tools.ietf.org/html/rfc6749#section-4.3.2
         { requestUsername :: Username
         , requestPassword :: Password
         , requestScope    :: Maybe Scope
         }
-    | RequestClient
+    | RequestClientCredentials
         -- ^ grant_type=client_credentials
         -- http://tools.ietf.org/html/rfc6749#section-4.4.2
         { requestScope :: Maybe Scope
         }
-    | RequestRefresh
+    | RequestRefreshToken
         -- ^ grant_type=refresh_token
         -- http://tools.ietf.org/html/rfc6749#section-6
         { requestRefreshToken :: Token
@@ -253,6 +284,22 @@ instance FromFormUrlEncoded AccessRequest where
     fromFormUrlEncoded xs = do
         grant_type <- lookupEither "grant_type" xs
         case grant_type of
+            "authorization_code" -> do
+                c <- lookupEither "code" xs
+                requestCode <- case T.encodeUtf8 c ^? code of
+                    Nothing -> Left $ "invalid code " <> show c
+                    Just x -> return $ x
+                requestRedirectURI <- case lookup "redirect_uri" xs of
+                    Nothing -> return Nothing
+                    Just r -> case parseURI $ T.unpack r of
+                        Nothing -> Left $ "invalid redirect_uri " <> show r
+                        Just x -> return $ Just x
+                requestClientID <- case lookup "client_id" xs of
+                    Nothing -> return Nothing
+                    Just cid -> case T.encodeUtf8 cid ^? clientID of
+                        Nothing -> Left $ "invalid client_id " <> show cid
+                        Just x -> return $ Just x
+                return $ RequestAuthorizationCode{..}
             "password" -> do
                 u <- lookupEither "username" xs
                 requestUsername <- case u ^? username of
@@ -274,7 +321,7 @@ instance FromFormUrlEncoded AccessRequest where
                     Just x -> case bsToScope $ T.encodeUtf8 x of
                         Nothing -> Left $ "invalid scope " <> show x
                         Just x' -> return $ Just x'
-                return $ RequestClient{..}
+                return $ RequestClientCredentials{..}
             "refresh_token" -> do
                 refresh_token <- lookupEither "refresh_token" xs
                 requestRefreshToken <-
@@ -286,21 +333,29 @@ instance FromFormUrlEncoded AccessRequest where
                     Just x -> case bsToScope $ T.encodeUtf8 x of
                         Nothing -> Left $ "invalid scope " <> show x
                         Just x' -> return $ Just x'
-                return $ RequestRefresh{..}
+                return $ RequestRefreshToken{..}
             x -> Left $ T.unpack x <> " not supported"
 
 instance ToFormUrlEncoded AccessRequest where
+    toFormUrlEncoded RequestAuthorizationCode{..} =
+        [ ("grant_type", "authorization_code")
+        , ("code", T.decodeUtf8 $ requestCode ^.re code)
+        ] <>
+        [ ("redirect_uri", T.pack $ show r)
+          | Just r <- return requestRedirectURI ] <>
+        [ ("client_id", T.decodeUtf8 $ c ^.re clientID)
+          | Just c <- return requestClientID ]
     toFormUrlEncoded RequestPassword{..} =
         [ ("grant_type", "password")
         , ("username", requestUsername ^.re username)
         , ("password", requestPassword ^.re password)
         ] <> [ ("scope", T.decodeUtf8 $ scopeToBs s)
              | Just s <- return requestScope ]
-    toFormUrlEncoded RequestClient{..} =
+    toFormUrlEncoded RequestClientCredentials{..} =
         [("grant_type", "client_credentials")
         ] <> [ ("scope", T.decodeUtf8 $ scopeToBs s)
              | Just s <- return requestScope ]
-    toFormUrlEncoded RequestRefresh{..} =
+    toFormUrlEncoded RequestRefreshToken{..} =
         [ ("grant_type", "refresh_token")
         , ("refresh_token", T.decodeUtf8 $ requestRefreshToken ^.re token)
         ] <> [ ("scope", T.decodeUtf8 $ scopeToBs s)
@@ -482,14 +537,14 @@ errorCode = prism' fromErrorCode toErrorCode
         UnsupportedGrantType -> "unsupported_grant_type"
 
     toErrorCode :: ByteString -> Maybe ErrorCode
-    toErrorCode code = case code of
+    toErrorCode err_code = case err_code of
         "invalid_client" -> pure InvalidClient
         "invalid_grant" -> pure InvalidGrant
         "invalid_request" -> pure InvalidRequest
         "invalid_scope" -> pure InvalidScope
         "unauthorized_client" -> pure UnauthorizedClient
         "unsupported_grant_type" -> pure UnsupportedGrantType
-        _ -> fail $ show code <> " is not a valid error code."
+        _ -> fail $ show err_code <> " is not a valid error code."
 
 instance ToJSON ErrorCode where
     toJSON c = String . T.decodeUtf8 $ c ^.re errorCode
