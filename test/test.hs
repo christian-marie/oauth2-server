@@ -1,4 +1,6 @@
+{-# LANGUAGE BangPatterns        #-}
 {-# LANGUAGE RankNTypes          #-}
+{-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving  #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -9,6 +11,7 @@ import Control.Lens (review)
 import Control.Lens.Operators
 import Control.Lens.Properties
 import Control.Monad
+import Control.Monad.Trans.Writer
 import Data.Aeson
 import qualified Data.ByteString as B
 import Data.Char
@@ -276,6 +279,61 @@ suite = do
 
         prop "isPrism code" $
             isPrism code
+
+    describe "Handlers" $ do
+        prop "processTokenRequest handles all requests" $ \req -> do
+            (access, refresh) <- arbitrary
+            let oauth2StoreSave TokenGrant{..} =
+                    return TokenDetails
+                        { tokenDetailsTokenType = grantTokenType
+                        , tokenDetailsToken = case grantTokenType of
+                                                  Bearer -> access
+                                                  Refresh -> refresh
+                        , tokenDetailsExpires = grantExpires
+                        , tokenDetailsUsername = grantUsername
+                        , tokenDetailsClientID = grantClientID
+                        , tokenDetailsScope = grantScope
+                        }
+            user <- arbitrary
+            let oauth2StoreLoad !_ =
+                    return $ Just TokenDetails
+                        { tokenDetailsTokenType = error $ "tokenDetailsTokenType should not be accessed"
+                        , tokenDetailsToken = error $ "tokenDetailsToken should not be accessed"
+                        , tokenDetailsExpires = error $ "tokenDetailsExpires should not be accessed"
+                        , tokenDetailsUsername = user
+                        , tokenDetailsClientID = error $ "tokenDetailsClientID should not be accessed"
+                        , tokenDetailsScope = error $ "tokenDetailsScope should not be accessed"
+                        }
+            (client_id, scope') <- arbitrary
+            let oauth2CheckCredentials !_ !_ = return $ (client_id, scope')
+                server = OAuth2Server{..}
+            (auth, time) <- arbitrary
+            AccessResponse{..} <- processTokenRequest server time auth req
+            let errs = execWriter $ do
+                    when (tokenType /= Bearer) $
+                        tell ["tokenType: " <> show tokenType <> " /= Bearer"]
+                    when (accessToken /= access) $
+                        tell ["accessToken: " <> show accessToken <> " /= " <> show access]
+                    when (refreshToken /= Just refresh) $
+                        tell ["refreshToken: " <> show refreshToken <> " /= " <> show refresh]
+                    when (tokenExpiresIn /= 1800) $
+                        tell ["tokenExpiresIn: " <> show tokenExpiresIn <> " /= " <> show (1800::Int)]
+                    case req of
+                        RequestAuthorizationCode{} -> when (tokenUsername /= Nothing) $
+                           tell ["tokenUsername: " <> show tokenUsername <> " /= Nothing"]
+                        RequestPassword{..} -> when (tokenUsername /= Just requestUsername) $
+                           tell ["tokenUsername: " <> show tokenUsername <> " /= " <> show (Just requestUsername)]
+                        RequestClientCredentials{} -> when (tokenUsername /= Nothing) $
+                           tell ["tokenUsername: " <> show tokenUsername <> " /= Nothing"]
+                        RequestRefreshToken{..} -> when (tokenUsername /= user) $
+                           tell ["tokenUsername: " <> show tokenUsername <> " /= " <> show user]
+                    when (tokenClientID /= client_id) $
+                        tell ["tokenClientID: " <> show tokenClientID <> " /= " <> show client_id]
+                    when (tokenScope /= scope') $
+                        tell ["tokenScope: " <> show tokenScope <> " /= " <> show scope']
+            case errs of
+                [] -> return True
+                xs -> fail $ show xs
 
 main :: IO ()
 main = hspec suite

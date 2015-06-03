@@ -67,8 +67,11 @@ test-suite test
                      , hspec
                      , lens
                      , lens-properties
+                     , mtl
                      , oauth2-server
                      , QuickCheck
                      , quickcheck-instances
                      , servant
                      , text
+                     , transformers
+                     , transformers-compat

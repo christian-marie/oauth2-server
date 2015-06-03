@@ -56,13 +56,13 @@ tokenEndpoint conf auth (Right req) = do
             return $ addHeader NoStore $ addHeader NoCache $ response
 
 processTokenRequest
-    :: (MonadError OAuth2Error m)
+    :: (Monad m)
     => OAuth2Server m
     -> UTCTime
     -> Maybe ByteString
     -> AccessRequest
     -> m AccessResponse
-processTokenRequest Configuration{..} t client_auth req = do
+processTokenRequest OAuth2Server{..} t client_auth req = do
     (client_id, modified_scope) <- oauth2CheckCredentials client_auth req
     user <- case req of
         RequestAuthorizationCode{} -> return Nothing
