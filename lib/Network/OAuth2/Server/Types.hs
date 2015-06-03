@@ -44,6 +44,7 @@ module Network.OAuth2.Server.Types (
   vschar,
 ) where
 
+import Blaze.ByteString.Builder
 import Control.Applicative
 import Control.Lens.Fold
 import Control.Lens.Operators hiding ((.=))
@@ -65,8 +66,8 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Time.Clock
 import Data.Word
-import Network.URI
-import Servant.API
+import Servant.API hiding (URI)
+import URI.ByteString
 
 vschar :: Word8 -> Bool
 vschar c = c>=0x20 && c<=0x7E
@@ -333,9 +334,9 @@ instance FromFormUrlEncoded AccessRequest where
                     Just x -> return $ x
                 requestRedirectURI <- case lookup "redirect_uri" xs of
                     Nothing -> return Nothing
-                    Just r -> case parseURI $ T.unpack r of
-                        Nothing -> Left $ "invalid redirect_uri " <> show r
-                        Just x -> return $ Just x
+                    Just r -> case parseURI strictURIParserOptions $ T.encodeUtf8 r of
+                        Left e -> Left $ show e
+                        Right x -> return $ Just x
                 requestClientID <- case lookup "client_id" xs of
                     Nothing -> return Nothing
                     Just cid -> case T.encodeUtf8 cid ^? clientID of
@@ -383,7 +384,7 @@ instance ToFormUrlEncoded AccessRequest where
         [ ("grant_type", "authorization_code")
         , ("code", T.decodeUtf8 $ requestCode ^.re code)
         ] <>
-        [ ("redirect_uri", T.pack $ show r)
+        [ ("redirect_uri", T.decodeUtf8 . toByteString . serializeURI $ r)
           | Just r <- return requestRedirectURI ] <>
         [ ("client_id", T.decodeUtf8 $ c ^.re clientID)
           | Just c <- return requestClientID ]
@@ -598,13 +599,13 @@ instance FromJSON ErrorCode where
             Just s -> return s
 
 instance ToJSON URI where
-    toJSON = toJSON . show
+    toJSON = toJSON . T.decodeUtf8 . toByteString . serializeURI
 
 instance FromJSON URI where
     parseJSON = withText "URI" $ \t ->
-        case parseURI (T.unpack t) of
-            Nothing -> fail $ T.unpack t <> " is not a valid URI."
-            Just s -> return s
+        case parseURI strictURIParserOptions $ T.encodeUtf8 t of
+            Left e -> fail $ show e
+            Right u -> return u
 
 instance ToJSON OAuth2Error where
     toJSON OAuth2Error{..} = object $
