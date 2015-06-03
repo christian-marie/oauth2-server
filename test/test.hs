@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns        #-}
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -10,7 +11,7 @@ import Control.Lens (review)
 import Control.Lens.Operators
 import Control.Lens.Properties
 import Control.Monad
-import Control.Monad.Trans.Except
+import Control.Monad.Trans.Writer
 import Data.Aeson
 import qualified Data.ByteString as B
 import Data.Char
@@ -28,7 +29,6 @@ import Test.Hspec.QuickCheck
 import Test.QuickCheck hiding (Result (..))
 import Test.QuickCheck.Function
 import Test.QuickCheck.Instances ()
-import qualified Test.QuickCheck.Property as QC
 
 import Network.OAuth2.Server
 
@@ -281,22 +281,43 @@ suite = do
             isPrism code
 
     describe "Handlers" $ do
-        prop "processTokenRequest handles all requests" $ \req auth time client_id scope ->
+        prop "processTokenRequest handles all requests" $ \req -> do
+            (auth, time, client_id, (scope', access, refresh, user)) <- arbitrary
             let oauth2StoreSave TokenGrant{..} =
-                    return TokenDetails{}
+                    return TokenDetails
+                        { tokenDetailsTokenType = grantTokenType
+                        , tokenDetailsToken = case grantTokenType of
+                                                  Bearer -> access
+                                                  Refresh -> refresh
+                        , tokenDetailsExpires = grantExpires
+                        , tokenDetailsUsername = user
+                        , tokenDetailsClientID = client_id
+                        , tokenDetailsScope = scope'
+                        }
                 oauth2StoreLoad t =
                     return $ Just TokenDetails{}
-                oauth2RequestLoad c =
-                    return $ Just RequestCode{}
-                oauth2CheckCredentials auth' req' = do
-                    return $ (client_id, scope)
+                oauth2CheckCredentials !_ !_ = do
+                    return $ (client_id, scope')
                 server = OAuth2Server{..}
-                res = case runExcept $ processTokenRequest server time auth req of
-                    Left e -> return $ show e
-                    Right AccessResponse{..}
-                        | tokenType /= Bearer -> Just $ show tokenType <> " /= Bearer"
-                        | otherwise -> Nothing
-            in maybe QC.succeeded (\reason -> QC.failed {QC.reason = reason})
+            AccessResponse{..} <- processTokenRequest server time auth req
+            let errs = execWriter $ do
+                    when (tokenType /= Bearer) $
+                        tell ["tokenType: " <> show tokenType <> " /= Bearer"]
+                    when (accessToken /= access) $
+                        tell ["accessToken: " <> show accessToken <> " /= " <> show access]
+                    when (refreshToken /= Just refresh) $
+                        tell ["refreshToken: " <> show refreshToken <> " /= " <> show refresh]
+                    when (tokenExpiresIn /= 1800) $
+                        tell ["tokenExpiresIn: " <> show tokenExpiresIn <> " /= " <> show 1800]
+                    when (tokenUsername /= user) $
+                        tell ["tokenUsername: " <> show tokenUsername <> " /= " <> show user]
+                    when (tokenClientID /= client_id) $
+                        tell ["tokenClientID: " <> show tokenClientID <> " /= " <> show client_id]
+                    when (tokenScope /= scope') $
+                        tell ["tokenScope: " <> show tokenScope <> " /= " <> show scope']
+            case errs of
+                [] -> return True
+                xs -> fail $ show xs
 
 main :: IO ()
 main = hspec suite

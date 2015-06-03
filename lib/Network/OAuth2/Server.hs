@@ -56,7 +56,7 @@ tokenEndpoint conf auth (Right req) = do
             return $ addHeader NoStore $ addHeader NoCache $ response
 
 processTokenRequest
-    :: (MonadError OAuth2Error m)
+    :: (Monad m)
     => OAuth2Server m
     -> UTCTime
     -> Maybe ByteString
