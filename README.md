@@ -32,8 +32,8 @@ These interactions, at a high level, include:
 
 1. A user requests that a client perform some action.
 
-2. If the client does not already have a token, it requests one from the
-server.
+2. If the client does not already have a token for the user, it requests one
+from the server.
 
 3. If required, the user reviews and approves the token request. The client
 should, if possible, store and reuse the token in subsequent requests.
