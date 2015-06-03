@@ -282,7 +282,7 @@ suite = do
 
     describe "Handlers" $ do
         prop "processTokenRequest handles all requests" $ \req -> do
-            (access, refresh, user) <- arbitrary
+            (access, refresh) <- arbitrary
             let oauth2StoreSave TokenGrant{..} =
                     return TokenDetails
                         { tokenDetailsTokenType = grantTokenType
@@ -294,7 +294,8 @@ suite = do
                         , tokenDetailsClientID = grantClientID
                         , tokenDetailsScope = grantScope
                         }
-                oauth2StoreLoad !_ =
+            user <- arbitrary
+            let oauth2StoreLoad !_ =
                     return $ Just TokenDetails
                         { tokenDetailsTokenType = error $ "tokenDetailsTokenType should not be accessed"
                         , tokenDetailsToken = error $ "tokenDetailsToken should not be accessed"
