@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns        #-}
+{-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -14,15 +15,12 @@ import Control.Monad
 import Control.Monad.Trans.Writer
 import Data.Aeson
 import qualified Data.ByteString as B
-import Data.Char
-import Data.List
 import Data.Monoid
 import Data.Proxy
 import qualified Data.Set as S
 import qualified Data.Text as T
-import Data.Word
-import Network.URI
-import Servant.API
+import Servant.API hiding (URI)
+import URI.ByteString
 
 import Test.Hspec
 import Test.Hspec.QuickCheck
@@ -132,52 +130,14 @@ instance Arbitrary ErrorDescription where
                 fail $ "instance Arbitrary ErrorDescription is broken: " <> show b
             Just x -> return x
 
-instance Arbitrary URIAuth where
-    arbitrary = URIAuth
-        <$> genUserInfo
-        <*> genRegName
-        <*> genPort
-      where
-        alpha = arbitrary `suchThat` (\x -> isAlpha x && isAscii x)
-        digit = elements ['0'..'9']
-        genUserInfo = oneof
-            [ pure ""
-            , concat <$> sequence [listOf alpha, pure "@"]
-            ]
-        genRegName = oneof
-            [ intercalate "." . map show <$> replicateM 4 (arbitrary :: Gen Word8)
-            ]
-        genPort = oneof
-            [ pure ""
-            , concat <$> sequence [pure ":", listOf digit]
-            ]
-
 instance Arbitrary URI where
     arbitrary = do
-        uri <- genURI
-        case parseURI (show uri) of
-            Nothing -> fail $ "instance Arbitrary URI is broken: " <> show uri
-            Just  _ -> return uri
-      where
-        genURI = URI
-            <$> genScheme
-            <*> arbitrary
-            <*> genPath
-            <*> genQuery
-            <*> genFragment
-        alpha = arbitrary `suchThat` (\x -> isAlpha x && isAscii x)
-        digit = elements ['0'..'9']
-        genScheme = concat <$> sequence
-            [ (:[]) <$> alpha
-            , listOf (oneof [alpha, digit, elements "+-."])
-            , pure ":"
+        uri <- elements
+            [ "http://www.ietf.org/rfc/rfc2396.txt"
             ]
-        genPath = oneof
-            [ pure "" ]
-        genQuery = oneof
-            [ pure "" ]
-        genFragment = oneof
-            [ pure "" ]
+        case parseURI strictURIParserOptions uri of
+            Left e -> fail $ "instance Arbitrary URI broken: " <> show e
+            Right x -> return x
 
 instance Arbitrary OAuth2Error where
     arbitrary = OAuth2Error
@@ -253,6 +213,8 @@ suite = do
         hasCorrectJSON "AccessResponse" (Proxy :: Proxy AccessResponse)
 
         hasCorrectJSON "OAuth2Error" (Proxy :: Proxy OAuth2Error)
+
+        hasCorrectJSON "URI" (Proxy :: Proxy URI)
 
         hasCorrectFormUrlEncoded "AccessRequest" (Proxy :: Proxy AccessRequest)
 
