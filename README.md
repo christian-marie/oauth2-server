@@ -1,8 +1,8 @@
 Anchor Token Server
 ===================
 
-Anchor Token Server is a small web application which allows users and services
-to request, approve, and verify OAuth2 tokens.
+Anchor Token Server is a small web application which allows clients, users, and
+services to request, approve, and verify OAuth2 tokens.
 
 The intended use case is a fleet of related, but not necessarily integrated,
 web services. Rather than integrate OAuth2 server functionality into each
@@ -42,6 +42,22 @@ should, if possible, store and reuse the token in subsequent requests.
 
 5. The service verifies the token with the server. This returns information
 about the token validity, owner, scope, etc.
+
+Authentication
+--------------
+
+As Anchor Token Service is intended to be deployed in a closed environment all
+parties are authenticated:
+
+- The server authenticates users with Shibboleth. Shibboleth provides the `uid`
+attribute used to identify users and the `member` attribute which lists all
+available scopes.
+
+- The server authenticates clients/services by username and password with HTTP
+Basic authentication.
+
+- The users, clients, and services authenticate the server by enabling server
+certificate validation in their TLS implementation.
 
 Security considerations
 -----------------------
