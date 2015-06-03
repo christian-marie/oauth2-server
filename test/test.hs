@@ -282,7 +282,7 @@ suite = do
 
     describe "Handlers" $ do
         prop "processTokenRequest handles all requests" $ \req -> do
-            (auth, time, client_id, (scope', access, refresh, user)) <- arbitrary
+            (access, refresh, user) <- arbitrary
             let oauth2StoreSave TokenGrant{..} =
                     return TokenDetails
                         { tokenDetailsTokenType = grantTokenType
@@ -290,15 +290,23 @@ suite = do
                                                   Bearer -> access
                                                   Refresh -> refresh
                         , tokenDetailsExpires = grantExpires
-                        , tokenDetailsUsername = user
-                        , tokenDetailsClientID = client_id
-                        , tokenDetailsScope = scope'
+                        , tokenDetailsUsername = grantUsername
+                        , tokenDetailsClientID = grantClientID
+                        , tokenDetailsScope = grantScope
                         }
-                oauth2StoreLoad t =
-                    return $ Just TokenDetails{}
-                oauth2CheckCredentials !_ !_ = do
-                    return $ (client_id, scope')
+                oauth2StoreLoad !_ =
+                    return $ Just TokenDetails
+                        { tokenDetailsTokenType = error $ "tokenDetailsTokenType should not be accessed"
+                        , tokenDetailsToken = error $ "tokenDetailsToken should not be accessed"
+                        , tokenDetailsExpires = error $ "tokenDetailsExpires should not be accessed"
+                        , tokenDetailsUsername = user
+                        , tokenDetailsClientID = error $ "tokenDetailsClientID should not be accessed"
+                        , tokenDetailsScope = error $ "tokenDetailsScope should not be accessed"
+                        }
+            (client_id, scope') <- arbitrary
+            let oauth2CheckCredentials !_ !_ = return $ (client_id, scope')
                 server = OAuth2Server{..}
+            (auth, time) <- arbitrary
             AccessResponse{..} <- processTokenRequest server time auth req
             let errs = execWriter $ do
                     when (tokenType /= Bearer) $
@@ -308,9 +316,16 @@ suite = do
                     when (refreshToken /= Just refresh) $
                         tell ["refreshToken: " <> show refreshToken <> " /= " <> show refresh]
                     when (tokenExpiresIn /= 1800) $
-                        tell ["tokenExpiresIn: " <> show tokenExpiresIn <> " /= " <> show 1800]
-                    when (tokenUsername /= user) $
-                        tell ["tokenUsername: " <> show tokenUsername <> " /= " <> show user]
+                        tell ["tokenExpiresIn: " <> show tokenExpiresIn <> " /= " <> show (1800::Int)]
+                    case req of
+                        RequestAuthorizationCode{} -> when (tokenUsername /= Nothing) $
+                           tell ["tokenUsername: " <> show tokenUsername <> " /= Nothing"]
+                        RequestPassword{..} -> when (tokenUsername /= Just requestUsername) $
+                           tell ["tokenUsername: " <> show tokenUsername <> " /= " <> show (Just requestUsername)]
+                        RequestClientCredentials{} -> when (tokenUsername /= Nothing) $
+                           tell ["tokenUsername: " <> show tokenUsername <> " /= Nothing"]
+                        RequestRefreshToken{..} -> when (tokenUsername /= user) $
+                           tell ["tokenUsername: " <> show tokenUsername <> " /= " <> show user]
                     when (tokenClientID /= client_id) $
                         tell ["tokenClientID: " <> show tokenClientID <> " /= " <> show client_id]
                     when (tokenScope /= scope') $
