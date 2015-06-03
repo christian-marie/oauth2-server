@@ -280,6 +280,10 @@ suite = do
         prop "isPrism code" $
             isPrism code
 
+        prop "mimeUnrender (mimeRender t) === Right t" $ \(t :: Token) ->
+            let proxy = Proxy :: Proxy OctetStream
+            in mimeUnrender proxy (mimeRender proxy t) === Right t
+
     describe "Handlers" $ do
         prop "processTokenRequest handles all requests" $ \req -> do
             (access, refresh) <- arbitrary

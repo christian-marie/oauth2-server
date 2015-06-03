@@ -1,9 +1,9 @@
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE MultiWayIf                 #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE RecordWildCards            #-}
-{-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE ViewPatterns               #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -54,6 +54,7 @@ import Data.Aeson
 import Data.Attoparsec.ByteString
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as BSL
 import Data.CaseInsensitive
 import Data.Char
 import Data.Monoid
@@ -149,6 +150,15 @@ instance Show Token where
 
 instance Read Token where
     readsPrec n s = [ (x,rest) | (b,rest) <- readsPrec n s, Just x <- [b ^? token]]
+
+instance MimeRender OctetStream Token where
+    mimeRender _ = BSL.fromStrict . review token
+
+instance MimeUnrender OctetStream Token where
+    mimeUnrender _ b =
+        case BSL.toStrict b ^? token of
+            Nothing -> Left "Invalid token"
+            Just t  -> Right t
 
 token :: Prism' ByteString Token
 token = prism' t2b b2t
