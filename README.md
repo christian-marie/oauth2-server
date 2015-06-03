@@ -26,6 +26,8 @@ for a user.
 - A *server* is a program (this program!) which allows clients, users, and
 services to request, approve, and verify tokens.
 
+![Interactions between components](https://raw.githubusercontent.com/anchor/anchor-token-server/master/docs/architecture.png)
+
 Security considerations
 -----------------------
 
