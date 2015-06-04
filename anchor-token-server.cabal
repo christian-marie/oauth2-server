@@ -34,11 +34,18 @@ library
     , bytestring
     , configurator
     , ekg
+    , ekg-core
+    , hslogger
     , mtl
     , oauth2-server
+    , pipes-concurrency
+    , postgresql-simple
     , servant
     , servant-server
+    , stm
+    , text
     , transformers
+    , unordered-containers
 
 executable             tokenserver
   default-language:    Haskell2010
