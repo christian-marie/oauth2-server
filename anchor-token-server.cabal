@@ -31,11 +31,14 @@ library
     , Anchor.Tokens.Server.Statistics
   build-depends:
       base >=4.7 && <4.8
+    , bytestring
+    , configurator
     , ekg
+    , mtl
     , oauth2-server
     , servant
     , servant-server
-    , configurator
+    , transformers
 
 executable             tokenserver
   default-language:    Haskell2010
