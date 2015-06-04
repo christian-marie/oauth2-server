@@ -31,13 +31,16 @@ library
     , Anchor.Tokens.Server.Statistics
   build-depends:
       base >=4.7 && <4.8
+    , bytestring
     , configurator
     , ekg
     , ekg-core
+    , mtl
     , oauth2-server
     , servant
     , servant-server
     , text
+    , transformers
     , unordered-containers
 
 executable             tokenserver
