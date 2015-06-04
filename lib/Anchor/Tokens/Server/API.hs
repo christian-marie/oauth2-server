@@ -17,11 +17,6 @@ import           Control.Monad.IO.Class
 
 import           Network.OAuth2.Server
 
--- | \"Value\" for cache-control and pragma headers.
---
--- We define this here for lack of a place to import it from.
-data NoCache
-
 -- | OAuth2 Authorization Endpoint
 --
 -- Allows authenticated users to review and authorize a code token grant

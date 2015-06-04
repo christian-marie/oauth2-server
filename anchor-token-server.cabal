@@ -35,10 +35,14 @@ library
     , configurator
     , ekg
     , ekg-core
+    , hslogger
     , mtl
     , oauth2-server
+    , pipes-concurrency
+    , postgresql-simple
     , servant
     , servant-server
+    , stm
     , text
     , transformers
     , unordered-containers
