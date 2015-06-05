@@ -5,19 +5,17 @@
 module Anchor.Tokens.Server.Statistics where
 
 import           Control.Applicative
-import           Control.Concurrent.MVar
-import           Control.Concurrent.STM.TChan
 import           Control.Monad
 import           Control.Monad.STM
 import           Database.PostgreSQL.Simple
 import           Data.Int
-import           Data.IORef
 import           Data.Monoid
 import           Data.Text           ()
 import qualified Data.HashMap.Strict as HM
 import           Pipes.Concurrent
 import           System.Log.Logger
 import           System.Metrics
+import qualified System.Metrics.Counter as C
 
 -- | Name of server component for logging.
 statsLogName :: String
@@ -31,11 +29,11 @@ data GrantEvent
     | ExtensionGranted
 
 data GrantRef = GrantRef
-    { codeRef              :: IORef Int64
-    , implicitRef          :: IORef Int64
-    , ownerCredentialsRef  :: IORef Int64
-    , clientCredentialsRef :: IORef Int64
-    , extensionRef         :: IORef Int64
+    { codeRef              :: C.Counter
+    , implicitRef          :: C.Counter
+    , ownerCredentialsRef  :: C.Counter
+    , clientCredentialsRef :: C.Counter
+    , extensionRef         :: C.Counter
     }
 
 -- | Record containing statistics to report.
@@ -65,11 +63,11 @@ gatherStats
 gatherStats conn GrantRef{..} =
     Stats <$> gatherClients
           <*> gatherUsers
-          <*> readIORef codeRef
-          <*> readIORef implicitRef
-          <*> readIORef ownerCredentialsRef
-          <*> readIORef clientCredentialsRef
-          <*> readIORef extensionRef
+          <*> C.read codeRef
+          <*> C.read implicitRef
+          <*> C.read ownerCredentialsRef
+          <*> C.read clientCredentialsRef
+          <*> C.read extensionRef
           <*> gatherStatTokensIssued
           <*> gatherStatTokensExpired
           <*> gatherStatTokensRevoked
@@ -93,7 +91,7 @@ statsWatcher source GrantRef{..} = forever $ do
     curr <- atomically $ recv source
     case curr of
         Nothing -> return ()
-        Just x  -> (\r -> modifyIORef' r (+1)) $ case x of
+        Just x  -> C.inc $ case x of
             CodeGranted              -> codeRef
             ImplicitGranted          -> implicitRef
             OwnerCredentialsGranted  -> ownerCredentialsRef
@@ -106,7 +104,8 @@ registerOAuth2Metrics
     -> Input GrantEvent
     -> GrantRef
     -> IO ()
-registerOAuth2Metrics store conn source ref =
+registerOAuth2Metrics store conn source ref = do
+    void $ forkIO $ statsWatcher source ref
     registerGroup (HM.fromList
         [ ("oauth2.clients",                   Gauge . statClients)
         , ("oauth2.users",                     Gauge . statUsers)
