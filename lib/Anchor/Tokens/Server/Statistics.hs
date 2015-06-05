@@ -28,12 +28,12 @@ data GrantEvent
     | ClientCredentialsGranted
     | ExtensionGranted
 
-data GrantRef = GrantRef
-    { codeRef              :: C.Counter
-    , implicitRef          :: C.Counter
-    , ownerCredentialsRef  :: C.Counter
-    , clientCredentialsRef :: C.Counter
-    , extensionRef         :: C.Counter
+data GrantCounters = GrantCounters
+    { codeCounter              :: C.Counter
+    , implicitCounter          :: C.Counter
+    , ownerCredentialsCounter  :: C.Counter
+    , clientCredentialsCounter :: C.Counter
+    , extensionCounter         :: C.Counter
     }
 
 -- | Record containing statistics to report.
@@ -58,16 +58,16 @@ defaultStats = Stats 0 0 0 0 0 0 0 0 0 0
 
 gatherStats
     :: Connection
-    -> GrantRef
+    -> GrantCounters
     -> IO Stats
-gatherStats conn GrantRef{..} =
+gatherStats conn GrantCounters{..} =
     Stats <$> gatherClients
           <*> gatherUsers
-          <*> C.read codeRef
-          <*> C.read implicitRef
-          <*> C.read ownerCredentialsRef
-          <*> C.read clientCredentialsRef
-          <*> C.read extensionRef
+          <*> C.read codeCounter
+          <*> C.read implicitCounter
+          <*> C.read ownerCredentialsCounter
+          <*> C.read clientCredentialsCounter
+          <*> C.read extensionCounter
           <*> gatherStatTokensIssued
           <*> gatherStatTokensExpired
           <*> gatherStatTokensRevoked
@@ -86,26 +86,26 @@ gatherStats conn GrantRef{..} =
     gatherStatTokensExpired = gather "SELECT COUNT(*) FROM tokens WHERE expires NOT NULL AND expires <= NOW ()"
     gatherStatTokensRevoked = gather "SELECT COUNT(*) FROM tokens WHERE revoked NOT NULL"
 
-statsWatcher :: Input GrantEvent -> GrantRef -> IO ()
-statsWatcher source GrantRef{..} = forever $ do
+statsWatcher :: Input GrantEvent -> GrantCounters -> IO ()
+statsWatcher source GrantCounters{..} = forever $ do
     curr <- atomically $ recv source
     case curr of
         Nothing -> return ()
         Just x  -> C.inc $ case x of
-            CodeGranted              -> codeRef
-            ImplicitGranted          -> implicitRef
-            OwnerCredentialsGranted  -> ownerCredentialsRef
-            ClientCredentialsGranted -> clientCredentialsRef
-            ExtensionGranted         -> extensionRef
+            CodeGranted              -> codeCounter
+            ImplicitGranted          -> implicitCounter
+            OwnerCredentialsGranted  -> ownerCredentialsCounter
+            ClientCredentialsGranted -> clientCredentialsCounter
+            ExtensionGranted         -> extensionCounter
 
 registerOAuth2Metrics
     :: Store
     -> Connection
     -> Input GrantEvent
-    -> GrantRef
+    -> GrantCounters
     -> IO ()
-registerOAuth2Metrics store conn source ref = do
-    void $ forkIO $ statsWatcher source ref
+registerOAuth2Metrics store conn source counters = do
+    void $ forkIO $ statsWatcher source counters
     registerGroup (HM.fromList
         [ ("oauth2.clients",                   Gauge . statClients)
         , ("oauth2.users",                     Gauge . statUsers)
@@ -119,4 +119,4 @@ registerOAuth2Metrics store conn source ref = do
         , ("oauth2.tokens.issued",             Gauge . statTokensIssued)
         , ("oauth2.tokens.expired",            Gauge . statTokensExpired)
         , ("oauth2.tokens.revoked",            Gauge . statTokensRevoked)
-        ]) (gatherStats conn ref) store
+        ]) (gatherStats conn counters) store
