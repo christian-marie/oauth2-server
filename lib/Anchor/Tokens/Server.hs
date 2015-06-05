@@ -15,20 +15,20 @@ import qualified System.Remote.Monitoring           as EKG
 import           Anchor.Tokens.Server.API           as X
 import           Anchor.Tokens.Server.Configuration as X
 import           Anchor.Tokens.Server.Statistics    as X
+import           Anchor.Tokens.Server.Types         as X
 
 import           Paths_anchor_token_server          as P
 
 --------------------------------------------------------------------------------
 -- * Server
 
-data ServerState = ServerState
-    { serverPGConnPool :: Pool Connection
-    , serverEventSink  :: Output GrantEvent
-    , serverOpts       :: ServerOptions
-    }
 
 -- | Start the statistics-reporting thread.
-startStatistics :: ServerOptions -> Pool Connection -> GrantCounters -> IO (Output GrantEvent)
+startStatistics
+    :: ServerOptions
+    -> Pool Connection
+    -> GrantCounters
+    -> IO (Output GrantEvent)
 startStatistics ServerOptions{..} connPool counters = do
     srv <- EKG.forkServer optStatsHost optStatsPort
     (output, input) <- spawn (bounded 50)

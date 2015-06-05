@@ -4,17 +4,10 @@
 -- | Description: Configuration parsing.
 module Anchor.Tokens.Server.Configuration where
 
-import           Data.ByteString          (ByteString)
+import           Data.ByteString            (ByteString)
 import           Network.Wai.Handler.Warp
 
-data ServerOptions = ServerOptions
-    { optDBString    :: ByteString
-    , optStatsHost   :: ByteString
-    , optStatsPort   :: Int
-    , optServiceHost :: HostPreference
-    , optServicePort :: Int
-    }
-  deriving (Eq, Show)
+import           Anchor.Tokens.Server.Types
 
 defaultServerOptions :: ServerOptions
 defaultServerOptions =
