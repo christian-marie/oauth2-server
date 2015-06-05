@@ -7,6 +7,7 @@ module Anchor.Tokens.Server.Statistics where
 import           Control.Applicative
 import           Control.Monad
 import           Control.Monad.STM
+import           Data.Pool
 import           Database.PostgreSQL.Simple
 import           Data.Int
 import           Data.Monoid
@@ -57,10 +58,10 @@ defaultStats :: Stats
 defaultStats = Stats 0 0 0 0 0 0 0 0 0 0
 
 gatherStats
-    :: Connection
-    -> GrantCounters
+    :: GrantCounters
+    -> Connection
     -> IO Stats
-gatherStats conn GrantCounters{..} =
+gatherStats GrantCounters{..} conn =
     Stats <$> gatherClients
           <*> gatherUsers
           <*> C.read codeCounter
@@ -100,11 +101,11 @@ statsWatcher source GrantCounters{..} = forever $ do
 
 registerOAuth2Metrics
     :: Store
-    -> Connection
+    -> Pool Connection
     -> Input GrantEvent
     -> GrantCounters
     -> IO ()
-registerOAuth2Metrics store conn source counters = do
+registerOAuth2Metrics store connPool source counters = do
     void $ forkIO $ statsWatcher source counters
     registerGroup (HM.fromList
         [ ("oauth2.clients",                   Gauge . statClients)
@@ -119,4 +120,4 @@ registerOAuth2Metrics store conn source counters = do
         , ("oauth2.tokens.issued",             Gauge . statTokensIssued)
         , ("oauth2.tokens.expired",            Gauge . statTokensExpired)
         , ("oauth2.tokens.revoked",            Gauge . statTokensRevoked)
-        ]) (gatherStats conn counters) store
+        ]) (withResource connPool $ gatherStats counters) store
