@@ -37,6 +37,14 @@ data GrantCounters = GrantCounters
     , extensionCounter         :: C.Counter
     }
 
+mkGrantCounters :: IO GrantCounters
+mkGrantCounters = GrantCounters
+    <$> C.new
+    <*> C.new
+    <*> C.new
+    <*> C.new
+    <*> C.new
+
 -- | Record containing statistics to report.
 data Stats = Stats
     { statClients                :: Int64 -- ^ Registered clients
