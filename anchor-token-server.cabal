@@ -29,6 +29,8 @@ library
     , Anchor.Tokens.Server.API
     , Anchor.Tokens.Server.Configuration
     , Anchor.Tokens.Server.Statistics
+    , Anchor.Tokens.Server.Store
+    , Anchor.Tokens.Server.Types
   build-depends:
       base >=4.7 && <4.8
     , bytestring
@@ -36,6 +38,7 @@ library
     , ekg
     , ekg-core
     , hslogger
+    , monad-control
     , mtl
     , oauth2-server
     , pipes-concurrency

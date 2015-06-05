@@ -1,5 +1,5 @@
-{-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE RecordWildCards     #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards   #-}
 
 -- | Description: Monitoring and reporting statistics.
 module Anchor.Tokens.Server.Statistics where
@@ -7,27 +7,23 @@ module Anchor.Tokens.Server.Statistics where
 import           Control.Applicative
 import           Control.Monad
 import           Control.Monad.STM
-import           Data.Pool
-import           Database.PostgreSQL.Simple
+import qualified Data.HashMap.Strict        as HM
 import           Data.Int
 import           Data.Monoid
-import           Data.Text           ()
-import qualified Data.HashMap.Strict as HM
+import           Data.Pool
+import           Data.Text                  ()
+import           Database.PostgreSQL.Simple
 import           Pipes.Concurrent
 import           System.Log.Logger
 import           System.Metrics
-import qualified System.Metrics.Counter as C
+import qualified System.Metrics.Counter     as C
+
+import           Anchor.Tokens.Server.Types
 
 -- | Name of server component for logging.
 statsLogName :: String
 statsLogName = "Tokens.Server.Statistics"
 
-data GrantEvent
-    = CodeGranted
-    | ImplicitGranted
-    | OwnerCredentialsGranted
-    | ClientCredentialsGranted
-    | ExtensionGranted
 
 data GrantCounters = GrantCounters
     { codeCounter              :: C.Counter
