@@ -2,7 +2,7 @@
 
 module Anchor.Tokens.Server (
     P.version,
-    startStatistics,
+    startServer,
     ServerState(..),
     module X,
     ) where
@@ -24,13 +24,28 @@ import           Paths_anchor_token_server          as P
 data ServerState = ServerState
     { serverPGConnPool :: Pool Connection
     , serverEventSink  :: Output GrantEvent
-    , serverConfig     :: ServerConfig
+    , serverOpts       :: ServerOptions
     }
 
 -- | Start the statistics-reporting thread.
-startStatistics :: ServerConfig -> Pool Connection -> GrantCounters -> IO (Output GrantEvent)
-startStatistics ServerConfig{..} connPool counters = do
-    srv <- EKG.forkServer cfgStatsHost cfgStatsPort
+startStatistics :: ServerOptions -> Pool Connection -> GrantCounters -> IO (Output GrantEvent)
+startStatistics ServerOptions{..} connPool counters = do
+    srv <- EKG.forkServer optStatsHost optStatsPort
     (output, input) <- spawn (bounded 50)
     registerOAuth2Metrics (EKG.serverMetricStore srv) connPool input counters
     return output
+
+startServer
+    :: ServerOptions
+    -> IO ServerState
+startServer serverOpts@ServerOptions{..} = do
+    let createConn = connectPostgreSQL optDBString
+        destroyConn conn = close conn
+        stripes = 1
+        keep_alive = 10
+        num_conns = 100
+    serverPGConnPool <-
+        createPool createConn destroyConn stripes keep_alive num_conns
+    counters <- mkGrantCounters
+    serverEventSink <- startStatistics serverOpts serverPGConnPool counters
+    return ServerState{..}
