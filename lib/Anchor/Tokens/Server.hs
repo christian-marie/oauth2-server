@@ -27,9 +27,9 @@ data ServerState = ServerState
     }
 
 -- | Start the statistics-reporting thread.
-startStatistics :: ServerConfig -> Connection -> GrantRef -> IO (Output GrantEvent)
-startStatistics ServerConfig{..} conn ref = do
+startStatistics :: ServerConfig -> Connection -> GrantCounters -> IO (Output GrantEvent)
+startStatistics ServerConfig{..} conn counters = do
     srv <- EKG.forkServer cfgStatsHost cfgStatsPort
     (output, input) <- spawn (bounded 50)
-    registerOAuth2Metrics (EKG.serverMetricStore srv) conn input ref
+    registerOAuth2Metrics (EKG.serverMetricStore srv) conn input counters
     return output
