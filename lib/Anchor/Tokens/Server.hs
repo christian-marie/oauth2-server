@@ -3,10 +3,10 @@
 module Anchor.Tokens.Server (
     P.version,
     startStatistics,
-    module X
+    ServerState(..),
+    module X,
     ) where
 
-import           Control.Concurrent                 (ThreadId)
 import           Database.PostgreSQL.Simple
 import           Pipes.Concurrent
 import qualified System.Remote.Monitoring           as EKG
@@ -21,13 +21,15 @@ import           Paths_anchor_token_server          as P
 -- * Server
 
 data ServerState = ServerState
-    { _serverPGConn    :: Connection
-    , _serverEventSink :: Output GrantEvent
+    { serverPGConn    :: Connection
+    , serverEventSink :: Output GrantEvent
+    , serverConfig    :: ServerConfig
     }
 
 -- | Start the statistics-reporting thread.
-startStatistics :: ServerState -> IO ThreadId
-startStatistics ServerState{..} = do
+startStatistics :: ServerConfig -> Connection -> GrantRef -> IO (Output GrantEvent)
+startStatistics ServerConfig{..} conn ref = do
     srv <- EKG.forkServer cfgStatsHost cfgStatsPort
-    registerOAuth2Metrics (EKG.serverMetricStore srv) 
-    return (EKG.serverThreadId srv)
+    (output, input) <- spawn (bounded 50)
+    registerOAuth2Metrics (EKG.serverMetricStore srv) conn input ref
+    return output
