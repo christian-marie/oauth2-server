@@ -3,8 +3,11 @@
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE RecordWildCards       #-}
 
+-- | Description: OAuth2 token storage using PostgreSQL.
 module Anchor.Tokens.Server.Store where
 
+import           Control.Applicative
+import           Control.Lens.Review
 import           Control.Monad.Error.Class
 import           Control.Monad.IO.Class
 import           Control.Monad.Reader.Class
@@ -12,7 +15,11 @@ import           Control.Monad.Trans.Control
 import           Data.ByteString                    (ByteString)
 import           Data.Monoid
 import           Data.Pool
+import           Data.Text                          (Text)
 import           Database.PostgreSQL.Simple
+import           Database.PostgreSQL.Simple.FromRow
+import           Database.PostgreSQL.Simple.ToField
+import           Database.PostgreSQL.Simple.ToRow
 import           Network.OAuth2.Server
 import           System.Log.Logger
 
@@ -32,6 +39,7 @@ saveToken
     -> m TokenDetails
 saveToken grant = do
     liftIO . debugM logName $ "Saving new token: " <> show grant
+    -- INSERT the grant into the databass, returning the new token's ID.
     fail "Nope"
 
 -- | Retrieve the details of a previously issued token from the database.
@@ -47,7 +55,7 @@ loadToken tok = do
     liftIO . debugM logName $ "Loading token: " <> show tok
     fail "Waaah"
 
--- | Check the
+-- | Check the supplied credentials against the database.
 checkCredentials
     :: ( MonadIO m
        , MonadBaseControl IO m
@@ -62,3 +70,16 @@ checkCredentials _auth _req = do
     withResource pool $ \_conn -> do
         liftIO . debugM logName $ "Checking some credentials"
         fail "Nope"
+
+-- * Support Code
+
+-- $ Here we implement support for, e.g., sorting oauth2-server types in
+-- PostgreSQL databases.
+
+instance ToField TokenType where
+    toField Bearer = toField ("bearer" :: Text)
+    toField Refresh = toField ("refresh" :: Text)
+
+instance ToRow TokenGrant where
+    toRow (TokenGrant ty ex uid cid sc) =
+        toRow (ty, ex, review username <$> uid, review clientID <$> cid, scopeToBs sc)

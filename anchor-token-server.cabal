@@ -38,6 +38,7 @@ library
     , ekg
     , ekg-core
     , hslogger
+    , lens
     , monad-control
     , mtl
     , oauth2-server
