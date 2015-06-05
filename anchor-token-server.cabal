@@ -31,14 +31,20 @@ library
     , Anchor.Tokens.Server.Statistics
     , Anchor.Tokens.Server.Store
     , Anchor.Tokens.Server.Types
+    , Anchor.Tokens.Server.UI
+
   build-depends:
       base >=4.7 && <4.8
     , async
+    , blaze-html
     , bytestring
     , configurator
     , ekg
     , ekg-core
+    , file-embed
     , hslogger
+    , http-types
+    , lens
     , monad-control
     , mtl
     , network
@@ -77,3 +83,4 @@ test-suite             test-tokenserver
       base
     , QuickCheck
     , anchor-token-server
+

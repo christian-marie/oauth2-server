@@ -31,3 +31,4 @@ data GrantEvent
     | ClientCredentialsGranted
     | ExtensionGranted
 
+type TokenID = Int

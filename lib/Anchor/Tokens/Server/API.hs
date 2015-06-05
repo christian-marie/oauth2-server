@@ -12,7 +12,10 @@ import           Control.Monad.Error.Class
 import           Control.Monad.IO.Class
 import           Control.Monad.Reader.Class
 import           Control.Monad.Trans.Control
+import           Data.ByteString (ByteString)
+import qualified Data.ByteString.Lazy.Char8 as BSL
 import           Data.Proxy
+import           Network.HTTP.Types hiding (Header)
 import           Servant.API
 import           Servant.Server
 
@@ -20,6 +23,7 @@ import           Network.OAuth2.Server
 
 import           Anchor.Tokens.Server.Store
 import           Anchor.Tokens.Server.Types
+import           Anchor.Tokens.Server.UI
 
 -- | OAuth2 Authorization Endpoint
 --
@@ -43,6 +47,11 @@ type VerifyEndpoint
     :> ReqBody '[OctetStream] Token
     :> Post '[JSON] (Headers '[Header "Cache-Control" NoCache] AccessResponse)
 
+type ListTokens
+    = "tokens"
+    :> Header "Authorization" AuthHeader
+    :> Raw
+
 -- | Anchor Token Server HTTP endpoints.
 --
 -- Includes endpoints defined in RFC6749 describing OAuth2, plus application
@@ -51,6 +60,7 @@ type AnchorOAuth2API
        = "oauth2" :> TokenEndpoint  -- From oauth2-server
     :<|> "oauth2" :> VerifyEndpoint
     :<|> "oauth2" :> AuthorizeEndpoint
+    :<|> ListTokens
 
 anchorOAuth2API :: Proxy AnchorOAuth2API
 anchorOAuth2API = Proxy
