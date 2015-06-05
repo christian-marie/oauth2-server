@@ -8,14 +8,17 @@
 -- | Description: HTTP API implementation.
 module Anchor.Tokens.Server.API where
 
-import qualified Data.ByteString as B
 import           Data.ByteString (ByteString)
 import           Servant.Server
 import           Servant.API
 import           Control.Monad.Error.Class
+import           Control.Monad.State.Class
 import           Control.Monad.IO.Class
 
 import           Network.OAuth2.Server
+
+import           Anchor.Tokens.Server.Configuration
+import           Anchor.Tokens.Server.Store
 
 -- | OAuth2 Authorization Endpoint
 --
@@ -50,13 +53,10 @@ type AnchorOAuth2API
 
 anchorOAuth2Server ::
     ( MonadError OAuth2Error m
+    , MonadState ServerConfig m
     , MonadIO m )
     => OAuth2Server m
-anchorOAuth2Server = OAuth2Server save load check
-  where
-    save  = error "save NYI"
-    load  = error "load NYI"
-    check = error "check NYI"
+anchorOAuth2Server = OAuth2Server saveToken loadToken checkCredentials
 
 server :: Server AnchorOAuth2API
 server = error "Coming in Summer 2016"
