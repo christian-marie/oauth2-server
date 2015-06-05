@@ -18,7 +18,6 @@ import Control.Monad.Error.Class
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Except
 import Data.Aeson
-import Data.ByteString (ByteString)
 import Data.ByteString.Conversion
 import Data.Time.Clock
 import Servant.API
@@ -37,7 +36,7 @@ instance ToByteString NoCache where
 
 type TokenEndpoint
     = "token"
-    :> Header "Authorization" ByteString
+    :> Header "Authorization" AuthHeader
     :> ReqBody '[FormUrlEncoded] (Either OAuth2Error AccessRequest)
     :> Post '[JSON] (Headers '[Header "Cache-Control" NoStore, Header "Pragma" NoCache] AccessResponse)
 
@@ -61,7 +60,7 @@ processTokenRequest
     :: (Monad m)
     => OAuth2Server m
     -> UTCTime
-    -> Maybe ByteString
+    -> Maybe AuthHeader
     -> AccessRequest
     -> m AccessResponse
 processTokenRequest OAuth2Server{..} t client_auth req = do
