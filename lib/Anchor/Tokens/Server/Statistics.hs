@@ -58,10 +58,10 @@ defaultStats :: Stats
 defaultStats = Stats 0 0 0 0 0 0 0 0 0 0
 
 gatherStats
-    :: Connection
-    -> GrantCounters
+    :: GrantCounters
+    -> Connection
     -> IO Stats
-gatherStats conn GrantCounters{..} =
+gatherStats GrantCounters{..} conn =
     Stats <$> gatherClients
           <*> gatherUsers
           <*> C.read codeCounter
@@ -120,4 +120,4 @@ registerOAuth2Metrics store connPool source counters = do
         , ("oauth2.tokens.issued",             Gauge . statTokensIssued)
         , ("oauth2.tokens.expired",            Gauge . statTokensExpired)
         , ("oauth2.tokens.revoked",            Gauge . statTokensRevoked)
-        ]) (withResource connPool $ \conn -> gatherStats conn counters) store
+        ]) (withResource connPool $ gatherStats counters) store
