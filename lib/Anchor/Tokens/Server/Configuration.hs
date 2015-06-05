@@ -24,7 +24,7 @@ defaultServerOptions =
         optServicePort = 8080
     in Options{..}
 
-data ServerConfig = Config
+data ServerConfig = ServerConfig
     { cfgStatsHost   :: ByteString
     , cfgStatsPort   :: Int
     , cfgServiceHost :: HostPreference
@@ -39,4 +39,4 @@ configure Options{..} = do
     let cfgStatsPort = optStatsPort
     let cfgServiceHost = fromString optServiceHost
     let cfgServicePort = optServicePort
-    return Config{..}
+    return ServerConfig{..}
