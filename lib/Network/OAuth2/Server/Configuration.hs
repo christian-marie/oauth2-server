@@ -12,8 +12,6 @@
 
 module Network.OAuth2.Server.Configuration where
 
-import Data.ByteString (ByteString)
-
 import Network.OAuth2.Server.Types
 
 -- | The configuration for an OAuth2 server.
@@ -22,6 +20,6 @@ data OAuth2Server m = OAuth2Server
     -- ^ Save a [new] token to the OAuth2 server database.
     , oauth2StoreLoad        :: Token -> m (Maybe TokenDetails)
     -- ^ Load a token from the OAuth2 server database.
-    , oauth2CheckCredentials :: Maybe ByteString -> AccessRequest -> m (Maybe ClientID, Scope)
+    , oauth2CheckCredentials :: Maybe AuthHeader -> AccessRequest -> m (Maybe ClientID, Scope)
     -- ^ Check the credentials provided by the resource owner.
     }

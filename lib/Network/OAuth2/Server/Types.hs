@@ -11,6 +11,7 @@
 module Network.OAuth2.Server.Types (
   AccessRequest(..),
   AccessResponse(..),
+  AuthHeader(..),
   bsToScope,
   ClientID,
   clientID,
@@ -81,7 +82,7 @@ nqchar c = or
 
 nqschar :: Word8 -> Bool
 nqschar c = or
-    [ c>=0x22 && c<=0x21
+    [ c>=0x20 && c<=0x21
     , c>=0x23 && c<=0x5B
     , c>=0x5D && c<=0x7E
     ]
@@ -518,6 +519,22 @@ instance FromJSON AccessResponse where
         <*> o .:? "username"
         <*> o .:? "client_id"
         <*> o .: "scope"
+
+data AuthHeader = AuthHeader
+    { authScheme :: ByteString
+    , authParam  :: ByteString
+    }
+  deriving (Eq, Show)
+
+instance FromText AuthHeader where
+    fromText t = do
+        let b = T.encodeUtf8 t
+        either fail return $ flip parseOnly b $ AuthHeader
+            <$> takeWhile1 nqchar <* word8 0x20
+            <*> takeWhile1 nqschar <* endOfInput
+
+instance ToText AuthHeader where
+    toText AuthHeader {..} = T.decodeUtf8 $ authScheme <> " " <> authParam
 
 newtype ErrorDescription = ErrorDescription { unErrorDescription :: ByteString }
     deriving (Eq)

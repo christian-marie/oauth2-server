@@ -184,8 +184,10 @@ instance CoArbitrary Token where
 instance Function Token where
     function = functionShow
 
-instance Function B.ByteString where
-    function = functionMap B.unpack B.pack
+instance Arbitrary AuthHeader where
+    arbitrary = AuthHeader
+        <$> (B.pack <$> listOf1 (arbitrary `suchThat` nqchar))
+        <*> (B.pack <$> listOf1 (arbitrary `suchThat` nqschar))
 
 hasCorrectJSON
     :: forall a. (FromJSON a, ToJSON a, Arbitrary a, Show a, Eq a)
@@ -217,6 +219,9 @@ suite = do
         hasCorrectJSON "URI" (Proxy :: Proxy URI)
 
         hasCorrectFormUrlEncoded "AccessRequest" (Proxy :: Proxy AccessRequest)
+
+        prop "forall (x :: AuthHeader). fromText (toText x) === Just x" $ \(x :: AuthHeader) ->
+            fromText (toText x) === Just x
 
         prop "bsToScope (scopeToBs x) === Just x" $ \x ->
             bsToScope (scopeToBs x) === Just x
