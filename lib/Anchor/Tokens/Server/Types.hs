@@ -6,6 +6,11 @@ import           Database.PostgreSQL.Simple
 import           Network.Wai.Handler.Warp   hiding (Connection)
 import           Pipes.Concurrent
 
+-- | Unique identifier for a user.
+newtype UserID = UserID
+    { unpackUserID :: ByteString }
+  deriving (Eq, Show, Ord)
+
 data ServerOptions = ServerOptions
     { optDBString    :: ByteString
     , optStatsHost   :: ByteString

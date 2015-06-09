@@ -1,10 +1,11 @@
--- Identify client applications
+-- Identify client applications and services which can use the OAuth2 and
+-- verify APIs.
 CREATE TABLE clients (
     -- We'll use these to authenticate client requests.
     client_id     UUID         NOT NULL DEFAULT uuid_generate_v4(),
     client_secret VARCHAR(512) NOT NULL,
 
-    -- We'll use these to implement thw
+    -- These are required for clients (but not services).
     confidential  BOOLEAN        NOT NULL DEFAULT FALSE,
     redirect_url  VARCHAR(256)[] NOT NULL,
 
@@ -14,18 +15,6 @@ CREATE TABLE clients (
     app_url       VARCHAR(256)  NOT NULL,
 
     PRIMARY KEY (client_id)
-);
-
--- Identify services (i.e. relying parties) who can verify tokens.
---
--- Alternatively, use htaccess or similar.
-CREATE TABLE services (
-    service_id     UUID         NOT NULL DEFAULT uuid_generate_v4(),
-    service_secret VARCHAR(512) NOT NULL,
-
-    name VARCHAR(128) NOT NULL,
-
-    PRIMARY KEY (service_id)
 );
 
 -- Store codes for use in Authorizatrion Code Grant
@@ -45,19 +34,21 @@ CREATE TABLE request_codes (
 
 -- Store tokens.
 CREATE TABLE tokens (
-    access_token  VARCHAR(256) NOT NULL,
-    token_type    VARCHAR(256) NOT NULL,
+    token         VARCHAR(256)   NOT NULL,
+    token_type    VARCHAR(32)    NOT NULL,  -- access | refresh
 
-    refresh_token VARCHAR(256)     NULL DEFAULT NULL,
+    scope         VARCHAR(512)[] NOT NULL DEFAULT '',
 
-    created TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT ,
-    expires TIMESTAMP WITH TIME ZONE DEFAULT NULL,
-    revoked TIMESTAMP WITH TIME ZONE DEFAULT NULL,
+    -- Token valid only at times created <= t <= min(expires,revoked).
+    created TIMESTAMP WITH TIME ZONE NOT NULL,
+    expires TIMESTAMP WITH TIME ZONE     NULL DEFAULT NULL,
+    revoked TIMESTAMP WITH TIME ZONE     NULL DEFAULT NULL,
 
+    -- Token is usable only by this client.
     client_id INTEGER NULL,
 
-    scope VARCHAR(512)[] NOT NULL DEFAULT '',
-    uid   VARCHAR(256)   NOT NULL
+    -- Token identifies this user.
+    user_id   VARCHAR(256)   NOT NULL
 
     PRIMARY KEY (token),
     FOREIGN KEY (client_id) REFERENCES client (client_id)

@@ -28,6 +28,8 @@ import           Anchor.Tokens.Server.Types
 logName :: String
 logName = "Anchor.Tokens.Server.Store"
 
+-- * OAuth2 Server operations
+
 -- | Record a new token grant in the database.
 saveToken
     :: ( MonadIO m
@@ -53,6 +55,7 @@ loadToken
     -> m (Maybe TokenDetails)
 loadToken tok = do
     liftIO . debugM logName $ "Loading token: " <> show tok
+    -- SELECT * FROM tokens WHERE (token = ?) AND (type = ?)
     fail "Waaah"
 
 -- | Check the supplied credentials against the database.
@@ -62,7 +65,7 @@ checkCredentials
        , MonadError OAuth2Error m
        , MonadReader ServerState m
        )
-    => Maybe ByteString
+    => Maybe AuthHeader
     -> AccessRequest
     -> m (Maybe ClientID, Scope)
 checkCredentials _auth _req = do
@@ -70,6 +73,39 @@ checkCredentials _auth _req = do
     withResource pool $ \_conn -> do
         liftIO . debugM logName $ "Checking some credentials"
         fail "Nope"
+
+-- * User Interface operations
+
+-- | List the tokens for a user.
+listTokens
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       , MonadError OAuth2Error m
+       , MonadReader ServerState m
+       )
+    => UserID
+    -> m [TokenDetails]
+listTokens uid = do
+    pool <- asks serverPGConnPool
+    withResource pool $ \_conn -> do
+        liftIO . debugM logName $ "Listing tokens for " <> show uid
+        -- SELECT * FROM tokens WHERE (user_id = ?)
+        return []
+
+revokeToken
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       , MonadError OAuth2Error m
+       , MonadReader ServerState m
+       )
+    => Token
+    -> m ()
+revokeToken token = do
+    pool <- asks serverPGConnPool
+    withResource pool $ \_conn -> do
+        liftIO . debugM logName $ "Revoking token: " <> show token
+        -- UPDATE tokens SET revoked = NOW() `WHERE (token = ?)
+        return ()
 
 -- * Support Code
 
