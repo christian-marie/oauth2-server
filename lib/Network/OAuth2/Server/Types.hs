@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveDataTypeable         #-}
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
@@ -66,6 +67,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Time.Clock
+import Data.Typeable
 import Data.Word
 import Servant.API hiding (URI)
 import URI.ByteString
@@ -409,7 +411,7 @@ instance ToFormUrlEncoded AccessRequest where
 data TokenType
     = Bearer
     | Refresh
-  deriving (Eq, Show)
+  deriving (Eq, Show, Typeable)
 
 instance ToJSON TokenType where
     toJSON t = String . T.decodeUtf8 $ case t of
