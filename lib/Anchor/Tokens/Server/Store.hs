@@ -54,7 +54,7 @@ checkCredentials
        , MonadError OAuth2Error m
        , MonadReader ServerState m
        )
-    => Maybe ByteString
+    => Maybe AuthHeader
     -> AccessRequest
     -> m (Maybe ClientID, Scope)
 checkCredentials _auth _req = do
