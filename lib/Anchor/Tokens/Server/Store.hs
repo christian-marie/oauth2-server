@@ -17,6 +17,7 @@ import           Data.Monoid
 import           Data.Pool
 import           Data.Text                          (Text)
 import           Database.PostgreSQL.Simple
+import           Database.PostgreSQL.Simple.FromField
 import           Database.PostgreSQL.Simple.FromRow
 import           Database.PostgreSQL.Simple.ToField
 import           Database.PostgreSQL.Simple.ToRow
@@ -77,6 +78,9 @@ checkCredentials _auth _req = do
 -- * User Interface operations
 
 -- | List the tokens for a user.
+--
+-- Returns a list of at most @page-size@ tokens along with the total number of
+-- pages.
 listTokens
     :: ( MonadIO m
        , MonadBaseControl IO m
@@ -84,13 +88,16 @@ listTokens
        , MonadReader ServerState m
        )
     => UserID
-    -> m [TokenDetails]
-listTokens uid = do
+    -> Page
+    -> m ([TokenDetails], Page)
+listTokens uid (Page p) = do
     pool <- asks serverPGConnPool
-    withResource pool $ \_conn -> do
+    Page size <- (optUIPageSize <$> asks serverOpts)
+    withResource pool $ \conn -> do
         liftIO . debugM logName $ "Listing tokens for " <> show uid
-        -- SELECT * FROM tokens WHERE (user_id = ?)
-        return []
+        tokens <- liftIO $ query conn "SELECT * FROM tokens WHERE (user_id = ?) LIMIT ? OFFSET ?" (uid, size, (p - 1) * size)
+        [Only pages] <- liftIO $ query conn "SELECT count(*) FROM tokens WHERE (user_id = ?)" (Only uid)
+        return (tokens, Page pages)
 
 revokeToken
     :: ( MonadIO m
@@ -104,7 +111,7 @@ revokeToken token = do
     pool <- asks serverPGConnPool
     withResource pool $ \_conn -> do
         liftIO . debugM logName $ "Revoking token: " <> show token
-        -- UPDATE tokens SET revoked = NOW() `WHERE (token = ?)
+        -- UPDATE tokens SET revoked = NOW() WHERE (token = ?)
         return ()
 
 -- * Support Code
@@ -116,6 +123,17 @@ instance ToField TokenType where
     toField Bearer = toField ("bearer" :: Text)
     toField Refresh = toField ("refresh" :: Text)
 
+instance FromField TokenType where
+    fromField = (const $ Just Bearer) <$> fromField
+
 instance ToRow TokenGrant where
     toRow (TokenGrant ty ex uid cid sc) =
         toRow (ty, ex, review username <$> uid, review clientID <$> cid, scopeToBs sc)
+
+instance FromRow TokenDetails where
+    fromRow = TokenDetails <$> field
+                           <*> field
+                           <*> field
+                           <*> field
+                           <*> field
+                           <*> field
