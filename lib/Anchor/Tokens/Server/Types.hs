@@ -1,5 +1,6 @@
 module Anchor.Tokens.Server.Types where
 
+import           Control.Concurrent.Async
 import           Data.ByteString            (ByteString)
 import           Data.Pool
 import           Database.PostgreSQL.Simple
@@ -16,9 +17,11 @@ data ServerOptions = ServerOptions
   deriving (Eq, Show)
 
 data ServerState = ServerState
-    { serverPGConnPool :: Pool Connection
-    , serverEventSink  :: Output GrantEvent
-    , serverOpts       :: ServerOptions
+    { serverPGConnPool  :: Pool Connection
+    , serverEventSink   :: Output GrantEvent
+    , serverEventStop   :: IO ()
+    , serverOpts        :: ServerOptions
+    , serverServiceStop :: IO (Async ())
     }
 
 data GrantEvent
