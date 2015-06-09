@@ -79,4 +79,5 @@ test-suite             test-tokenstore
   build-depends:
       base
     , QuickCheck
+    , hspec 
     , anchor-token-server
