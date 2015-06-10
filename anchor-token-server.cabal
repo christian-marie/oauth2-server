@@ -48,7 +48,7 @@ library
     , resource-pool
     , servant
     , servant-server
-    , stm
+    , stm >=2.4.2
     , streaming-commons
     , text
     , transformers

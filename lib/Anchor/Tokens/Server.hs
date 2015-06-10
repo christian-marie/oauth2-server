@@ -56,6 +56,8 @@ startServer
     :: ServerOptions
     -> IO ServerState
 startServer serverOpts@ServerOptions{..} = do
+    debugM logName $ "Opening API Socket"
+    sock <- N.bindPortTCP optServicePort optServiceHost
     let createConn = connectPostgreSQL optDBString
         destroyConn conn = close conn
         stripes = 1
@@ -66,8 +68,6 @@ startServer serverOpts@ServerOptions{..} = do
     counters <- mkGrantCounters
     (serverEventSink, serverEventStop) <- startStatistics serverOpts serverPGConnPool counters
     let settings = setPort optServicePort $ setHost optServiceHost $ defaultSettings
-    debugM logName $ "Opening API Socket"
-    sock <- N.bindPortTCP optServicePort optServiceHost
     apiSrv <- async $ do
         debugM logName $ "Starting API Server"
         runSettingsSocket settings sock $ serve anchorOAuth2API server

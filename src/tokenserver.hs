@@ -5,6 +5,7 @@ import Control.Applicative
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Concurrent.STM
+import Control.Concurrent.STM.TSem
 import Control.Exception
 import Control.Monad
 import Data.Configurator as C
@@ -27,8 +28,9 @@ main = do
     let conf = subconfig "main" conf'
     active <- newTVarIO True
     srv <- newEmptyTMVarIO
-    restartServer active srv conf
-    subscribe conf' (prefix "main") $ \_ _ -> restartServer active srv conf
+    lock <- atomically $ newTSem 1
+    restartServer active lock srv conf
+    subscribe conf' (prefix "main") $ \_ _ -> restartServer active lock srv conf
     finally waitForever $ do
         debugM logName "Shutting down"
         srv' <- atomically $ do
@@ -40,13 +42,13 @@ main = do
                 thread <- stopServer ss
                 wait thread
   where
-    restartServer active srv conf = do
+    restartServer active lock srv conf = do
         (act,srv') <- atomically $ do
+            waitTSem lock
             act <- readTVar active
             srv' <- tryTakeTMVar srv
             return $ (act,srv')
         when act $ do
-            display conf
             loglevel <- maybe WARNING read <$> C.lookup conf "log-level"
             updateGlobalLogger rootLoggerName (setLevel loglevel)
             debugM logName "Reloading config"
@@ -55,6 +57,8 @@ main = do
                Nothing -> return ()
                Just ss -> void $ stopServer ss
             newSrv <- startServer opts
-            atomically $ putTMVar srv newSrv
+            atomically $ do
+                putTMVar srv newSrv
+                signalTSem lock
     waitForever :: IO a
     waitForever = forever $ threadDelay maxBound
