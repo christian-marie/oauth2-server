@@ -98,7 +98,7 @@ unicodecharnocrlf (ord -> c) = or
     ]
 
 newtype ScopeToken = ScopeToken { unScopeToken :: ByteString }
-  deriving (Eq, Ord)
+  deriving (Eq, Ord, Typeable)
 
 instance Show ScopeToken where
     show = show . review scopeToken
@@ -176,7 +176,7 @@ token = prism' t2b b2t
         return (Token b)
 
 newtype Username = Username { unUsername :: Text }
-    deriving (Eq)
+    deriving (Eq, Typeable)
 
 username :: Prism' Text Username
 username =
@@ -198,14 +198,14 @@ instance FromJSON Username where
             Just s -> return s
 
 newtype Password = Password { unPassword :: Text }
-    deriving (Eq)
+    deriving (Eq, Typeable)
 
 password :: Prism' Text Password
 password =
     prism' unPassword (\t -> guard (T.all unicodecharnocrlf t) >> return (Password t))
 
 newtype ClientID = ClientID { unClientID :: ByteString }
-    deriving (Eq)
+    deriving (Eq, Typeable)
 
 clientID :: Prism' ByteString ClientID
 clientID =
@@ -227,7 +227,7 @@ instance FromJSON ClientID where
             Just s -> return s
 
 newtype Code = Code { unCode :: ByteString }
-    deriving (Eq)
+    deriving (Eq, Typeable)
 
 code :: Prism' ByteString Code
 code =
@@ -249,7 +249,7 @@ instance FromJSON Code where
             Just s -> return s
 
 newtype ClientState = ClientState { unClientState :: ByteString }
-    deriving (Eq)
+    deriving (Eq, Typeable)
 
 clientState :: Prism' ByteString ClientState
 clientState =
@@ -278,6 +278,7 @@ data RequestCode = RequestCode
     , requestCodeScope       :: Maybe Scope
     , requestCodeState       :: Maybe ClientState
     }
+  deriving (Typeable)
 
 -- | A request to the token endpoint.
 --
@@ -310,7 +311,7 @@ data AccessRequest
         { requestRefreshToken :: Token
         , requestScope        :: Maybe Scope
         }
-    deriving (Eq)
+    deriving (Eq, Typeable)
 
 instance FromFormUrlEncoded (Either OAuth2Error AccessRequest) where
     fromFormUrlEncoded o = case fromFormUrlEncoded o of
@@ -435,7 +436,7 @@ data AccessResponse = AccessResponse
     , tokenClientID  :: Maybe ClientID
     , tokenScope     :: Scope
     }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Typeable)
 
 -- | A token grant.
 --
@@ -448,7 +449,7 @@ data TokenGrant = TokenGrant
     , grantClientID  :: Maybe ClientID
     , grantScope     :: Scope
     }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Typeable)
 
 -- | A token grant.
 --
@@ -462,7 +463,7 @@ data TokenDetails = TokenDetails
     , tokenDetailsClientID  :: Maybe ClientID
     , tokenDetailsScope     :: Scope
     }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Typeable)
 
 -- | Convert a 'TokenGrant' into an 'AccessResponse'.
 grantResponse
@@ -526,7 +527,7 @@ data AuthHeader = AuthHeader
     { authScheme :: ByteString
     , authParam  :: ByteString
     }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Typeable)
 
 instance FromText AuthHeader where
     fromText t = do
@@ -538,8 +539,9 @@ instance FromText AuthHeader where
 instance ToText AuthHeader where
     toText AuthHeader {..} = T.decodeUtf8 $ authScheme <> " " <> authParam
 
-newtype ErrorDescription = ErrorDescription { unErrorDescription :: ByteString }
-    deriving (Eq)
+newtype ErrorDescription = ErrorDescription
+    { unErrorDescription :: ByteString }
+  deriving (Eq, Typeable)
 
 errorDescription :: Prism' ByteString ErrorDescription
 errorDescription =
@@ -574,7 +576,7 @@ data OAuth2Error = OAuth2Error
     , oauth2ErrorDescription :: Maybe ErrorDescription
     , oauth2ErrorURI         :: Maybe URI
     }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Typeable)
 
 data ErrorCode
     = InvalidClient
@@ -583,7 +585,7 @@ data ErrorCode
     | InvalidScope
     | UnauthorizedClient
     | UnsupportedGrantType
-  deriving (Eq, Show)
+  deriving (Eq, Show, Typeable)
 
 -- | Get the OAuth2 error code for an error case.
 errorCode :: Prism' ByteString ErrorCode
@@ -637,4 +639,3 @@ instance FromJSON OAuth2Error where
         <$> o .: "error"
         <*> o .:? "error_description"
         <*> o .:? "error_uri"
-
