@@ -108,7 +108,7 @@ instance Read ScopeToken where
 
 -- | A scope is a nonemty set of `ScopeToken`s
 newtype Scope = Scope { unScope :: Set ScopeToken }
-  deriving (Eq, Read, Show)
+  deriving (Eq, Read, Show, Typeable)
 
 scope :: Prism' (Set ScopeToken) Scope
 scope = prism' unScope (\x -> (guard . not . S.null $ x) >> return (Scope x))
@@ -147,7 +147,7 @@ compatibleScope (Scope s1) (Scope s2) =
 
 -- | A token is a unique piece of text.
 newtype Token = Token { unToken :: ByteString }
-  deriving (Eq, Ord)
+  deriving (Eq, Ord, Typeable)
 
 instance Show Token where
     show = show . review token
