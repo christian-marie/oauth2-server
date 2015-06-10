@@ -39,7 +39,7 @@ type AuthorizeEndpoint
 -- and retrieve information about the principal and token scope.
 type VerifyEndpoint
     = "verify"
-    :> Header "Authorization" ByteString
+    :> Header "Authorization" AuthHeader
     :> ReqBody '[OctetStream] Token
     :> Post '[JSON] (Headers '[Header "Cache-Control" NoCache] AccessResponse)
 
