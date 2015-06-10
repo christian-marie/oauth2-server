@@ -40,6 +40,7 @@ module Network.OAuth2.Server.Types (
   TokenDetails(..),
   TokenGrant(..),
   TokenType(..),
+  tokenDetails,
   unicodecharnocrlf,
   Username,
   username,
@@ -440,8 +441,6 @@ data AccessResponse = AccessResponse
 
 -- | A token grant.
 --
--- This is recorded in the OAuth2 server and used to verify tokens in the
--- future.
 data TokenGrant = TokenGrant
     { grantTokenType :: TokenType
     , grantExpires   :: UTCTime
@@ -451,10 +450,10 @@ data TokenGrant = TokenGrant
     }
   deriving (Eq, Show, Typeable)
 
--- | A token grant.
+-- | Token details.
+--   This is recorded in the OAuth2 server and used to verify tokens in the
+--   future.
 --
--- This is recorded in the OAuth2 server and used to verify tokens in the
--- future.
 data TokenDetails = TokenDetails
     { tokenDetailsTokenType :: TokenType
     , tokenDetailsToken     :: Token
@@ -464,6 +463,17 @@ data TokenDetails = TokenDetails
     , tokenDetailsScope     :: Scope
     }
   deriving (Eq, Show, Typeable)
+
+tokenDetails :: Token -> TokenGrant -> TokenDetails
+tokenDetails tok TokenGrant{..}
+  = TokenDetails
+  { tokenDetailsTokenType = grantTokenType
+  , tokenDetailsToken     = tok
+  , tokenDetailsExpires   = grantExpires
+  , tokenDetailsUsername  = grantUsername
+  , tokenDetailsClientID  = grantClientID
+  , tokenDetailsScope     = grantScope
+  }
 
 -- | Convert a 'TokenGrant' into an 'AccessResponse'.
 grantResponse
