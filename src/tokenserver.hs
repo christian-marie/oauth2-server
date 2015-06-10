@@ -25,6 +25,8 @@ main = do
             _ -> error "Usage: anchor-token-server [CONFIG]"
     (conf', _) <- autoReloadGroups autoConfig [("main.",Required confFile)]
     let conf = subconfig "main" conf'
+    loglevel <- maybe WARNING read <$> C.lookup conf "log-level"
+    updateGlobalLogger rootLoggerName (setLevel loglevel)
     opts <- loadOptions conf
     srv' <- startServer opts
     active <- newTVarIO True
