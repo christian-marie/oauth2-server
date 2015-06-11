@@ -2,6 +2,7 @@
 -- | Description: Data types used in the token server.
 module Anchor.Tokens.Server.Types where
 
+import           Control.Concurrent.Async
 import           Data.ByteString            (ByteString)
 import           Data.Pool
 import           Database.PostgreSQL.Simple
@@ -36,9 +37,11 @@ data ServerOptions = ServerOptions
 
 -- | State of the running server, including database connectioned, etc.
 data ServerState = ServerState
-    { serverPGConnPool :: Pool Connection
-    , serverEventSink  :: Output GrantEvent
-    , serverOpts       :: ServerOptions
+    { serverPGConnPool  :: Pool Connection
+    , serverEventSink   :: Output GrantEvent
+    , serverEventStop   :: IO ()
+    , serverOpts        :: ServerOptions
+    , serverServiceStop :: IO (Async ())
     }
 
 -- | Describes events which should be tracked by the monitoring statistics

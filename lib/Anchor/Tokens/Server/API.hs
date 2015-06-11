@@ -12,7 +12,7 @@ import           Control.Monad.Error.Class
 import           Control.Monad.IO.Class
 import           Control.Monad.Reader.Class
 import           Control.Monad.Trans.Control
-import           Data.ByteString (ByteString)
+import           Data.Proxy
 import           Servant.API
 import           Servant.Server
 
@@ -31,7 +31,7 @@ import           Anchor.Tokens.Server.Types
 -- @TODO(thsutton): This type should correctly describe the endpoint.
 type AuthorizeEndpoint
     = "authorize"
-    :> Get '[JSON] [ByteString]
+    :> Get '[JSON] ()
 
 -- | Facilitates services checking tokens.
 --
@@ -51,6 +51,9 @@ type AnchorOAuth2API
        = "oauth2" :> TokenEndpoint  -- From oauth2-server
     :<|> "oauth2" :> VerifyEndpoint
     :<|> "oauth2" :> AuthorizeEndpoint
+
+anchorOAuth2API :: Proxy AnchorOAuth2API
+anchorOAuth2API = Proxy
 
 server :: Server AnchorOAuth2API
 server = error "Coming in Summer 2016"
