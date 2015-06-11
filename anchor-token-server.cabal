@@ -33,6 +33,7 @@ library
     , Anchor.Tokens.Server.Types
   build-depends:
       base >=4.7 && <4.8
+    , async
     , bytestring
     , configurator
     , ekg
@@ -41,13 +42,15 @@ library
     , lens
     , monad-control
     , mtl
+    , network
     , oauth2-server
     , pipes-concurrency
     , postgresql-simple
     , resource-pool
     , servant
     , servant-server
-    , stm
+    , stm >=2.4.2
+    , streaming-commons
     , text
     , transformers
     , unordered-containers
@@ -60,6 +63,11 @@ executable             tokenserver
   build-depends:
       base
     , anchor-token-server
+    , async
+    , configurator
+    , hslogger
+    , stm
+  ghc-options: -threaded
 
 test-suite             test-tokenserver
   type:                exitcode-stdio-1.0
