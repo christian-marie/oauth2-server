@@ -1,31 +1,28 @@
-{-# LANGUAGE FlexibleContexts      #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE MultiWayIf            #-}
-{-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE RankNTypes            #-}
-{-# LANGUAGE RecordWildCards       #-}
-{-# LANGUAGE ScopedTypeVariables   #-}
-{-# LANGUAGE TemplateHaskell       #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE MultiWayIf                 #-}
+{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE RankNTypes                 #-}
+{-# LANGUAGE RecordWildCards            #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE StandaloneDeriving         #-}
+{-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE TypeFamilies               #-}
 
 -- needed for monad base/control as required by this API
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE UndecidableInstances       #-}
 
 -- | Description: OAuth2 token storage using PostgreSQL.
 module Anchor.Tokens.Server.Store where
 
-import Control.Monad.Base
-import Control.Monad.Error
-import Control.Monad.Reader
 import           Control.Applicative
 import           Control.Lens                               (preview)
 import           Control.Lens.Review
-import           Control.Monad.Error.Class
-import           Control.Monad.IO.Class
-import           Control.Monad.Reader.Class
+import           Control.Monad.Base
+import           Control.Monad.Error
+import           Control.Monad.Reader
 import           Control.Monad.Trans.Control
 import           Data.ByteString                            (ByteString)
 import           Data.Monoid
@@ -125,10 +122,10 @@ revokeToken
        )
     => Token
     -> m ()
-revokeToken token = do
+revokeToken tok = do
     pool <- asks serverPGConnPool
     withResource pool $ \_conn -> do
-        liftIO . debugM logName $ "Revoking token: " <> show token
+        liftIO . debugM logName $ "Revoking token: " <> show tok
         -- UPDATE tokens SET revoked = NOW() WHERE (token = ?)
         return ()
 
@@ -158,11 +155,11 @@ instance ToRow TokenGrant where
 
 instance FromRow TokenDetails where
     fromRow = TokenDetails <$> field
-                           <*> (mebbeField (preview token))
+                           <*> mebbeField (preview token)
                            <*> field
                            <*> (preview username <$> field)
                            <*> (preview clientID <$> field)
-                           <*> (mebbeField bsToScope)
+                           <*> mebbeField bsToScope
 
 -- | Get a PostgreSQL field using a parsing function.
 --
