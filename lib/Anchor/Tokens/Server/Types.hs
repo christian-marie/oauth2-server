@@ -3,6 +3,7 @@ module Anchor.Tokens.Server.Types where
 import           Control.Concurrent.Async
 import           Data.ByteString            (ByteString)
 import           Data.Pool
+import           Data.Text                   (Text)
 import           Database.PostgreSQL.Simple
 import           Network.Wai.Handler.Warp   hiding (Connection)
 import           Pipes.Concurrent
@@ -32,3 +33,5 @@ data GrantEvent
     | ExtensionGranted
 
 type TokenID = Int
+
+type UserID = Text

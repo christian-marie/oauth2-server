@@ -12,18 +12,25 @@ import           Control.Monad.Error.Class
 import           Control.Monad.IO.Class
 import           Control.Monad.Reader.Class
 import           Control.Monad.Trans.Control
-import           Data.ByteString (ByteString)
-import qualified Data.ByteString.Lazy.Char8 as BSL
+import           Data.ByteString             (ByteString)
+import qualified Data.ByteString.Lazy.Char8  as BSL
+import           Data.Pool
 import           Data.Proxy
-import           Network.HTTP.Types hiding (Header)
+import           Network.HTTP.Types          hiding (Header)
+import           Database.PostgreSQL.Simple
 import           Servant.API
+import           Servant.HTML.Blaze
 import           Servant.Server
+import           Text.Blaze.Html5
 
 import           Network.OAuth2.Server
 
 import           Anchor.Tokens.Server.Store
 import           Anchor.Tokens.Server.Types
 import           Anchor.Tokens.Server.UI
+
+type OAuthUserHeader = "Identity-OAuthUser"
+
 
 -- | OAuth2 Authorization Endpoint
 --
@@ -47,10 +54,22 @@ type VerifyEndpoint
     :> ReqBody '[OctetStream] Token
     :> Post '[JSON] (Headers '[Header "Cache-Control" NoCache] AccessResponse)
 
+-- | Facilitates human-readable token listing.
+--
+-- This endpoint allows an authorized client to view their tokens as well as
+-- revoke them individually.
 type ListTokens
     = "tokens"
-    :> Header "Authorization" AuthHeader
-    :> Raw
+    :> Header OAuthUserHeader UserID
+    :> Get '[HTML] Html
+
+{-
+type DeleteToken
+    = "tokens"
+    :> Header OAuthUserHeader UserID
+--    :> Capture ??
+--    :> Post '[HTML]
+-}
 
 -- | Anchor Token Server HTTP endpoints.
 --
@@ -65,8 +84,24 @@ type AnchorOAuth2API
 anchorOAuth2API :: Proxy AnchorOAuth2API
 anchorOAuth2API = Proxy
 
-server :: Server AnchorOAuth2API
-server = error "Coming in Summer 2016"
+server :: Pool Connection
+       -> Server AnchorOAuth2API
+server pool = error "Coming in Summer 2016"
+    :<|> error ""
+    :<|> error ""
+    :<|> serverListTokens pool
+
+serverListTokens
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       )
+    => Pool Connection
+    -> Maybe UserID
+    -> m Html
+serverListTokens _    Nothing  = error "Auth failed remove yourself please"
+serverListTokens pool (Just u) = do
+    tokens <- userTokens pool u
+    return $ renderTokensPage tokens
 
 
 -- * OAuth2 Server

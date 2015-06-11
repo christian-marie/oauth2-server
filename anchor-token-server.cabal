@@ -39,6 +39,7 @@ library
     , blaze-html
     , bytestring
     , configurator
+    , containers
     , ekg
     , ekg-core
     , file-embed
@@ -53,12 +54,14 @@ library
     , postgresql-simple
     , resource-pool
     , servant
+    , servant-blaze
     , servant-server
     , stm >=2.4.2
     , streaming-commons
     , text
     , transformers
     , unordered-containers
+    , vector
     , warp
 
 executable             tokenserver

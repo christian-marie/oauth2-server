@@ -23,8 +23,8 @@ import           Anchor.Tokens.Server.Types
 stylesheet :: String
 stylesheet = BS.unpack $(embedFile "style.css")
 
-renderTokensPage :: [(Maybe ClientID, Scope, TokenID)] -> String
-renderTokensPage ts = renderHtml $ docTypeHtml $ do
+renderTokensPage :: [(Maybe ClientID, Scope, TokenID)] -> Html
+renderTokensPage ts = docTypeHtml $ do
     head $ do
         title "Such Token"
         style ! type_ "text/css" $ toHtml stylesheet
@@ -33,9 +33,10 @@ renderTokensPage ts = renderHtml $ docTypeHtml $ do
 dummy :: String
 dummy = let x = (Nothing, fromJust $ bsToScope $ BS.pack "foo bar baz", 1)
             y = (preview clientID $ BS.pack "larry's tyres", fromJust $ bsToScope $ BS.pack "rotation replacement", 2)
-        in renderTokensPage [x, y]
+        in renderHtml $ renderTokensPage [x, y]
 
 htmlTokens :: [(Maybe ClientID, Scope, TokenID)] -> Html
+htmlTokens [] = h2 "You have no tokens!"
 htmlTokens ts = table ! class_ "zebra" $ do
     tokHeader
     mapM_ htmlToken ts
