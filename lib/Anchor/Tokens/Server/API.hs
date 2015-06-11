@@ -14,10 +14,12 @@ import           Control.Monad.Reader.Class
 import           Control.Monad.Trans.Control
 import           Data.ByteString             (ByteString)
 import qualified Data.ByteString.Lazy.Char8  as BSL
+import           Data.Monoid
 import           Data.Pool
 import           Data.Proxy
-import           Network.HTTP.Types          hiding (Header)
+import qualified Data.Text                   as T
 import           Database.PostgreSQL.Simple
+import           Network.HTTP.Types          hiding (Header)
 import           Servant.API
 import           Servant.HTML.Blaze
 import           Servant.Server
@@ -31,6 +33,13 @@ import           Anchor.Tokens.Server.UI
 
 type OAuthUserHeader = "Identity-OAuthUser"
 
+data DeleteRequest = DeleteRequest
+
+instance FromFormUrlEncoded DeleteRequest where
+    fromFormUrlEncoded o = case lookup "method" o of
+        Nothing -> Left "method field missing"
+        Just "delete" -> Right DeleteRequest
+        Just x        -> Left . T.unpack $ "Invalid method field value, got: " <> x
 
 -- | OAuth2 Authorization Endpoint
 --
@@ -63,13 +72,12 @@ type ListTokens
     :> Header OAuthUserHeader UserID
     :> Get '[HTML] Html
 
-{-
 type DeleteToken
     = "tokens"
     :> Header OAuthUserHeader UserID
---    :> Capture ??
---    :> Post '[HTML]
--}
+    :> ReqBody '[FormUrlEncoded] DeleteRequest
+    :> Capture "token_id" TokenID
+    :> Post '[HTML] Html
 
 -- | Anchor Token Server HTTP endpoints.
 --
@@ -80,6 +88,7 @@ type AnchorOAuth2API
     :<|> "oauth2" :> VerifyEndpoint
     :<|> "oauth2" :> AuthorizeEndpoint
     :<|> ListTokens
+    :<|> DeleteToken
 
 anchorOAuth2API :: Proxy AnchorOAuth2API
 anchorOAuth2API = Proxy
@@ -89,7 +98,8 @@ server :: Pool Connection
 server pool = error "Coming in Summer 2016"
     :<|> error ""
     :<|> error ""
-    :<|> serverListTokens pool
+    :<|> serverListTokens  pool
+    :<|> serverDeleteToken pool
 
 serverListTokens
     :: ( MonadIO m
@@ -103,6 +113,22 @@ serverListTokens pool (Just u) = do
     tokens <- userTokens pool u
     return $ renderTokensPage tokens
 
+serverDeleteToken
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       , MonadError ServantErr m
+       )
+    => Pool Connection
+    -> Maybe UserID
+    -> DeleteRequest
+    -> TokenID
+    -> m Html
+serverDeleteToken _    Nothing  _ _ = error "Auth failed remove yourself please"
+serverDeleteToken pool (Just u) _ t = do
+    deleteToken pool u t
+    tokens <- userTokens pool u
+--    let redirectLink = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy ListTokens)
+    throwError err302{errHeaders = [(hLocation, "/tokens")]}     --Redirect to tokens page
 
 -- * OAuth2 Server
 --

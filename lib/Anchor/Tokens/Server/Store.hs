@@ -101,3 +101,17 @@ userTokens
 userTokens pool uid =
     withResource pool $ \conn ->
         liftIO $ query conn "SELECT client_id, scope, token_id FROM tokens WHERE uid = ?" (Only uid)
+
+-- oswynb TODO: Add transaction for safety + return more info for useful user output
+deleteToken
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       )
+    => Pool Connection
+    -> UserID
+    -> TokenID
+    -> m Bool
+deleteToken pool uid tid =
+    withResource pool $ \conn -> do
+        numDeletes <- liftIO $ execute conn "DELETE from tokens WHERE uid = ? AND token_id = ?" (uid, tid)
+        return (numDeletes == 1)
