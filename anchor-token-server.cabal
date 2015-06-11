@@ -53,6 +53,7 @@ library
     , streaming-commons
     , text
     , transformers
+    , transformers-base
     , unordered-containers
     , warp
 
@@ -87,6 +88,15 @@ test-suite             test-tokenstore
   build-depends:
       base
     , QuickCheck
-    , hspec 
     , errors
+    , async
+    , lens
+    , mtl
+    , configurator
+    , bytestring
+    , time
+    , text
+    , oauth2-server
+    , hspec 
+    , process
     , anchor-token-server

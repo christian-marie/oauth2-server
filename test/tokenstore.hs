@@ -6,12 +6,15 @@
 -- | Description: Test the token store functionality.
 module Main where
 
+import System.Process
+import Control.Concurrent.Async
 import           Control.Applicative
 import           Control.Error.Util
 import           Control.Lens.Operators
 import           Control.Monad
 import           Control.Monad.Error
 import qualified Data.ByteString.Char8       as B
+import           Data.Configurator
 import           Data.Maybe
 import qualified Data.Text                   as T
 import           Data.Time.Calendar
@@ -23,6 +26,8 @@ import           Test.QuickCheck
 import           Test.QuickCheck.Monadic
 
 import           Anchor.Tokens.Server.Store
+import           Anchor.Tokens.Server.Configuration (loadOptions)
+import           Anchor.Tokens.Server (startStore)
 import           Anchor.Tokens.Server.Types
 
 
@@ -69,22 +74,26 @@ instance Arbitrary TokenDetails where
 
 --------------------------------------------------------------------------------
 
-testStore :: m ServerState
-testStore = undefined
+dbname = "test_tokenstore"
 
-cleanupStore :: ServerState -> m ()
-cleanupStore = undefined
+testStore :: MonadIO m => m ServerState
+testStore = liftIO $ do
+  callCommand $ concat
+    [ " dropdb --if-exists ", dbname, " || true"
+    , " && createdb ", dbname
+    , " && psql --quiet --file=schema/postgresql.sql ", dbname ]
+  startStore . B.pack $ "dbname=" ++ dbname
 
+suite :: Spec
 suite = describe "Token Store" $ do
   it "can save then load a token" $ monadicIO $ do
-    state  <- testStore
+    state   <- testStore
     grant   <- pick arbitrary
     details <- lift . runStore state . saveToken $ grant
     case details of
       Left _   -> return False
       Right d1 -> do
         d2 <- lift . runStore state . loadToken $ tokenDetailsToken d1
-        cleanupStore state
         return $ Just d1 == (join . hush $ d2)
 
   prop "can list existing tokens" pending
@@ -92,5 +101,5 @@ suite = describe "Token Store" $ do
   prop "does nothing if token does not exist" pending
 
 main :: IO ()
-main = undefined
+main = hspec suite
 
