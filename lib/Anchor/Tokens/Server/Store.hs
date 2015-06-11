@@ -6,10 +6,20 @@
 {-# LANGUAGE RecordWildCards       #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE TemplateHaskell       #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE FlexibleInstances #-}
+
+-- needed for monad base/control as required by this API
+{-# LANGUAGE UndecidableInstances #-}
 
 -- | Description: OAuth2 token storage using PostgreSQL.
 module Anchor.Tokens.Server.Store where
 
+import Control.Monad.Base
+import Control.Monad.Error
+import Control.Monad.Reader
 import           Control.Applicative
 import           Control.Lens                               (preview)
 import           Control.Lens.Review
@@ -100,7 +110,7 @@ listTokens
     -> m ([TokenDetails], Page)
 listTokens uid (Page p) = do
     pool <- asks serverPGConnPool
-    Page size <- (optUIPageSize <$> asks serverOpts)
+    Page size <- optUIPageSize <$> asks serverOpts
     withResource pool $ \conn -> do
         liftIO . debugM logName $ "Listing tokens for " <> show uid
         tokens <- liftIO $ query conn "SELECT * FROM tokens WHERE (user_id = ?) LIMIT ? OFFSET ?" (uid, size, (p - 1) * size)
@@ -166,3 +176,33 @@ mebbeField parse = fieldWith fld
     fld :: Field -> Maybe ByteString -> Conversion a
     fld f mbs = (parse <$> fromField f mbs) >>=
         maybe (returnError ConversionFailed f "") return
+
+--------------------------------------------------------------------------------
+
+-- * Strappings for running store standalone operations
+
+newtype Store m a = Store
+  { storeAction :: ErrorT OAuth2Error (ReaderT ServerState m) a }
+  deriving ( Functor, Applicative, Monad
+           , MonadIO, MonadReader ServerState, MonadError OAuth2Error)
+
+instance MonadTrans Store where
+  lift = Store . lift . lift
+
+instance MonadTransControl Store where
+  type StT Store a = Either OAuth2Error a
+  liftWith f = Store . ErrorT . ReaderT
+             $ \server -> liftM return
+             $ f
+             $ \action -> runReaderT (runErrorT (storeAction action)) server
+  restoreT   = Store . ErrorT . ReaderT . const
+
+deriving instance MonadBase b m => MonadBase b (Store m)
+
+instance MonadBaseControl IO (Store IO) where
+  type StM (Store IO) a  = ComposeSt Store IO a
+  liftBaseWith = defaultLiftBaseWith
+  restoreM     = defaultRestoreM
+
+runStore :: ServerState -> Store m a -> m (Either OAuth2Error a)
+runStore s = flip runReaderT s . runErrorT . storeAction
