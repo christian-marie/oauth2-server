@@ -1,22 +1,22 @@
+{-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TupleSections         #-}
+{-# LANGUAGE TypeFamilies          #-}
 
 -- | Description: Test the token store functionality.
 module Main where
 
 import           Control.Applicative
+import           Control.Error.Util
 import           Control.Lens.Operators
 import           Control.Monad
 import           Control.Monad.Error
-import           Control.Monad.Reader
 import qualified Data.ByteString.Char8       as B
-import qualified Data.List                   as L
 import           Data.Maybe
 import qualified Data.Text                   as T
 import           Data.Time.Calendar
 import           Data.Time.Clock
-import           Database.PostgreSQL.Simple
 import           Network.OAuth2.Server
-import           Network.OAuth2.Server.Types
 import           Test.Hspec
 import           Test.Hspec.QuickCheck
 import           Test.QuickCheck
@@ -69,25 +69,23 @@ instance Arbitrary TokenDetails where
 
 --------------------------------------------------------------------------------
 
-type Test m = ErrorT OAuth2Error (ReaderT ServerState m)
-
-testStore :: m Connection
+testStore :: m ServerState
 testStore = undefined
 
-runTest :: Connection -> Test m a -> m a
-runTest = undefined
-
-cleanupStore :: Connection -> m ()
+cleanupStore :: ServerState -> m ()
 cleanupStore = undefined
 
 suite = describe "Token Store" $ do
   it "can save then load a token" $ monadicIO $ do
-    store <- testStore
-    g  <- pick arbitrary
-    d  <- lift . runTest store . saveToken $ g
-    md <- lift . runTest store . loadToken $ tokenDetailsToken d
-    cleanupStore store
-    return $ Just d == md
+    state  <- testStore
+    grant   <- pick arbitrary
+    details <- lift . runStore state . saveToken $ grant
+    case details of
+      Left _   -> return False
+      Right d1 -> do
+        d2 <- lift . runStore state . loadToken $ tokenDetailsToken d1
+        cleanupStore state
+        return $ Just d1 == (join . hush $ d2)
 
   prop "can list existing tokens" pending
   prop "can revoke existing tokens" pending

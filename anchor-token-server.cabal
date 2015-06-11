@@ -88,4 +88,5 @@ test-suite             test-tokenstore
       base
     , QuickCheck
     , hspec 
+    , errors
     , anchor-token-server
