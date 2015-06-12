@@ -1,3 +1,5 @@
+CREATE EXTENSION "uuid-ossp";
+
 -- Identify client applications and services which can use the OAuth2 and
 -- verify APIs.
 CREATE TABLE clients (
@@ -37,7 +39,7 @@ CREATE TABLE tokens (
     token         VARCHAR(256)   NOT NULL,
     token_type    VARCHAR(32)    NOT NULL,  -- access | refresh
 
-    scope         VARCHAR(512)[] NOT NULL DEFAULT '',
+    scope         VARCHAR(512)[] NOT NULL,
 
     -- Token valid only at times created <= t <= min(expires,revoked).
     created TIMESTAMP WITH TIME ZONE NOT NULL,
@@ -45,11 +47,11 @@ CREATE TABLE tokens (
     revoked TIMESTAMP WITH TIME ZONE     NULL DEFAULT NULL,
 
     -- Token is usable only by this client.
-    client_id INTEGER NULL,
+    client_id UUID NULL,
 
     -- Token identifies this user.
-    user_id   VARCHAR(256)   NOT NULL
+    user_id   VARCHAR(256)   NOT NULL,
 
     PRIMARY KEY (token),
-    FOREIGN KEY (client_id) REFERENCES client (client_id)
+    FOREIGN KEY (client_id) REFERENCES clients (client_id)
 );
