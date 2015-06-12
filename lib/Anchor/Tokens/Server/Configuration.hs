@@ -20,6 +20,7 @@ defaultServerOptions =
         optStatsPort = 8888
         optServiceHost = "*"
         optServicePort = 8080
+        optUIPageSize = Page 10
     in ServerOptions{..}
 
 instance Configured HostPreference where
