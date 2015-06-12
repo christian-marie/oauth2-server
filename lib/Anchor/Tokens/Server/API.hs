@@ -119,26 +119,28 @@ serverDisplayToken
     -> Maybe UserID
     -> TokenID
     -> m Html
-serverDisplayToken _    Nothing  _ = error "Auth failed remove yourself please"
+serverDisplayToken _    Nothing  _ = throwError err403
 serverDisplayToken pool (Just u) t = do
     res <- displayToken pool u t
     case res of
         Nothing -> throwError err404
-        Just x -> return $ renderTokensPage ([x], (Page 1))
+        Just x -> return $ renderTokensPage 1 (Page 1) ([x], 1)
 
 serverListTokens
     :: ( MonadIO m
        , MonadBaseControl IO m
+       , MonadError ServantErr m
        )
     => Pool Connection
     -> Int
     -> Maybe UserID
     -> Maybe Page
     -> m Html
-serverListTokens _    _    Nothing  _ = error "Auth failed remove yourself please"
+serverListTokens _    _    Nothing  _ = throwError err403
 serverListTokens pool size (Just u) p = do
-    res <- listTokens pool size u (fromMaybe (Page 1) p)
-    return $ renderTokensPage res
+    let p' = fromMaybe (Page 1) p
+    res <- listTokens pool size u p'
+    return $ renderTokensPage size p' res
 
 serverDeleteToken
     :: ( MonadIO m

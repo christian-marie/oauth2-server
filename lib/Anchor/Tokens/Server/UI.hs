@@ -4,6 +4,7 @@
 module Anchor.Tokens.Server.UI where
 
 import           Control.Lens
+import           Control.Monad
 import           Data.ByteString                 (ByteString)
 import qualified Data.ByteString.Char8           as BS
 import           Data.FileEmbed
@@ -13,7 +14,7 @@ import           Data.Text.Lazy                  (Text)
 import qualified Data.Text.Lazy                  as T
 import           Prelude                         hiding (head)
 import           Text.Blaze.Html.Renderer.Pretty
-import           Text.Blaze.Html5
+import           Text.Blaze.Html5                hiding (div)
 import           Text.Blaze.Html5.Attributes     hiding (form, style, title)
 
 import           Network.OAuth2.Server.Types
@@ -23,17 +24,29 @@ import           Anchor.Tokens.Server.Types
 stylesheet :: String
 stylesheet = BS.unpack $(embedFile "style.css")
 
-renderTokensPage :: ([(Maybe ClientID, Scope, TokenID)], Page) -> Html
-renderTokensPage (ts, page) = docTypeHtml $ do
+renderTokensPage :: Int -> Page -> ([(Maybe ClientID, Scope, TokenID)], Int) -> Html
+renderTokensPage size (Page p) (ts, numTokens) = docTypeHtml $ do
     head $ do
         title "Such Token"
         style ! type_ "text/css" $ toHtml stylesheet
-    body $ htmlTokens ts
-
-dummy :: String
-dummy = let x = (Nothing, fromJust $ bsToScope $ BS.pack "foo bar baz", TokenID "1")
-            y = (preview clientID $ BS.pack "larry's tyres", fromJust $ bsToScope $ BS.pack "rotation replacement", TokenID "faafaf112342")
-        in renderHtml $ renderTokensPage ([x, y], Page 1)
+    body $
+        if validPage then do
+            htmlTokens ts
+            when prevPages htmlPrevPageButton
+            when nextPages htmlNextPageButton
+        else
+            htmlInvalidPage
+  where
+    numPages = if numTokens == 0 then 1 else ((numTokens - 1) `div` size) + 1
+    validPage = p > 0 && p <= numPages
+    prevPages = p /= 1
+    nextPages = p < numPages
+    htmlPageButton n =
+        form ! action ("/tokens?page=" <> toValue n) $
+            input ! type_ "submit" ! value ("Page " <> toValue n)
+    htmlPrevPageButton = htmlPageButton (p-1)
+    htmlNextPageButton = htmlPageButton (p+1)
+    htmlInvalidPage = h2 "Invalid page number!"
 
 htmlTokens :: [(Maybe ClientID, Scope, TokenID)] -> Html
 htmlTokens [] = h2 "You have no tokens!"

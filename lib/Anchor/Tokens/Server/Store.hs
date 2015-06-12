@@ -112,13 +112,13 @@ listTokens
     -> Int
     -> UserID
     -> Page
-    -> m ([(Maybe ClientID, Scope, TokenID)], Page)
+    -> m ([(Maybe ClientID, Scope, TokenID)], Int)
 listTokens pool size uid (Page p) =
     withResource pool $ \conn -> do
         liftIO . debugM logName $ "Listing tokens for " <> show uid
-        tokens <- liftIO $ query conn "SELECT client_id, scope, token_id FROM tokens WHERE (user_id = ?) AND revoked is NULL LIMIT ? OFFSET ?" (uid, size, (p - 1) * size)
-        [Only pages] <- liftIO $ query conn "SELECT count(*) FROM tokens WHERE (user_id = ?)" (Only uid)
-        return (tokens, Page pages)
+        tokens <- liftIO $ query conn "SELECT client_id, scope, token_id FROM tokens WHERE (user_id = ?) AND revoked is NULL LIMIT ? OFFSET ? ORDER BY created" (uid, size, (p - 1) * size)
+        [Only numTokens] <- liftIO $ query conn "SELECT count(*) FROM tokens WHERE (user_id = ?)" (Only uid)
+        return (tokens, numTokens)
 
 -- | Retrieve information for a single token for a user.
 --
