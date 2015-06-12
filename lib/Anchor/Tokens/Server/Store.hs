@@ -21,8 +21,9 @@ import           Control.Applicative
 import           Control.Lens                               (preview)
 import           Control.Lens.Review
 import           Control.Monad.Base
-import           Control.Monad.Error
 import           Control.Monad.Reader
+import           Control.Monad.Error
+import           Control.Monad.Trans.Except
 import           Control.Monad.Trans.Control
 import           Data.ByteString                            (ByteString)
 import           Data.Monoid
@@ -179,7 +180,7 @@ mebbeField parse = fieldWith fld
 -- * Strappings for running store standalone operations
 
 newtype Store m a = Store
-  { storeAction :: ErrorT OAuth2Error (ReaderT ServerState m) a }
+  { storeAction :: ExceptT OAuth2Error (ReaderT ServerState m) a }
   deriving ( Functor, Applicative, Monad
            , MonadIO, MonadReader ServerState, MonadError OAuth2Error)
 
@@ -188,11 +189,11 @@ instance MonadTrans Store where
 
 instance MonadTransControl Store where
   type StT Store a = Either OAuth2Error a
-  liftWith f = Store . ErrorT . ReaderT
+  liftWith f = Store . ExceptT . ReaderT
              $ \server -> liftM return
              $ f
-             $ \action -> runReaderT (runErrorT (storeAction action)) server
-  restoreT   = Store . ErrorT . ReaderT . const
+             $ \action -> runReaderT (runExceptT (storeAction action)) server
+  restoreT   = Store . ExceptT . ReaderT . const
 
 deriving instance MonadBase b m => MonadBase b (Store m)
 
@@ -202,4 +203,4 @@ instance MonadBaseControl IO (Store IO) where
   restoreM     = defaultRestoreM
 
 runStore :: ServerState -> Store m a -> m (Either OAuth2Error a)
-runStore s = flip runReaderT s . runErrorT . storeAction
+runStore s = flip runReaderT s . runExceptT . storeAction
