@@ -338,7 +338,8 @@ suite = do
                 oauth2CheckCredentials auth req = case auth of
                     Just _ -> case req of
                         RequestAuthorizationCode{..} -> do
-                            when (requestCode ^.re code /= authcode) $ serverAssertionFailed "kljashdf"
+                            when (requestCode ^.re code /= authcode) $
+                                serverAssertionFailed $ "oauth2CheckCredentials: " <> show requestCode <> " /= " <> show authcode
                             return (Nothing, scope')
                         _ -> serverAssertionFailed $ "oauth2CheckCredentials: Wrong request type: " <> show req
                     Nothing -> serverAssertionFailed "oauth2CheckCredentials: Client credentials missing"
