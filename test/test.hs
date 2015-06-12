@@ -8,18 +8,26 @@
 module Main where
 
 import Control.Applicative
-import Control.Lens (review)
+import Control.Concurrent
 import Control.Lens.Operators
 import Control.Lens.Properties
+import Control.Lens.Review
 import Control.Monad
+import Control.Monad.Error.Class
 import Control.Monad.Trans.Writer
 import Data.Aeson
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as BC
+import qualified Data.ByteString.Lazy.Char8 as BLC
 import Data.Monoid
 import Data.Proxy
 import qualified Data.Set as S
 import qualified Data.Text as T
+import Network.HTTP.Client hiding (Proxy)
+import Network.OAuth.OAuth2 hiding (URI)
+import Network.Wai.Handler.Warp hiding (Connection)
 import Servant.API hiding (URI)
+import Servant.Server
 import URI.ByteString
 
 import Test.Hspec
@@ -305,6 +313,57 @@ suite = do
             case errs of
                 [] -> return True
                 xs -> fail $ show xs
+
+        it "/token endpoint works with hoauth2" $ do
+            man <- newManager defaultManagerSettings
+            let serverAssertionFailed s = do
+                    let s' = BC.pack s ^? errorDescription
+                    throwError $ OAuth2Error InvalidRequest s' Nothing
+            let c_id = "CLIENTID"
+                c_secret = "CLIENTSECRET"
+                port = 19283 :: Int
+                oauth2 = OAuth2
+                    { oauthClientId = c_id
+                    , oauthClientSecret = c_secret
+                    , oauthOAuthorizeEndpoint = ""
+                    , oauthAccessTokenEndpoint = "http://localhost:" <> BC.pack (show port) <> "/token"
+                    , oauthCallback = Just "http://redirect.me"
+                    }
+                authcode = "GIMMETOKEN" :: B.ByteString
+                access = "ACCESS" :: B.ByteString
+                Just access' = access ^? token
+                refresh = "REFRESH" :: B.ByteString
+                Just refresh' = refresh ^? token
+                Just scope' = bsToScope "SCOPE"
+                oauth2CheckCredentials auth req = case auth of
+                    Just _ -> case req of
+                        RequestAuthorizationCode{..} -> do
+                            when (requestCode ^.re code /= authcode) $ serverAssertionFailed "kljashdf"
+                            return (Nothing, scope')
+                        _ -> serverAssertionFailed $ "oauth2CheckCredentials: Wrong request type: " <> show req
+                    Nothing -> serverAssertionFailed "oauth2CheckCredentials: Client credentials missing"
+                oauth2StoreSave TokenGrant{..} =
+                    return TokenDetails
+                        { tokenDetailsTokenType = grantTokenType
+                        , tokenDetailsToken = case grantTokenType of
+                                                  Bearer -> access'
+                                                  Refresh -> refresh'
+                        , tokenDetailsExpires = grantExpires
+                        , tokenDetailsUsername = grantUsername
+                        , tokenDetailsClientID = grantClientID
+                        , tokenDetailsScope = grantScope
+                        }
+                oauth2StoreLoad _ = serverAssertionFailed "oauth2StoreLoad: Should not be called"
+                srvConf = OAuth2Server{..}
+            void $ forkIO $ run port $ serve (Proxy :: Proxy TokenEndpoint) $ tokenEndpoint srvConf
+            res <- fetchAccessToken man oauth2 authcode
+            case res of
+                Left e -> error $ BLC.unpack e
+                Right AccessToken{..} -> do
+                    unless (accessToken == access) $
+                        fail $ show accessToken <> " /= " <> show access
+                    unless (refreshToken == Just refresh) $
+                        fail $ show refreshToken <> " /= Just " <> show refreshToken
 
 main :: IO ()
 main = hspec suite

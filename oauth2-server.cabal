@@ -60,12 +60,16 @@ test-suite test
                      , hspec
                      , lens
                      , lens-properties
+                     , http-client
+                     , hoauth2
                      , mtl
                      , oauth2-server
                      , QuickCheck
                      , quickcheck-instances
                      , servant
+                     , servant-server
                      , text
                      , transformers
                      , transformers-compat
                      , uri-bytestring
+                     , warp
