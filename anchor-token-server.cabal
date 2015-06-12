@@ -54,6 +54,7 @@ library
     , text
     , transformers
     , transformers-base
+    , transformers-compat
     , unordered-containers
     , warp
 
