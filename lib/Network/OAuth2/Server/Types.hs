@@ -54,6 +54,7 @@ import Control.Lens.Operators hiding ((.=))
 import Control.Lens.Prism
 import Control.Lens.Review
 import Control.Monad
+import Control.Monad.Error
 import Data.Aeson
 import Data.Attoparsec.ByteString
 import Data.ByteString (ByteString)
@@ -413,7 +414,7 @@ instance ToFormUrlEncoded AccessRequest where
 data TokenType
     = Bearer
     | Refresh
-  deriving (Eq, Show, Typeable)
+  deriving (Eq, Show, Typeable, Enum, Bounded)
 
 instance ToJSON TokenType where
     toJSON t = String . T.decodeUtf8 $ case t of
@@ -587,6 +588,8 @@ data OAuth2Error = OAuth2Error
     , oauth2ErrorURI         :: Maybe URI
     }
   deriving (Eq, Show, Typeable)
+
+instance Error OAuth2Error
 
 data ErrorCode
     = InvalidClient
