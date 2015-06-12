@@ -27,7 +27,7 @@ import           Anchor.Tokens.Server.Types         as X
 
 import           Paths_anchor_token_server          as P
 
---------------------------------------------------------------------------------
+
 -- * Server
 
 logName :: String

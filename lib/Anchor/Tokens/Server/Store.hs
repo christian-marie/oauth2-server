@@ -1,11 +1,18 @@
-{-# LANGUAGE FlexibleContexts      #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE MultiWayIf            #-}
-{-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE RankNTypes            #-}
-{-# LANGUAGE RecordWildCards       #-}
-{-# LANGUAGE ScopedTypeVariables   #-}
-{-# LANGUAGE TemplateHaskell       #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE MultiWayIf                 #-}
+{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE RankNTypes                 #-}
+{-# LANGUAGE RecordWildCards            #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE StandaloneDeriving         #-}
+{-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE TypeFamilies               #-}
+
+-- needed for monad base/control as required by this API
+{-# LANGUAGE UndecidableInstances       #-}
 
 -- | Description: OAuth2 token storage using PostgreSQL.
 module Anchor.Tokens.Server.Store where
@@ -13,9 +20,10 @@ module Anchor.Tokens.Server.Store where
 import           Control.Applicative
 import           Control.Lens                               (preview)
 import           Control.Lens.Review
-import           Control.Monad.Error.Class
-import           Control.Monad.IO.Class
-import           Control.Monad.Reader.Class
+import           Control.Monad.Base
+import           Control.Monad.Reader
+import           Control.Monad.Error
+import           Control.Monad.Trans.Except
 import           Control.Monad.Trans.Control
 import           Data.ByteString                            (ByteString)
 import           Data.Monoid
@@ -100,7 +108,7 @@ listTokens
     -> m ([TokenDetails], Page)
 listTokens uid (Page p) = do
     pool <- asks serverPGConnPool
-    Page size <- (optUIPageSize <$> asks serverOpts)
+    Page size <- optUIPageSize <$> asks serverOpts
     withResource pool $ \conn -> do
         liftIO . debugM logName $ "Listing tokens for " <> show uid
         tokens <- liftIO $ query conn "SELECT * FROM tokens WHERE (user_id = ?) LIMIT ? OFFSET ?" (uid, size, (p - 1) * size)
@@ -115,10 +123,10 @@ revokeToken
        )
     => Token
     -> m ()
-revokeToken token = do
+revokeToken tok = do
     pool <- asks serverPGConnPool
     withResource pool $ \_conn -> do
-        liftIO . debugM logName $ "Revoking token: " <> show token
+        liftIO . debugM logName $ "Revoking token: " <> show tok
         -- UPDATE tokens SET revoked = NOW() WHERE (token = ?)
         return ()
 
@@ -148,11 +156,11 @@ instance ToRow TokenGrant where
 
 instance FromRow TokenDetails where
     fromRow = TokenDetails <$> field
-                           <*> (mebbeField (preview token))
+                           <*> mebbeField (preview token)
                            <*> field
                            <*> (preview username <$> field)
                            <*> (preview clientID <$> field)
-                           <*> (mebbeField bsToScope)
+                           <*> mebbeField bsToScope
 
 -- | Get a PostgreSQL field using a parsing function.
 --
@@ -166,3 +174,33 @@ mebbeField parse = fieldWith fld
     fld :: Field -> Maybe ByteString -> Conversion a
     fld f mbs = (parse <$> fromField f mbs) >>=
         maybe (returnError ConversionFailed f "") return
+
+--------------------------------------------------------------------------------
+
+-- * Strappings for running store standalone operations
+
+newtype Store m a = Store
+  { storeAction :: ExceptT OAuth2Error (ReaderT ServerState m) a }
+  deriving ( Functor, Applicative, Monad
+           , MonadIO, MonadReader ServerState, MonadError OAuth2Error)
+
+instance MonadTrans Store where
+  lift = Store . lift . lift
+
+instance MonadTransControl Store where
+  type StT Store a = Either OAuth2Error a
+  liftWith f = Store . ExceptT . ReaderT
+             $ \server -> liftM return
+             $ f
+             $ \action -> runReaderT (runExceptT (storeAction action)) server
+  restoreT   = Store . ExceptT . ReaderT . const
+
+deriving instance MonadBase b m => MonadBase b (Store m)
+
+instance MonadBaseControl IO (Store IO) where
+  type StM (Store IO) a  = ComposeSt Store IO a
+  liftBaseWith = defaultLiftBaseWith
+  restoreM     = defaultRestoreM
+
+runStore :: ServerState -> Store m a -> m (Either OAuth2Error a)
+runStore s = flip runReaderT s . runExceptT . storeAction

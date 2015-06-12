@@ -1,6 +1,123 @@
+{-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE StandaloneDeriving    #-}
+{-# LANGUAGE TupleSections         #-}
+{-# LANGUAGE TypeFamilies          #-}
+
 -- | Description: Test the token store functionality.
 module Main where
 
+import           Control.Applicative
+import           Control.Concurrent.Async
+import           Control.Error.Util
+import           Control.Lens.Operators
+import           Control.Monad
+import           Control.Monad.Error
+import           Data.ByteString                    (ByteString)
+import qualified Data.ByteString.Char8              as B
+import           Data.Configurator
+import           Data.Maybe
+import           Data.Pool
+import qualified Data.Text                          as T
+import           Data.Time.Calendar
+import           Data.Time.Clock
+import           Database.PostgreSQL.Simple
+import           Network.OAuth2.Server
+import           Pipes.Concurrent
+import           System.Process
+import           Test.Hspec
+import           Test.Hspec.QuickCheck
+import           Test.QuickCheck
+import           Test.QuickCheck.Monadic
+
+import           Anchor.Tokens.Server.Configuration
+import           Anchor.Tokens.Server.Store
+import           Anchor.Tokens.Server.Types
+
+
+alphabet = elements ['a'..'z']
+
+deriving instance Bounded TokenType
+deriving instance Enum    TokenType
+
+instance Arbitrary UTCTime where
+  arbitrary = UTCTime <$> day <*> time
+    where day  = ModifiedJulianDay <$> arbitrary
+          time = secondsToDiffTime <$> arbitrary
+
+instance Arbitrary Username where
+  arbitrary = do
+    s <- liftM (take 32) $ infiniteListOf alphabet
+    return (T.pack s ^?! username)
+
+instance Arbitrary Scope where
+  arbitrary = do
+    s <- liftM unwords $ listOf $ listOf alphabet
+    return $ fromJust $ bsToScope $ B.pack s -- trust me
+
+instance Arbitrary ClientID where
+  arbitrary = do
+    s <- liftM (take 32) $ infiniteListOf alphabet
+    return (B.pack s ^?! clientID)
+
+instance Arbitrary Token where
+  arbitrary = do
+    s <- liftM (take 64) $ infiniteListOf alphabet
+    return (B.pack s ^?! token)
+
+instance Arbitrary TokenType where
+  arbitrary = arbitraryBoundedEnum
+
+instance Arbitrary TokenGrant where
+  arbitrary =   TokenGrant
+            <$> arbitrary
+            <*> arbitrary
+            <*> arbitrary
+            <*> arbitrary
+            <*> arbitrary
+
+instance Arbitrary TokenDetails where
+  arbitrary = tokenDetails <$> arbitrary <*> arbitrary
+
+--------------------------------------------------------------------------------
+
+dbname = "test_tokenstore"
+
+-- | Start a server that only has the local store, no UI, no EKG.
+--
+startStore :: ByteString -> IO ServerState
+startStore dbstr = do
+  let opts         = defaultServerOptions { optDBString = dbstr }
+      dummySink    = Output (const $ return False)
+      dummyStop    = return ()
+      dummyService = async (return ())
+  pool     <- createPool (connectPostgreSQL dbstr) close 1 1 1
+  return (ServerState pool dummySink dummyStop opts dummyService)
+
+testStore :: MonadIO m => m ServerState
+testStore = liftIO $ do
+  callCommand $ concat
+    [ " dropdb --if-exists ", dbname, " || true"
+    , " && createdb ", dbname
+    , " && psql --quiet --file=schema/postgresql.sql ", dbname ]
+  startStore . B.pack $ "dbname=" ++ dbname
+
+suite :: Spec
+suite = describe "Token Store" $ do
+  it "can save then load a token" $ monadicIO $ do
+    state   <- testStore
+    grant   <- pick arbitrary
+    details <- lift . runStore state . saveToken $ grant
+    case details of
+      Left _   -> return False
+      Right d1 -> do
+        d2 <- lift . runStore state . loadToken $ tokenDetailsToken d1
+        return $ Just d1 == (join . hush $ d2)
+
+  prop "can list existing tokens" pending
+  prop "can revoke existing tokens" pending
+  prop "does nothing if token does not exist" pending
+
 main :: IO ()
-main = fail "Not implemented"
+main = hspec suite
 
