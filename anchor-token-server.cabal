@@ -100,4 +100,7 @@ test-suite             test-tokenstore
     , oauth2-server
     , hspec 
     , process
+    , pipes-concurrency
+    , postgresql-simple
+    , resource-pool
     , anchor-token-server

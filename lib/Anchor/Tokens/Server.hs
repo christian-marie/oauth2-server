@@ -9,7 +9,6 @@ module Anchor.Tokens.Server (
     module X,
     ) where
 
-import Data.ByteString (ByteString)
 import           Control.Concurrent.Async
 import           Control.Concurrent
 import           Data.Pool
@@ -29,8 +28,6 @@ import           Anchor.Tokens.Server.Types         as X
 
 import           Paths_anchor_token_server          as P
 
-
---------------------------------------------------------------------------------
 
 -- * Server
 
@@ -89,18 +86,3 @@ stopServer ServerState{..} = do
     serverEventStop
     destroyAllResources serverPGConnPool
     serverServiceStop
-
---------------------------------------------------------------------------------
-
--- * Running parts of the token store
-
--- | Start a server that only has the local store, no UI, no EKG.
---
-startStore :: ByteString -> IO ServerState
-startStore dbstr = do
-  let opts         = defaultServerOptions { optDBString = dbstr }
-      dummySink    = Output (const $ return False)
-      dummyStop    = return ()
-      dummyService = async (return ())
-  pool     <- createPool (connectPostgreSQL dbstr) close 1 1 1
-  return (ServerState pool dummySink dummyStop opts dummyService)

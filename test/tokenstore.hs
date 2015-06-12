@@ -1,37 +1,44 @@
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE StandaloneDeriving    #-}
 {-# LANGUAGE TupleSections         #-}
 {-# LANGUAGE TypeFamilies          #-}
 
 -- | Description: Test the token store functionality.
 module Main where
 
-import System.Process
-import Control.Concurrent.Async
 import           Control.Applicative
+import           Control.Concurrent.Async
 import           Control.Error.Util
 import           Control.Lens.Operators
 import           Control.Monad
 import           Control.Monad.Error
-import qualified Data.ByteString.Char8       as B
+import           Data.ByteString                    (ByteString)
+import qualified Data.ByteString.Char8              as B
 import           Data.Configurator
 import           Data.Maybe
-import qualified Data.Text                   as T
+import           Data.Pool
+import qualified Data.Text                          as T
 import           Data.Time.Calendar
 import           Data.Time.Clock
+import           Database.PostgreSQL.Simple
 import           Network.OAuth2.Server
+import           Pipes.Concurrent
+import           System.Process
 import           Test.Hspec
 import           Test.Hspec.QuickCheck
 import           Test.QuickCheck
 import           Test.QuickCheck.Monadic
 
+import           Anchor.Tokens.Server.Configuration
 import           Anchor.Tokens.Server.Store
-import           Anchor.Tokens.Server.Configuration (loadOptions)
-import           Anchor.Tokens.Server (startStore)
 import           Anchor.Tokens.Server.Types
 
 
 alphabet = elements ['a'..'z']
+
+deriving instance Bounded TokenType
+deriving instance Enum    TokenType
 
 instance Arbitrary UTCTime where
   arbitrary = UTCTime <$> day <*> time
@@ -75,6 +82,17 @@ instance Arbitrary TokenDetails where
 --------------------------------------------------------------------------------
 
 dbname = "test_tokenstore"
+
+-- | Start a server that only has the local store, no UI, no EKG.
+--
+startStore :: ByteString -> IO ServerState
+startStore dbstr = do
+  let opts         = defaultServerOptions { optDBString = dbstr }
+      dummySink    = Output (const $ return False)
+      dummyStop    = return ()
+      dummyService = async (return ())
+  pool     <- createPool (connectPostgreSQL dbstr) close 1 1 1
+  return (ServerState pool dummySink dummyStop opts dummyService)
 
 testStore :: MonadIO m => m ServerState
 testStore = liftIO $ do
