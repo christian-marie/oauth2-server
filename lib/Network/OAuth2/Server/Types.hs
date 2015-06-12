@@ -413,7 +413,7 @@ instance ToFormUrlEncoded AccessRequest where
 data TokenType
     = Bearer
     | Refresh
-  deriving (Eq, Show, Typeable)
+  deriving (Eq, Show, Typeable, Bounded, Enum)
 
 instance ToJSON TokenType where
     toJSON t = String . T.decodeUtf8 $ case t of
