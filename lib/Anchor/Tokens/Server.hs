@@ -4,7 +4,6 @@ module Anchor.Tokens.Server (
     P.version,
     startServer,
     stopServer,
-    startStore,
     ServerState(..),
     module X,
     ) where
