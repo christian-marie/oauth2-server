@@ -14,6 +14,7 @@ import           Control.Monad.Reader.Class
 import           Control.Monad.Trans.Control
 import           Data.ByteString             (ByteString)
 import qualified Data.ByteString.Lazy.Char8  as BSL
+import           Data.Maybe
 import           Data.Monoid
 import           Data.Pool
 import           Data.Proxy
@@ -70,6 +71,13 @@ type VerifyEndpoint
 type ListTokens
     = "tokens"
     :> Header OAuthUserHeader UserID
+    :> QueryParam "page" Page
+    :> Get '[HTML] Html
+
+type DisplayToken
+    = "tokens"
+    :> Header OAuthUserHeader UserID
+    :> Capture "token_id" TokenID
     :> Get '[HTML] Html
 
 type DeleteToken
@@ -88,30 +96,49 @@ type AnchorOAuth2API
     :<|> "oauth2" :> VerifyEndpoint
     :<|> "oauth2" :> AuthorizeEndpoint
     :<|> ListTokens
+    :<|> DisplayToken
     :<|> DeleteToken
 
 anchorOAuth2API :: Proxy AnchorOAuth2API
 anchorOAuth2API = Proxy
 
-server :: Pool Connection
-       -> Server AnchorOAuth2API
-server pool = error "Coming in Summer 2016"
+server :: (Pool Connection, Int) -> Server AnchorOAuth2API
+server (pool, size) = error "Coming in Summer 2016"
     :<|> error ""
     :<|> error ""
-    :<|> serverListTokens  pool
+    :<|> serverListTokens pool size
+    :<|> serverDisplayToken pool
     :<|> serverDeleteToken pool
+
+serverDisplayToken
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       , MonadError ServantErr m
+       )
+    => Pool Connection
+    -> Maybe UserID
+    -> TokenID
+    -> m Html
+serverDisplayToken _    Nothing  _ = error "Auth failed remove yourself please"
+serverDisplayToken pool (Just u) t = do
+    res <- displayToken pool u t
+    case res of
+        Nothing -> throwError err404
+        Just x -> return $ renderTokensPage ([x], (Page 1))
 
 serverListTokens
     :: ( MonadIO m
        , MonadBaseControl IO m
        )
     => Pool Connection
+    -> Int
     -> Maybe UserID
+    -> Maybe Page
     -> m Html
-serverListTokens _    Nothing  = error "Auth failed remove yourself please"
-serverListTokens pool (Just u) = do
-    tokens <- userTokens pool u
-    return $ renderTokensPage tokens
+serverListTokens _    _    Nothing  _ = error "Auth failed remove yourself please"
+serverListTokens pool size (Just u) p = do
+    res <- listTokens pool size u (fromMaybe (Page 1) p)
+    return $ renderTokensPage res
 
 serverDeleteToken
     :: ( MonadIO m
@@ -125,8 +152,7 @@ serverDeleteToken
     -> m Html
 serverDeleteToken _    Nothing  _ _ = error "Auth failed remove yourself please"
 serverDeleteToken pool (Just u) _ t = do
-    deleteToken pool u t
-    tokens <- userTokens pool u
+    revokeToken pool u t
 --    let redirectLink = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy ListTokens)
     throwError err302{errHeaders = [(hLocation, "/tokens")]}     --Redirect to tokens page
 

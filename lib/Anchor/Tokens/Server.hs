@@ -27,7 +27,7 @@ import           Anchor.Tokens.Server.Types         as X
 
 import           Paths_anchor_token_server          as P
 
---------------------------------------------------------------------------------
+
 -- * Server
 
 logName :: String
@@ -70,7 +70,7 @@ startServer serverOpts@ServerOptions{..} = do
     let settings = setPort optServicePort $ setHost optServiceHost $ defaultSettings
     apiSrv <- async $ do
         debugM logName $ "Starting API Server"
-        runSettingsSocket settings sock $ serve anchorOAuth2API (server serverPGConnPool)
+        runSettingsSocket settings sock $ serve anchorOAuth2API (server (serverPGConnPool, optUIPageSize))
     let serverServiceStop = do
             debugM logName $ "Closing API Socket"
             S.close sock
