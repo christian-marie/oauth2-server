@@ -11,6 +11,7 @@ import           Data.FileEmbed
 import           Data.Maybe
 import           Data.Monoid
 import qualified Data.Set                    as S
+import           Data.Text                   (Text)
 import qualified Data.Text.Encoding          as T
 import           Prelude                     hiding (head)
 import           Prelude                     hiding (head)
@@ -24,8 +25,8 @@ import           Anchor.Tokens.Server.Types
 stylesheet :: String
 stylesheet = BS.unpack $(embedFile "style.css")
 
-renderAuthorizePage :: UserID -> ClientDetails -> Scope -> Html
-renderAuthorizePage user_id cd@ClientDetails{..} sc = docTypeHtml $ do
+renderAuthorizePage :: UserID -> ClientDetails -> Scope -> Maybe Text -> Html
+renderAuthorizePage user_id cd@ClientDetails{..} sc st = docTypeHtml $ do
     head $ do
         title "Such Token"
         style ! type_ "text/css" $ toHtml stylesheet
@@ -33,6 +34,7 @@ renderAuthorizePage user_id cd@ClientDetails{..} sc = docTypeHtml $ do
         p $ toHtml (show user_id)
         p $ toHtml (show cd)
         p $ toHtml (show sc)
+        p $ toHtml (show st)
 
 renderTokensPage :: Scope -> Int -> Page -> ([(Maybe ClientID, Scope, Token, TokenID)], Int) -> Html
 renderTokensPage userScope size (Page p) (ts, numTokens) = docTypeHtml $ do

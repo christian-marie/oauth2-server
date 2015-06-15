@@ -12,6 +12,7 @@ import           Control.Monad.Trans.Except
 import           Data.ByteString                      (ByteString)
 import           Data.Pool
 import           Data.Text                            (Text)
+import qualified Data.Text.Encoding                   as T
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.FromField
 import           Database.PostgreSQL.Simple.ToField

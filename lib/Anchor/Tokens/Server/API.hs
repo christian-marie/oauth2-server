@@ -32,7 +32,6 @@ import           Pipes.Concurrent
 import           Servant.API                 hiding (URI)
 import           Servant.HTML.Blaze
 import           Servant.Server
-import           Text.Blaze.Html5
 import           URI.ByteString
 import           Text.Blaze.Html5            hiding (map)
 
@@ -66,10 +65,10 @@ instance FromFormUrlEncoded TokenRequest where
                 es -> Left $ "invalid scopes: " <> show es
         Just x        -> Left . T.unpack $ "Invalid method field value, got: " <> x
 
-instance FromText Scope where
-    fromText = bsToScope . T.encodeUtf8
-
 data ResponseTypeCode = ResponseTypeCode
+instance FromText ResponseTypeCode where
+    fromText "code" = Just ResponseTypeCode
+    fromText _ = Nothing
 
 -- | OAuth2 Authorization Endpoint
 --
@@ -164,9 +163,19 @@ handleShib f (Just u) (Just s) = f u s
 handleShib _ _        _        = const $ throwError err500
 
 authorizeEndpoint
-    :: Pool Connection
-    -> Server AuthorizeEndpoint
-authorizeEndpoint conns u' rt c_id' redirect' sc' st'  = do
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       , MonadError ServantErr m
+       )
+    => Pool Connection
+    -> Maybe UserID
+    -> Maybe ResponseTypeCode
+    -> Maybe ClientID
+    -> Maybe URI
+    -> Maybe Scope
+    -> Maybe Text
+    -> m Html
+authorizeEndpoint pool u' rt c_id' redirect' sc' st = do
     u_id <- case u' of
         Nothing -> error "NOOOO"
         Just u_id -> return u_id
@@ -176,7 +185,7 @@ authorizeEndpoint conns u' rt c_id' redirect' sc' st'  = do
     client_details <- case c_id' of
         Nothing -> error "NOOOO"
         Just c_id -> do
-            res <- lookupClient c_id
+            res <- runReaderT (lookupClient c_id) pool
             case res of
                 Nothing -> error "NOOOO"
                 Just client_details@ClientDetails{..} -> do
@@ -187,7 +196,7 @@ authorizeEndpoint conns u' rt c_id' redirect' sc' st'  = do
     sc <- case sc' of
         Nothing -> error "NOOOO"
         Just sc -> return sc
-    renderAuthorizePage u_id client_details sc
+    return $ renderAuthorizePage u_id client_details sc st
 
 serverDisplayToken
     :: ( MonadIO m
