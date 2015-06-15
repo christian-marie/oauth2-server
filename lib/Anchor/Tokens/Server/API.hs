@@ -102,13 +102,13 @@ type AnchorOAuth2API
 anchorOAuth2API :: Proxy AnchorOAuth2API
 anchorOAuth2API = Proxy
 
-server :: (Pool Connection, Int) -> Server AnchorOAuth2API
-server (pool, size) = error "Coming in Summer 2016"
+server :: ServerState -> Server AnchorOAuth2API
+server ServerState{..} = error "Coming in Summer 2016"
     :<|> error ""
     :<|> error ""
-    :<|> serverListTokens pool size
-    :<|> serverDisplayToken pool
-    :<|> serverDeleteToken pool
+    :<|> serverListTokens serverPGConnPool (optUIPageSize serverOpts)
+    :<|> serverDisplayToken serverPGConnPool
+    :<|> serverDeleteToken serverPGConnPool
 
 serverDisplayToken
     :: ( MonadIO m

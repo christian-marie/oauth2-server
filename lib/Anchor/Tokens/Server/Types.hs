@@ -4,7 +4,6 @@
 module Anchor.Tokens.Server.Types where
 
 import           Control.Applicative
-import           Control.Concurrent.Async
 import           Data.ByteString            (ByteString)
 import           Data.Pool
 import           Data.Text                   (Text)
@@ -54,9 +53,7 @@ data ServerOptions = ServerOptions
 data ServerState = ServerState
     { serverPGConnPool  :: Pool Connection
     , serverEventSink   :: Output GrantEvent
-    , serverEventStop   :: IO ()
     , serverOpts        :: ServerOptions
-    , serverServiceStop :: IO (Async ())
     }
 
 -- | Describes events which should be tracked by the monitoring statistics
