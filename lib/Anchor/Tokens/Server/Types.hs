@@ -4,8 +4,11 @@
 module Anchor.Tokens.Server.Types where
 
 import           Control.Applicative
+import           Control.Lens.Operators
+import           Control.Monad
 import           Control.Monad.Trans.Except
 import           Data.ByteString            (ByteString)
+import           Data.Maybe
 import           Data.Pool
 import           Data.Text                   (Text)
 import           Database.PostgreSQL.Simple
@@ -34,6 +37,11 @@ instance ToField TokenID where
 
 instance FromField TokenID where
     fromField f bs = TokenID <$> fromField f bs
+
+instance FromField Token where
+    fromField f bs = do
+        rawToken <- fromField f bs
+        maybe mzero return (rawToken ^? token)
 
 -- | Page number for paginated user interfaces.
 --

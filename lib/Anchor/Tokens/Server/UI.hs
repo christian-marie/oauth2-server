@@ -4,6 +4,7 @@
 module Anchor.Tokens.Server.UI where
 
 import           Control.Lens
+import           Control.Lens.Prism
 import           Control.Monad
 import           Data.ByteString                 (ByteString)
 import qualified Data.ByteString.Char8           as BS
@@ -24,7 +25,7 @@ import           Anchor.Tokens.Server.Types
 stylesheet :: String
 stylesheet = BS.unpack $(embedFile "style.css")
 
-renderTokensPage :: Int -> Page -> ([(Maybe ClientID, Scope, TokenID)], Int) -> Html
+renderTokensPage :: Int -> Page -> ([(Maybe ClientID, Scope, Token, TokenID)], Int) -> Html
 renderTokensPage size (Page p) (ts, numTokens) = docTypeHtml $ do
     head $ do
         title "Such Token"
@@ -48,7 +49,7 @@ renderTokensPage size (Page p) (ts, numTokens) = docTypeHtml $ do
     htmlNextPageButton = htmlPageButton (p+1)
     htmlInvalidPage = h2 "Invalid page number!"
 
-htmlTokens :: [(Maybe ClientID, Scope, TokenID)] -> Html
+htmlTokens :: [(Maybe ClientID, Scope, Token, TokenID)] -> Html
 htmlTokens [] = h2 "You have no tokens!"
 htmlTokens ts = table ! class_ "zebra" $ do
     tokHeader
@@ -59,14 +60,16 @@ htmlTokens ts = table ! class_ "zebra" $ do
         th "scope"
         th ""
 
-htmlToken :: (Maybe ClientID, Scope, TokenID) -> Html
-htmlToken (cid, scope, tid) = tr $ do
+htmlToken :: (Maybe ClientID, Scope, Token, TokenID) -> Html
+htmlToken (cid, scope, t, tid) = tr $ do
     td htmlCid
     td htmlScope
+    td htmlToken'
     td htmlRevokeButton
   where
     htmlCid = toHtml $ BS.unpack $ maybe "None" (review clientID) cid
     htmlScope = preEscapedToHtml $ BS.unpack $ scopeToBs scope
+    htmlToken' = preEscapedToHtml $ BS.unpack $ token # t
     htmlRevokeButton =
         form ! method "POST" ! action ("/tokens/" <> toValue tid) $ do
             input ! type_ "hidden" ! name "method" ! value "delete"
