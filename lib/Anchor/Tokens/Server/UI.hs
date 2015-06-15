@@ -11,12 +11,14 @@ import qualified Data.ByteString.Char8           as BS
 import           Data.FileEmbed
 import           Data.Maybe
 import           Data.Monoid
+import qualified Data.Set                        as S
+import qualified Data.Text.Encoding              as T
 import           Data.Text.Lazy                  (Text)
 import qualified Data.Text.Lazy                  as T
 import           Prelude                         hiding (head)
 import           Text.Blaze.Html.Renderer.Pretty
-import           Text.Blaze.Html5                hiding (div)
-import           Text.Blaze.Html5.Attributes     hiding (form, style, title)
+import           Text.Blaze.Html5                hiding (div, map)
+import           Text.Blaze.Html5.Attributes     hiding (form, scope, style, title)
 
 import           Network.OAuth2.Server.Types
 
@@ -71,9 +73,9 @@ htmlToken (cid, scope, t, tid) = tr $ do
     td htmlToken'
     td htmlRevokeButton
   where
-    htmlCid = toHtml $ BS.unpack $ maybe "None" (review clientID) cid
-    htmlScope = preEscapedToHtml $ BS.unpack $ scopeToBs scope
-    htmlToken' = preEscapedToHtml $ BS.unpack $ token # t
+    htmlCid    = toHtml $ T.decodeUtf8 $ maybe "None" (review clientID) cid
+    htmlScope  = toHtml $ T.decodeUtf8 $ scopeToBs scope
+    htmlToken' = toHtml $ T.decodeUtf8 $ token # t
     htmlRevokeButton =
         form ! method "POST" ! action ("/tokens/" <> toValue tid) $ do
             input ! type_ "hidden" ! name "method" ! value "delete"
