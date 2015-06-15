@@ -8,11 +8,12 @@
 -- | Description: HTTP API implementation.
 module Anchor.Tokens.Server.API where
 
+import           Control.Monad
 import           Control.Lens
 import           Control.Monad.Error.Class
 import           Control.Monad.IO.Class
-import           Control.Monad.Reader.Class
 import           Control.Monad.Trans.Control
+import           Control.Monad.Trans.Except
 import           Control.Monad.Trans.Reader
 import           Data.ByteString             (ByteString)
 import qualified Data.ByteString.Lazy.Char8  as BSL
@@ -21,15 +22,17 @@ import           Data.Maybe
 import           Data.Monoid
 import           Data.Pool
 import           Data.Proxy
+import           Data.Text                   (Text)
 import qualified Data.Set                    as S
 import qualified Data.Text                   as T
 import qualified Data.Text.Encoding          as T
 import           Database.PostgreSQL.Simple
 import           Network.HTTP.Types          hiding (Header)
 import           Pipes.Concurrent
-import           Servant.API
+import           Servant.API                 hiding (URI)
 import           Servant.HTML.Blaze
 import           Servant.Server
+import           URI.ByteString
 import           Text.Blaze.Html5            hiding (map)
 
 import           Network.OAuth2.Server
@@ -62,8 +65,10 @@ instance FromFormUrlEncoded TokenRequest where
                 es -> Left $ "invalid scopes: " <> show es
         Just x        -> Left . T.unpack $ "Invalid method field value, got: " <> x
 
-instance FromText Scope where
-    fromText = bsToScope . T.encodeUtf8
+data ResponseTypeCode = ResponseTypeCode
+instance FromText ResponseTypeCode where
+    fromText "code" = Just ResponseTypeCode
+    fromText _ = Nothing
 
 -- | OAuth2 Authorization Endpoint
 --
@@ -71,11 +76,15 @@ instance FromText Scope where
 -- request.
 --
 -- http://tools.ietf.org/html/rfc6749#section-3.1
---
--- @TODO(thsutton): This type should correctly describe the endpoint.
 type AuthorizeEndpoint
     = "authorize"
-    :> Get '[JSON] ()
+    :> Header OAuthUserHeader UserID
+    :> QueryParam "response_type" ResponseTypeCode
+    :> QueryParam "client_id" ClientID
+    :> QueryParam "redirect_uri" URI
+    :> QueryParam "scope" Scope
+    :> QueryParam "state" Text
+    :> Get '[HTML] Html
 
 -- | Facilitates services checking tokens.
 --
@@ -132,7 +141,7 @@ server :: ServerState -> Server AnchorOAuth2API
 server ServerState{..}
        = tokenEndpoint serverOAuth2Server
     :<|> error ""
-    :<|> error ""
+    :<|> authorizeEndpoint serverPGConnPool
     :<|> handleShib (serverListTokens serverPGConnPool (optUIPageSize serverOpts))
     :<|> handleShib (serverDisplayToken serverPGConnPool)
     :<|> serverPostToken serverPGConnPool
@@ -152,6 +161,42 @@ handleShib
     -> m b
 handleShib f (Just u) (Just s) = f u s
 handleShib _ _        _        = const $ throwError err500
+
+authorizeEndpoint
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       , MonadError ServantErr m
+       )
+    => Pool Connection
+    -> Maybe UserID
+    -> Maybe ResponseTypeCode
+    -> Maybe ClientID
+    -> Maybe URI
+    -> Maybe Scope
+    -> Maybe Text
+    -> m Html
+authorizeEndpoint pool u' rt c_id' redirect' sc' st = do
+    u_id <- case u' of
+        Nothing -> error "NOOOO"
+        Just u_id -> return u_id
+    case rt of
+        Nothing -> error "NOOOO"
+        Just ResponseTypeCode -> return ()
+    client_details <- case c_id' of
+        Nothing -> error "NOOOO"
+        Just c_id -> do
+            res <- runReaderT (lookupClient c_id) pool
+            case res of
+                Nothing -> error "NOOOO"
+                Just client_details@ClientDetails{..} -> do
+                    case redirect' of
+                        Nothing -> return ()
+                        Just uri -> when (uri /= clientRedirectURI) $ error "NOOOO"
+                    return client_details
+    sc <- case sc' of
+        Nothing -> error "NOOOO"
+        Just sc -> return sc
+    return $ renderAuthorizePage u_id client_details sc st
 
 serverDisplayToken
     :: ( MonadIO m

@@ -1,24 +1,22 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE TemplateHaskell   #-}
 
 module Anchor.Tokens.Server.UI where
 
 import           Control.Lens
-import           Control.Lens.Prism
 import           Control.Monad
-import           Data.ByteString                 (ByteString)
-import qualified Data.ByteString.Char8           as BS
+import qualified Data.ByteString.Char8       as BS
 import           Data.FileEmbed
 import           Data.Maybe
 import           Data.Monoid
-import qualified Data.Set                        as S
-import qualified Data.Text.Encoding              as T
-import           Data.Text.Lazy                  (Text)
-import qualified Data.Text.Lazy                  as T
-import           Prelude                         hiding (head)
-import           Text.Blaze.Html.Renderer.Pretty
-import           Text.Blaze.Html5                hiding (div, map)
-import           Text.Blaze.Html5.Attributes     hiding (form, scope, style, title)
+import qualified Data.Set                    as S
+import           Data.Text                   (Text)
+import qualified Data.Text.Encoding          as T
+import           Prelude                     hiding (head)
+import           Prelude                     hiding (head)
+import           Text.Blaze.Html5            hiding (div, map)
+import           Text.Blaze.Html5.Attributes hiding (form, scope, style, title)
 
 import           Network.OAuth2.Server.Types
 
@@ -26,6 +24,17 @@ import           Anchor.Tokens.Server.Types
 
 stylesheet :: String
 stylesheet = BS.unpack $(embedFile "style.css")
+
+renderAuthorizePage :: UserID -> ClientDetails -> Scope -> Maybe Text -> Html
+renderAuthorizePage user_id cd@ClientDetails{..} sc st = docTypeHtml $ do
+    head $ do
+        title "Such Token"
+        style ! type_ "text/css" $ toHtml stylesheet
+    body $ do
+        p $ toHtml (show user_id)
+        p $ toHtml (show cd)
+        p $ toHtml (show sc)
+        p $ toHtml (show st)
 
 renderTokensPage :: Scope -> Int -> Page -> ([(Maybe ClientID, Scope, Token, TokenID)], Int) -> Html
 renderTokensPage userScope size (Page p) (ts, numTokens) = docTypeHtml $ do
