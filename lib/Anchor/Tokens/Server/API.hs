@@ -147,6 +147,9 @@ server ServerState{..}
     :<|> handleShib (serverDisplayToken serverPGConnPool)
     :<|> serverPostToken serverPGConnPool
 
+-- Any shibboleth authed endpoint must have all relevant headers defined,
+-- and any other case is an internal error. handleShib consolidates
+-- checking these headers.
 handleShib
     :: ( MonadIO m
        , MonadBaseControl IO m
