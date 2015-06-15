@@ -53,17 +53,31 @@ renderTokensPage userScope size (Page p) (ts, numTokens) = docTypeHtml $ do
     htmlInvalidPage = h2 "Invalid page number!"
 
 htmlCreateTokenForm :: Scope -> Html
-htmlCreateTokenForm s = return ()
+htmlCreateTokenForm s = do
+    let scopeTokens = map (T.decodeUtf8 . review scopeToken) $ S.toList $ scope # s
+    form ! method "POST" ! action "/tokens" $ do
+        input ! type_ "hidden" ! name "method" ! value "create"
+        forM_ scopeTokens $ \t -> do
+            input ! type_ "checkbox" ! name "scope" ! value (toValue t)
+            toHtml t
+        br
+        input ! type_ "submit" ! value "Create Token"
 
 htmlTokens :: [(Maybe ClientID, Scope, Token, TokenID)] -> Html
 htmlTokens [] = h2 "You have no tokens!"
-htmlTokens ts = table ! class_ "zebra" $ do
-    tokHeader
-    mapM_ htmlToken ts
+htmlTokens ts = do
+    br
+    a "Tokens List" ! href "/tokens"
+    br
+    br
+    table ! class_ "zebra" $ do
+        tokHeader
+        mapM_ htmlToken ts
   where
     tokHeader = thead $ do
         th "client id"
         th "scope"
+        th "token"
         th ""
 
 htmlToken :: (Maybe ClientID, Scope, Token, TokenID) -> Html
@@ -77,6 +91,6 @@ htmlToken (cid, scope, t, tid) = tr $ do
     htmlScope  = toHtml $ T.decodeUtf8 $ scopeToBs scope
     htmlToken' = toHtml $ T.decodeUtf8 $ token # t
     htmlRevokeButton =
-        form ! method "POST" ! action ("/tokens/" <> toValue tid) $ do
+        form ! method "POST" ! action ("/tokens?token_id=" <> toValue tid) $ do
             input ! type_ "hidden" ! name "method" ! value "delete"
             input ! type_ "submit" ! value "Revoke Token"
