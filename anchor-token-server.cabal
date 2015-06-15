@@ -63,6 +63,7 @@ library
     , transformers-base
     , transformers-compat
     , unordered-containers
+    , uri-bytestring
     , vector
     , warp
 

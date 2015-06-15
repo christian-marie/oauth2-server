@@ -44,6 +44,7 @@ import           Database.PostgreSQL.Simple.ToRow
 import           Database.PostgreSQL.Simple.TypeInfo.Macro
 import qualified Database.PostgreSQL.Simple.TypeInfo.Static as TI
 import           System.Log.Logger
+import           URI.ByteString
 
 import           Network.OAuth2.Server
 
@@ -53,6 +54,25 @@ logName :: String
 logName = "Anchor.Tokens.Server.Store"
 
 -- * OAuth2 Server operations
+
+-- | Lookup a registered Client.
+lookupClient
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       , MonadReader (Pool Connection) m
+       )
+    => ClientID
+    -> m (Maybe ClientDetails)
+lookupClient client_id = do
+    pool <- ask
+    withResource pool $ \conn -> do
+        liftIO . debugM logName $ "Looking up client: " <> show client_id
+        clients <- liftIO $ query conn "SELECT client_id, client_secret, confidential, redirect_url, name, description, app_url FROM clients WHERE (client_id = ?)" (Only client_id)
+        case clients of
+            [] -> return Nothing
+            [x] -> return $ Just x
+            xs  -> let msg = "Should only be able to retrieve at most one client, retrieved: " <> show xs
+                   in liftIO (errorM logName msg) >> fail msg
 
 -- | Record a new token grant in the database.
 saveToken
@@ -170,6 +190,9 @@ instance FromField ClientID where
             Nothing   -> returnError ConversionFailed f ""
             Just c_id -> pure c_id
 
+instance ToField ClientID where
+    toField c_id = toField $ c_id ^.re clientID
+
 instance FromField ScopeToken where
     fromField f bs = do
         x <- fromField f bs
@@ -210,6 +233,22 @@ instance FromRow TokenDetails where
                            <*> (preview username <$> field)
                            <*> (preview clientID <$> field)
                            <*> mebbeField bsToScope
+
+instance FromField URI where
+    fromField f bs = do
+        x <- fromField f bs
+        case parseURI strictURIParserOptions x of
+            Left e -> returnError ConversionFailed f (show e)
+            Right uri -> return uri
+
+instance FromRow ClientDetails where
+    fromRow = ClientDetails <$> field
+                            <*> field
+                            <*> field
+                            <*> field
+                            <*> field
+                            <*> field
+                            <*> field
 
 -- | Get a PostgreSQL field using a parsing function.
 --

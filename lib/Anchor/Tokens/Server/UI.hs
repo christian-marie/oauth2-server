@@ -1,19 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell   #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Anchor.Tokens.Server.UI where
 
 import           Control.Lens
 import           Control.Monad
-import           Data.ByteString                 (ByteString)
 import qualified Data.ByteString.Char8           as BS
 import           Data.FileEmbed
 import           Data.Maybe
 import           Data.Monoid
-import           Data.Text.Lazy                  (Text)
-import qualified Data.Text.Lazy                  as T
 import           Prelude                         hiding (head)
-import           Text.Blaze.Html.Renderer.Pretty
 import           Text.Blaze.Html5                hiding (div)
 import           Text.Blaze.Html5.Attributes     hiding (form, style, title)
 
@@ -23,6 +20,16 @@ import           Anchor.Tokens.Server.Types
 
 stylesheet :: String
 stylesheet = BS.unpack $(embedFile "style.css")
+
+renderAuthorizePage :: UserID -> ClientDetails -> Scope -> Html
+renderAuthorizePage user_id cd@ClientDetails{..} sc = docTypeHtml $ do
+    head $ do
+        title "Such Token"
+        style ! type_ "text/css" $ toHtml stylesheet
+    body $ do
+        p $ toHtml (show user_id)
+        p $ toHtml (show cd)
+        p $ toHtml (show sc)
 
 renderTokensPage :: Int -> Page -> ([(Maybe ClientID, Scope, TokenID)], Int) -> Html
 renderTokensPage size (Page p) (ts, numTokens) = docTypeHtml $ do

@@ -5,16 +5,17 @@ module Anchor.Tokens.Server.Types where
 
 import           Control.Applicative
 import           Control.Monad.Trans.Except
-import           Data.ByteString            (ByteString)
+import           Data.ByteString                      (ByteString)
 import           Data.Pool
-import           Data.Text                   (Text)
+import           Data.Text                            (Text)
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.FromField
 import           Database.PostgreSQL.Simple.ToField
-import           Network.Wai.Handler.Warp   hiding (Connection)
+import           Network.Wai.Handler.Warp             hiding (Connection)
 import           Pipes.Concurrent
-import           Servant.API
+import           Servant.API                          hiding (URI)
 import           Text.Blaze.Html5
+import           URI.ByteString
 
 import           Network.OAuth2.Server
 
@@ -68,3 +69,21 @@ data GrantEvent
     | OwnerCredentialsGranted -- ^ Issued token from owner password request.
     | ClientCredentialsGranted -- ^ Issued token from client password request.
     | ExtensionGranted -- ^ Issued token from extension grant request.
+
+newtype ClientSecret = ClientSecret
+    { unClientSecret :: ByteString }
+  deriving (Eq, Show, Ord)
+
+instance FromField ClientSecret where
+    fromField f bs = ClientSecret <$> fromField f bs
+
+data ClientDetails = ClientDetails
+    { clientClientId     :: ClientID
+    , clientSecret       :: ClientSecret
+    , clientConfidential :: Bool
+    , clientRedirectURI  :: URI
+    , clientName         :: Text
+    , clientDescription  :: Text
+    , clientAppUrl       :: URI
+    }
+  deriving (Eq, Show)
