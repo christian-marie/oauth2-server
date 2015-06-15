@@ -227,6 +227,9 @@ instance FromJSON ClientID where
             Nothing -> fail $ T.unpack t <> " is not a valid ClientID."
             Just s -> return s
 
+instance FromText ClientID where
+    fromText t = T.encodeUtf8 t ^? clientID
+
 newtype Code = Code { unCode :: ByteString }
     deriving (Eq, Typeable)
 
@@ -649,3 +652,11 @@ instance FromJSON OAuth2Error where
         <$> o .: "error"
         <*> o .:? "error_description"
         <*> o .:? "error_uri"
+
+instance FromText Scope where
+    fromText = bsToScope . T.encodeUtf8
+
+instance FromText URI where
+    fromText t = case parseURI strictURIParserOptions . T.encodeUtf8 $ t of
+        Left _ -> Nothing
+        Right x -> Just x
