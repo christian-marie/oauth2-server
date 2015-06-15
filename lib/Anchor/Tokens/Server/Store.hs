@@ -80,9 +80,9 @@ loadToken
     -> m (Maybe TokenDetails)
 loadToken tok = do
     liftIO . debugM logName $ "Loading token: " <> show tok
-    pool  <- asks serverPGConnPool
+    pool  <- ask
     tokens :: [TokenDetails] <- withResource pool $ \conn -> do
-        liftIO $ query conn "SELECT * FROM tokens WHERE (token = ?)" (Only tok)
+        liftIO $ query conn "SELECT token_type, token, expires, user_id, client_id, scope FROM tokens WHERE (token = ?)" (Only tok)
     case tokens of
         [t] -> return $ Just t
         []  -> do
