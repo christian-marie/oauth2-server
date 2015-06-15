@@ -8,6 +8,7 @@
 -- | Description: HTTP API implementation.
 module Anchor.Tokens.Server.API where
 
+import           Control.Lens
 import           Control.Monad.Error.Class
 import           Control.Monad.IO.Class
 import           Control.Monad.Reader.Class
@@ -15,18 +16,21 @@ import           Control.Monad.Trans.Control
 import           Control.Monad.Trans.Reader
 import           Data.ByteString             (ByteString)
 import qualified Data.ByteString.Lazy.Char8  as BSL
+import           Data.Either
 import           Data.Maybe
 import           Data.Monoid
 import           Data.Pool
 import           Data.Proxy
+import qualified Data.Set                    as S
 import qualified Data.Text                   as T
+import qualified Data.Text.Encoding          as T
 import           Database.PostgreSQL.Simple
 import           Network.HTTP.Types          hiding (Header)
 import           Pipes.Concurrent
 import           Servant.API
 import           Servant.HTML.Blaze
 import           Servant.Server
-import           Text.Blaze.Html5
+import           Text.Blaze.Html5            hiding (map)
 
 import           Network.OAuth2.Server
 
@@ -34,15 +38,32 @@ import           Anchor.Tokens.Server.Store
 import           Anchor.Tokens.Server.Types
 import           Anchor.Tokens.Server.UI
 
+import Debug.Trace
+
 type OAuthUserHeader = "Identity-OAuthUser"
+type OAuthUserScopeHeader = "Identity-OAuthUserScopes"
 
-data DeleteRequest = DeleteRequest
+data TokenRequest = DeleteRequest
+                  | CreateRequest Scope
 
-instance FromFormUrlEncoded DeleteRequest where
-    fromFormUrlEncoded o = case lookup "method" o of
+instance FromFormUrlEncoded TokenRequest where
+    fromFormUrlEncoded o = trace (show o) $ case lookup "method" o of
         Nothing -> Left "method field missing"
         Just "delete" -> Right DeleteRequest
+        Just "create" -> do
+            let processScope x = case (T.encodeUtf8 x) ^? scopeToken of
+                    Nothing -> Left $ T.unpack x
+                    Just ts -> Right ts
+            let scopes = map (processScope . snd) $ filter (\x -> fst x == "scope") o
+            case lefts scopes of
+                [] -> case S.fromList (rights scopes) ^? scope of
+                    Nothing -> Left "empty scope is invalid"
+                    Just s  -> Right $ CreateRequest s
+                es -> Left $ "invalid scopes: " <> show es
         Just x        -> Left . T.unpack $ "Invalid method field value, got: " <> x
+
+instance FromText Scope where
+    fromText = bsToScope . T.encodeUtf8
 
 -- | OAuth2 Authorization Endpoint
 --
@@ -82,11 +103,12 @@ type DisplayToken
     :> Capture "token_id" TokenID
     :> Get '[HTML] Html
 
-type DeleteToken
+type PostToken
     = "tokens"
     :> Header OAuthUserHeader UserID
-    :> ReqBody '[FormUrlEncoded] DeleteRequest
-    :> Capture "token_id" TokenID
+    :> Header OAuthUserScopeHeader Scope
+    :> ReqBody '[FormUrlEncoded] TokenRequest
+    :> QueryParam "token_id" TokenID
     :> Post '[HTML] Html
 
 -- | Anchor Token Server HTTP endpoints.
@@ -99,7 +121,7 @@ type AnchorOAuth2API
     :<|> "oauth2" :> AuthorizeEndpoint
     :<|> ListTokens
     :<|> DisplayToken
-    :<|> DeleteToken
+    :<|> PostToken
 
 anchorOAuth2API :: Proxy AnchorOAuth2API
 anchorOAuth2API = Proxy
@@ -111,7 +133,7 @@ server ServerState{..}
     :<|> error ""
     :<|> serverListTokens serverPGConnPool (optUIPageSize serverOpts)
     :<|> serverDisplayToken serverPGConnPool
-    :<|> serverDeleteToken serverPGConnPool
+    :<|> serverPostToken serverPGConnPool
 
 serverDisplayToken
     :: ( MonadIO m
@@ -122,7 +144,7 @@ serverDisplayToken
     -> Maybe UserID
     -> TokenID
     -> m Html
-serverDisplayToken _    Nothing  _ = throwError err403
+serverDisplayToken _    Nothing  _ = throwError err500
 serverDisplayToken pool (Just u) t = do
     res <- runReaderT (displayToken u t) pool
     case res of
@@ -139,27 +161,60 @@ serverListTokens
     -> Maybe UserID
     -> Maybe Page
     -> m Html
-serverListTokens _    _    Nothing  _ = throwError err403
+serverListTokens _    _    Nothing  _ = throwError err500
 serverListTokens pool size (Just u) p = do
     let p' = fromMaybe (Page 1) p
     res <- runReaderT (listTokens size u p') pool
     return $ renderTokensPage size p' res
 
-serverDeleteToken
+serverPostToken
     :: ( MonadIO m
        , MonadBaseControl IO m
        , MonadError ServantErr m
        )
     => Pool Connection
     -> Maybe UserID
-    -> DeleteRequest
+    -> Maybe Scope
+    -> TokenRequest
+    -> Maybe TokenID
+    -> m Html
+serverPostToken pool u s r t = case (u, s) of
+    (Just u', Just s') -> serverPostToken' pool u' s' r t
+    _                  -> throwError err500 -- Need all shib auth headers to do anything
+  where
+    serverPostToken' pool u _  DeleteRequest      (Just t) = serverRevokeToken pool u t
+    serverPostToken' pool u _  DeleteRequest      Nothing  = throwError err400
+    serverPostToken' pool u us (CreateRequest rs) _        = serverCreateToken pool u us rs
+
+serverRevokeToken
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       , MonadError ServantErr m
+       )
+    => Pool Connection
+    -> UserID
     -> TokenID
     -> m Html
-serverDeleteToken _    Nothing  _ _ = error "Auth failed remove yourself please"
-serverDeleteToken pool (Just u) _ t = do
+serverRevokeToken pool u t = do
     runReaderT (revokeToken u t) pool
---    let redirectLink = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy ListTokens)
     throwError err302{errHeaders = [(hLocation, "/tokens")]}     --Redirect to tokens page
+
+serverCreateToken
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       , MonadError ServantErr m
+       )
+    => Pool Connection
+    -> UserID
+    -> Scope
+    -> Scope
+    -> m Html
+serverCreateToken pool user_id userScope reqScope = do
+    if compatibleScope reqScope userScope then do
+        TokenID t <- runReaderT (createToken user_id reqScope) pool
+        throwError err302{errHeaders = [(hLocation, "/tokens?token_id=" <> T.encodeUtf8 t)]} --Redirect to tokens page
+    else throwError err403
+
 
 -- * OAuth2 Server
 --

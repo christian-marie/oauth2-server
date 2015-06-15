@@ -142,6 +142,20 @@ displayToken user_id token_id = do
             xs  -> let msg = "Should only be able to retrieve at most one token, retrieved: " <> show xs
                    in liftIO (errorM logName msg) >> fail msg
 
+createToken
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       , MonadReader (Pool Connection) m
+       )
+    => UserID
+    -> Scope
+    -> m TokenID
+createToken user_id scope = do
+    pool <- ask
+    withResource pool $ \conn ->
+        --liftIO $ execute conn "INSERT INTO tokens VALUES ..."
+        error "wat"
+
 revokeToken
     :: ( MonadIO m
        , MonadBaseControl IO m
