@@ -31,14 +31,20 @@ library
     , Anchor.Tokens.Server.Statistics
     , Anchor.Tokens.Server.Store
     , Anchor.Tokens.Server.Types
+    , Anchor.Tokens.Server.UI
+
   build-depends:
       base >=4.7 && <4.8
     , async
+    , blaze-html
     , bytestring
     , configurator
+    , containers
     , ekg
     , ekg-core
+    , file-embed
     , hslogger
+    , http-types
     , lens
     , monad-control
     , mtl
@@ -48,6 +54,7 @@ library
     , postgresql-simple
     , resource-pool
     , servant
+    , servant-blaze
     , servant-server
     , stm >=2.4.2
     , streaming-commons
@@ -56,6 +63,7 @@ library
     , transformers-base
     , transformers-compat
     , unordered-containers
+    , vector
     , warp
 
 executable             tokenserver

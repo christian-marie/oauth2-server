@@ -36,6 +36,7 @@ CREATE TABLE request_codes (
 
 -- Store tokens.
 CREATE TABLE tokens (
+    token_id      UUID           NOT NULL DEFAULT uuid_generate_v4(),
     token         VARCHAR(256)   NOT NULL,
     token_type    VARCHAR(32)    NOT NULL,  -- access | refresh
 

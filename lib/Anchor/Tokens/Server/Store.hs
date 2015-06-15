@@ -19,17 +19,23 @@ module Anchor.Tokens.Server.Store where
 
 import           Control.Applicative
 import           Control.Lens                               (preview)
+import           Control.Lens.Operators
 import           Control.Lens.Review
 import           Control.Monad.Base
-import           Control.Monad.Reader
 import           Control.Monad.Error
-import           Control.Monad.Trans.Except
+import           Control.Monad.Error.Class
+import           Control.Monad.IO.Class
+import           Control.Monad.Reader
+import           Control.Monad.Reader.Class
 import           Control.Monad.Trans.Control
+import           Control.Monad.Trans.Except
 import           Data.ByteString                            (ByteString)
 import           Data.Monoid
 import           Data.Pool
+import qualified Data.Set                                   as S
 import           Data.Text                                  (Text)
 import           Data.Typeable
+import qualified Data.Vector                                as V
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.FromField
 import           Database.PostgreSQL.Simple.FromRow
@@ -37,8 +43,9 @@ import           Database.PostgreSQL.Simple.ToField
 import           Database.PostgreSQL.Simple.ToRow
 import           Database.PostgreSQL.Simple.TypeInfo.Macro
 import qualified Database.PostgreSQL.Simple.TypeInfo.Static as TI
-import           Network.OAuth2.Server
 import           System.Log.Logger
+
+import           Network.OAuth2.Server
 
 import           Anchor.Tokens.Server.Types
 
@@ -100,40 +107,78 @@ checkCredentials _auth _req = do
 listTokens
     :: ( MonadIO m
        , MonadBaseControl IO m
-       , MonadError OAuth2Error m
-       , MonadReader ServerState m
        )
-    => UserID
+    => Pool Connection
+    -> Int
+    -> UserID
     -> Page
-    -> m ([TokenDetails], Page)
-listTokens uid (Page p) = do
-    pool <- asks serverPGConnPool
-    Page size <- optUIPageSize <$> asks serverOpts
+    -> m ([(Maybe ClientID, Scope, TokenID)], Int)
+listTokens pool size uid (Page p) =
     withResource pool $ \conn -> do
         liftIO . debugM logName $ "Listing tokens for " <> show uid
-        tokens <- liftIO $ query conn "SELECT * FROM tokens WHERE (user_id = ?) LIMIT ? OFFSET ?" (uid, size, (p - 1) * size)
-        [Only pages] <- liftIO $ query conn "SELECT count(*) FROM tokens WHERE (user_id = ?)" (Only uid)
-        return (tokens, Page pages)
+        tokens <- liftIO $ query conn "SELECT client_id, scope, token_id FROM tokens WHERE (user_id = ?) AND revoked is NULL LIMIT ? OFFSET ? ORDER BY created" (uid, size, (p - 1) * size)
+        [Only numTokens] <- liftIO $ query conn "SELECT count(*) FROM tokens WHERE (user_id = ?)" (Only uid)
+        return (tokens, numTokens)
+
+-- | Retrieve information for a single token for a user.
+--
+displayToken
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       )
+    => Pool Connection
+    -> UserID
+    -> TokenID
+    -> m (Maybe (Maybe ClientID, Scope, TokenID))
+displayToken pool user_id token_id =
+    withResource pool $ \conn -> do
+        liftIO . debugM logName $ "Retrieving token with id " <> show token_id <> " for user " <> show user_id
+        tokens <- liftIO $ query conn "SELECT client_id, scope, token_id FROM tokens WHERE (token_id = ?) AND (user_id = ?) AND revoked is NULL" (token_id, user_id)
+        case tokens of
+            []  -> return Nothing
+            [x] -> return $ Just x
+            xs  -> let msg = "Should only be able to retrieve at most one token, retrieved: " <> show xs
+                   in liftIO (errorM logName msg) >> fail msg
 
 revokeToken
     :: ( MonadIO m
        , MonadBaseControl IO m
-       , MonadError OAuth2Error m
-       , MonadReader ServerState m
        )
-    => Token
+    => Pool Connection
+    -> UserID
+    -> TokenID
     -> m ()
-revokeToken tok = do
-    pool <- asks serverPGConnPool
-    withResource pool $ \_conn -> do
-        liftIO . debugM logName $ "Revoking token: " <> show tok
-        -- UPDATE tokens SET revoked = NOW() WHERE (token = ?)
+revokeToken pool user_id token_id =
+    withResource pool $ \conn -> do
+        liftIO . debugM logName $ "Revoking token with id " <> show token_id <> " for user " <> show user_id
+        liftIO $ execute conn "UPDATE tokens SET revoked = NOW() WHERE (token_id = ?) AND (user_id = ?)" (token_id, user_id)
         return ()
 
 -- * Support Code
 
 -- $ Here we implement support for, e.g., sorting oauth2-server types in
 -- PostgreSQL databases.
+--
+instance FromField ClientID where
+    fromField f bs = do
+        c <- fromField f bs
+        case c ^? clientID of
+            Nothing   -> returnError ConversionFailed f ""
+            Just c_id -> pure c_id
+
+instance FromField ScopeToken where
+    fromField f bs = do
+        x <- fromField f bs
+        case x ^? scopeToken of
+            Nothing         -> returnError ConversionFailed f ""
+            Just scopeToken -> pure scopeToken
+
+instance FromField Scope where
+    fromField f bs = do
+        tokenVector <- fromField f bs
+        case S.fromList (V.toList tokenVector) ^? scope of
+            Nothing    -> returnError ConversionFailed f ""
+            Just scope -> pure scope
 
 instance ToField TokenType where
     toField Bearer = toField ("bearer" :: Text)

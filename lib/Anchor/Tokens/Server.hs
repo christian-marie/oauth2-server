@@ -70,7 +70,7 @@ startServer serverOpts@ServerOptions{..} = do
     let settings = setPort optServicePort $ setHost optServiceHost $ defaultSettings
     apiSrv <- async $ do
         debugM logName $ "Starting API Server"
-        runSettingsSocket settings sock $ serve anchorOAuth2API server
+        runSettingsSocket settings sock $ serve anchorOAuth2API (server (serverPGConnPool, optUIPageSize))
     let serverServiceStop = do
             debugM logName $ "Closing API Socket"
             S.close sock
