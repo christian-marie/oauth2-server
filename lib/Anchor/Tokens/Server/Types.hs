@@ -4,6 +4,7 @@
 module Anchor.Tokens.Server.Types where
 
 import           Control.Applicative
+import           Control.Monad.Trans.Except
 import           Data.ByteString            (ByteString)
 import           Data.Pool
 import           Data.Text                   (Text)
@@ -14,6 +15,8 @@ import           Network.Wai.Handler.Warp   hiding (Connection)
 import           Pipes.Concurrent
 import           Servant.API
 import           Text.Blaze.Html5
+
+import           Network.OAuth2.Server
 
 -- | Unique identifier for a user.
 newtype UserID = UserID
@@ -51,9 +54,10 @@ data ServerOptions = ServerOptions
 
 -- | State of the running server, including database connectioned, etc.
 data ServerState = ServerState
-    { serverPGConnPool  :: Pool Connection
-    , serverEventSink   :: Output GrantEvent
-    , serverOpts        :: ServerOptions
+    { serverPGConnPool   :: Pool Connection
+    , serverEventSink    :: Output GrantEvent
+    , serverOpts         :: ServerOptions
+    , serverOAuth2Server :: OAuth2Server (ExceptT OAuth2Error IO)
     }
 
 -- | Describes events which should be tracked by the monitoring statistics

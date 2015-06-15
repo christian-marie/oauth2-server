@@ -12,6 +12,7 @@ import           Control.Monad.Error.Class
 import           Control.Monad.IO.Class
 import           Control.Monad.Reader.Class
 import           Control.Monad.Trans.Control
+import           Control.Monad.Trans.Reader
 import           Data.ByteString             (ByteString)
 import qualified Data.ByteString.Lazy.Char8  as BSL
 import           Data.Maybe
@@ -21,6 +22,7 @@ import           Data.Proxy
 import qualified Data.Text                   as T
 import           Database.PostgreSQL.Simple
 import           Network.HTTP.Types          hiding (Header)
+import           Pipes.Concurrent
 import           Servant.API
 import           Servant.HTML.Blaze
 import           Servant.Server
@@ -103,7 +105,8 @@ anchorOAuth2API :: Proxy AnchorOAuth2API
 anchorOAuth2API = Proxy
 
 server :: ServerState -> Server AnchorOAuth2API
-server ServerState{..} = error "Coming in Summer 2016"
+server ServerState{..}
+       = tokenEndpoint serverOAuth2Server
     :<|> error ""
     :<|> error ""
     :<|> serverListTokens serverPGConnPool (optUIPageSize serverOpts)
@@ -121,7 +124,7 @@ serverDisplayToken
     -> m Html
 serverDisplayToken _    Nothing  _ = throwError err403
 serverDisplayToken pool (Just u) t = do
-    res <- displayToken pool u t
+    res <- runReaderT (displayToken u t) pool
     case res of
         Nothing -> throwError err404
         Just x -> return $ renderTokensPage 1 (Page 1) ([x], 1)
@@ -139,7 +142,7 @@ serverListTokens
 serverListTokens _    _    Nothing  _ = throwError err403
 serverListTokens pool size (Just u) p = do
     let p' = fromMaybe (Page 1) p
-    res <- listTokens pool size u p'
+    res <- runReaderT (listTokens size u p') pool
     return $ renderTokensPage size p' res
 
 serverDeleteToken
@@ -154,7 +157,7 @@ serverDeleteToken
     -> m Html
 serverDeleteToken _    Nothing  _ _ = error "Auth failed remove yourself please"
 serverDeleteToken pool (Just u) _ t = do
-    revokeToken pool u t
+    runReaderT (revokeToken u t) pool
 --    let redirectLink = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy ListTokens)
     throwError err302{errHeaders = [(hLocation, "/tokens")]}     --Redirect to tokens page
 
@@ -167,8 +170,12 @@ anchorOAuth2Server
     :: ( MonadIO m
        , MonadBaseControl IO m
        , MonadError OAuth2Error m
-       , MonadReader ServerState m
        )
-    => OAuth2Server m
-anchorOAuth2Server = OAuth2Server saveToken loadToken checkCredentials
-
+    => Pool Connection
+    -> Output a
+    -> OAuth2Server m
+anchorOAuth2Server pool out =
+    let oauth2StoreSave grant = runReaderT (saveToken grant) pool
+        oauth2StoreLoad tok = runReaderT (loadToken tok) pool
+        oauth2CheckCredentials auth req = runReaderT (checkCredentials auth req) pool
+    in OAuth2Server{..}

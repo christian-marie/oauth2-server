@@ -86,14 +86,10 @@ dbname = "test_tokenstore"
 
 -- | Start a server that only has the local store, no UI, no EKG.
 --
-startStore :: ByteString -> IO ServerState
-startStore dbstr = do
-  let opts         = defaultServerOptions { optDBString = dbstr }
-      dummySink    = Output (const $ return False)
-  pool     <- createPool (connectPostgreSQL dbstr) close 1 1 1
-  return (ServerState pool dummySink opts)
+startStore :: ByteString -> IO (Pool Connection)
+startStore dbstr = createPool (connectPostgreSQL dbstr) close 1 1 1
 
-testStore :: MonadIO m => m ServerState
+testStore :: MonadIO m => m (Pool Connection)
 testStore = liftIO $ do
   callCommand $ concat
     [ " dropdb --if-exists ", dbname, " || true"
