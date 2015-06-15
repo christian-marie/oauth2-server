@@ -4,18 +4,18 @@
 {-# LANGUAGE TupleSections         #-}
 {-# LANGUAGE TypeFamilies          #-}
 
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+
 -- | Description: Test the token store functionality.
 module Main where
 
 import           Control.Applicative
-import           Control.Concurrent.Async
 import           Control.Error.Util
 import           Control.Lens.Operators
 import           Control.Monad
 import           Control.Monad.Error
 import           Data.ByteString                    (ByteString)
 import qualified Data.ByteString.Char8              as B
-import           Data.Configurator
 import           Data.Maybe
 import           Data.Pool
 import qualified Data.Text                          as T
@@ -34,7 +34,7 @@ import           Anchor.Tokens.Server.Configuration
 import           Anchor.Tokens.Server.Store
 import           Anchor.Tokens.Server.Types
 
-
+alphabet :: Gen Char
 alphabet = elements ['a'..'z']
 
 deriving instance Bounded TokenType
@@ -81,20 +81,15 @@ instance Arbitrary TokenDetails where
 
 --------------------------------------------------------------------------------
 
+dbname :: String
 dbname = "test_tokenstore"
 
 -- | Start a server that only has the local store, no UI, no EKG.
 --
-startStore :: ByteString -> IO ServerState
-startStore dbstr = do
-  let opts         = defaultServerOptions { optDBString = dbstr }
-      dummySink    = Output (const $ return False)
-      dummyStop    = return ()
-      dummyService = async (return ())
-  pool     <- createPool (connectPostgreSQL dbstr) close 1 1 1
-  return (ServerState pool dummySink dummyStop opts dummyService)
+startStore :: ByteString -> IO (Pool Connection)
+startStore dbstr = createPool (connectPostgreSQL dbstr) close 1 1 1
 
-testStore :: MonadIO m => m ServerState
+testStore :: MonadIO m => m (Pool Connection)
 testStore = liftIO $ do
   callCommand $ concat
     [ " dropdb --if-exists ", dbname, " || true"

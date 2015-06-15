@@ -14,6 +14,8 @@
 -- needed for monad base/control as required by this API
 {-# LANGUAGE UndecidableInstances       #-}
 
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+
 -- | Description: OAuth2 token storage using PostgreSQL.
 module Anchor.Tokens.Server.Store where
 
@@ -22,11 +24,9 @@ import           Control.Lens                               (preview)
 import           Control.Lens.Operators
 import           Control.Lens.Review
 import           Control.Monad.Base
-import           Control.Monad.Error
 import           Control.Monad.Error.Class
 import           Control.Monad.IO.Class
 import           Control.Monad.Reader
-import           Control.Monad.Reader.Class
 import           Control.Monad.Trans.Control
 import           Control.Monad.Trans.Except
 import           Data.ByteString                            (ByteString)
@@ -59,7 +59,7 @@ saveToken
     :: ( MonadIO m
        , MonadBaseControl IO m
        , MonadError OAuth2Error m
-       , MonadReader ServerState m
+       , MonadReader (Pool Connection) m
        )
     => TokenGrant
     -> m TokenDetails
@@ -73,7 +73,7 @@ loadToken
     :: ( MonadIO m
        , MonadBaseControl IO m
        , MonadError OAuth2Error m
-       , MonadReader ServerState m
+       , MonadReader (Pool Connection) m
        )
     => Token
     -> m (Maybe TokenDetails)
@@ -87,13 +87,13 @@ checkCredentials
     :: ( MonadIO m
        , MonadBaseControl IO m
        , MonadError OAuth2Error m
-       , MonadReader ServerState m
+       , MonadReader (Pool Connection) m
        )
     => Maybe AuthHeader
     -> AccessRequest
     -> m (Maybe ClientID, Scope)
 checkCredentials _auth _req = do
-    pool <- asks serverPGConnPool
+    pool <- ask
     withResource pool $ \_conn -> do
         liftIO . debugM logName $ "Checking some credentials"
         fail "Nope"
@@ -107,13 +107,14 @@ checkCredentials _auth _req = do
 listTokens
     :: ( MonadIO m
        , MonadBaseControl IO m
+       , MonadReader (Pool Connection) m
        )
-    => Pool Connection
-    -> Int
+    => Int
     -> UserID
     -> Page
     -> m ([(Maybe ClientID, Scope, TokenID)], Int)
-listTokens pool size uid (Page p) =
+listTokens size uid (Page p) = do
+    pool <- ask
     withResource pool $ \conn -> do
         liftIO . debugM logName $ "Listing tokens for " <> show uid
         tokens <- liftIO $ query conn "SELECT client_id, scope, token_id FROM tokens WHERE (user_id = ?) AND revoked is NULL LIMIT ? OFFSET ? ORDER BY created" (uid, size, (p - 1) * size)
@@ -125,12 +126,13 @@ listTokens pool size uid (Page p) =
 displayToken
     :: ( MonadIO m
        , MonadBaseControl IO m
+       , MonadReader (Pool Connection) m
        )
-    => Pool Connection
-    -> UserID
+    => UserID
     -> TokenID
     -> m (Maybe (Maybe ClientID, Scope, TokenID))
-displayToken pool user_id token_id =
+displayToken user_id token_id = do
+    pool <- ask
     withResource pool $ \conn -> do
         liftIO . debugM logName $ "Retrieving token with id " <> show token_id <> " for user " <> show user_id
         tokens <- liftIO $ query conn "SELECT client_id, scope, token_id FROM tokens WHERE (token_id = ?) AND (user_id = ?) AND revoked is NULL" (token_id, user_id)
@@ -143,15 +145,17 @@ displayToken pool user_id token_id =
 revokeToken
     :: ( MonadIO m
        , MonadBaseControl IO m
+       , MonadReader (Pool Connection) m
        )
-    => Pool Connection
-    -> UserID
+    => UserID
     -> TokenID
     -> m ()
-revokeToken pool user_id token_id =
+revokeToken user_id token_id = do
+    pool <- ask
     withResource pool $ \conn -> do
         liftIO . debugM logName $ "Revoking token with id " <> show token_id <> " for user " <> show user_id
-        liftIO $ execute conn "UPDATE tokens SET revoked = NOW() WHERE (token_id = ?) AND (user_id = ?)" (token_id, user_id)
+        -- TODO: Inspect the return value
+        _ <- liftIO $ execute conn "UPDATE tokens SET revoked = NOW() WHERE (token_id = ?) AND (user_id = ?)" (token_id, user_id)
         return ()
 
 -- * Support Code
@@ -225,9 +229,9 @@ mebbeField parse = fieldWith fld
 -- * Strappings for running store standalone operations
 
 newtype Store m a = Store
-  { storeAction :: ExceptT OAuth2Error (ReaderT ServerState m) a }
+  { storeAction :: ExceptT OAuth2Error (ReaderT (Pool Connection) m) a }
   deriving ( Functor, Applicative, Monad
-           , MonadIO, MonadReader ServerState, MonadError OAuth2Error)
+           , MonadIO, MonadReader (Pool Connection), MonadError OAuth2Error)
 
 instance MonadTrans Store where
   lift = Store . lift . lift
@@ -247,5 +251,5 @@ instance MonadBaseControl IO (Store IO) where
   liftBaseWith = defaultLiftBaseWith
   restoreM     = defaultRestoreM
 
-runStore :: ServerState -> Store m a -> m (Either OAuth2Error a)
+runStore :: Pool Connection -> Store m a -> m (Either OAuth2Error a)
 runStore s = flip runReaderT s . runExceptT . storeAction
