@@ -33,6 +33,7 @@ loadOptions conf = do
     optStatsPort <- ldef optStatsPort "stats.port"
     optServiceHost <- ldef optServiceHost "api.host"
     optServicePort <- ldef optServicePort "api.port"
+    optUIPageSize <- ldef optUIPageSize "ui.page_size"
     return ServerOptions{..}
   where
     ldef f k = lookupDefault (f defaultServerOptions) conf k

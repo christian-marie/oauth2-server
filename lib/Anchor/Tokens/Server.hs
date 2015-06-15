@@ -3,7 +3,6 @@
 module Anchor.Tokens.Server (
     P.version,
     startServer,
-    stopServer,
     ServerState(..),
     module X,
     ) where
@@ -54,7 +53,7 @@ startStatistics ServerOptions{..} connPool counters = do
 
 startServer
     :: ServerOptions
-    -> IO ServerState
+    -> IO (IO (Async ()))
 startServer serverOpts@ServerOptions{..} = do
     debugM logName $ "Opening API Socket"
     sock <- N.bindPortTCP optServicePort optServiceHost
@@ -68,20 +67,17 @@ startServer serverOpts@ServerOptions{..} = do
     counters <- mkGrantCounters
     (serverEventSink, serverEventStop) <- startStatistics serverOpts serverPGConnPool counters
     let settings = setPort optServicePort $ setHost optServiceHost $ defaultSettings
+        serverOAuth2Server = anchorOAuth2Server serverPGConnPool serverEventSink
     apiSrv <- async $ do
         debugM logName $ "Starting API Server"
-        runSettingsSocket settings sock $ serve anchorOAuth2API (server (serverPGConnPool, optUIPageSize))
+        runSettingsSocket settings sock $ serve anchorOAuth2API (server ServerState{..})
     let serverServiceStop = do
             debugM logName $ "Closing API Socket"
             S.close sock
             async $ do
                 wait apiSrv
                 debugM logName $ "Stopped API Server"
-    return ServerState{..}
-
-
-stopServer :: ServerState -> IO (Async ())
-stopServer ServerState{..} = do
-    serverEventStop
-    destroyAllResources serverPGConnPool
-    serverServiceStop
+    return $ do
+        serverEventStop
+        destroyAllResources serverPGConnPool
+        serverServiceStop

@@ -26,9 +26,9 @@ main = do
     loglevel <- maybe WARNING read <$> C.lookup conf "log-level"
     updateGlobalLogger rootLoggerName (setLevel loglevel)
     opts <- loadOptions conf
-    srv <- startServer opts
+    stopAction <- startServer opts
     finally waitForever $ do
-        thread <- stopServer srv
+        thread <- stopAction
         wait thread
   where
     waitForever :: IO a
