@@ -34,6 +34,7 @@ import           Data.Monoid
 import           Data.Pool
 import qualified Data.Set                                   as S
 import           Data.Text                                  (Text)
+import           Data.Text.Lens
 import           Data.Typeable
 import qualified Data.Vector                                as V
 import           Database.PostgreSQL.Simple
@@ -79,8 +80,17 @@ loadToken
     -> m (Maybe TokenDetails)
 loadToken tok = do
     liftIO . debugM logName $ "Loading token: " <> show tok
-    -- SELECT * FROM tokens WHERE (token = ?) AND (type = ?)
-    fail "Waaah"
+    pool  <- asks serverPGConnPool
+    tokens :: [TokenDetails] <- withResource pool $ \conn -> do
+        liftIO $ query conn "SELECT * FROM tokens WHERE (token = ?)" (Only tok)
+    case tokens of
+        [t] -> return $ Just t
+        []  -> do
+            liftIO $ debugM logName $ "No tokens found matching " <> show tok
+            return Nothing
+        _   -> do
+            liftIO $ errorM logName $ "Consistency error: multiple tokens found matching " <> show tok
+            return Nothing
 
 -- | Check the supplied credentials against the database.
 checkCredentials
@@ -179,6 +189,9 @@ instance FromField Scope where
         case S.fromList (V.toList tokenVector) ^? scope of
             Nothing    -> returnError ConversionFailed f ""
             Just scope -> pure scope
+
+instance ToField Token where
+    toField tok = toField $ review token tok
 
 instance ToField TokenType where
     toField Bearer = toField ("bearer" :: Text)
