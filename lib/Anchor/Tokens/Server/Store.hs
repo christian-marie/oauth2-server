@@ -112,12 +112,12 @@ listTokens
     => Int
     -> UserID
     -> Page
-    -> m ([(Maybe ClientID, Scope, TokenID)], Int)
+    -> m ([(Maybe ClientID, Scope, Token, TokenID)], Int)
 listTokens size uid (Page p) = do
     pool <- ask
     withResource pool $ \conn -> do
         liftIO . debugM logName $ "Listing tokens for " <> show uid
-        tokens <- liftIO $ query conn "SELECT client_id, scope, token_id FROM tokens WHERE (user_id = ?) AND revoked is NULL LIMIT ? OFFSET ? ORDER BY created" (uid, size, (p - 1) * size)
+        tokens <- liftIO $ query conn "SELECT client_id, scope, token, token_id FROM tokens WHERE (user_id = ?) AND revoked is NULL LIMIT ? OFFSET ? ORDER BY created" (uid, size, (p - 1) * size)
         [Only numTokens] <- liftIO $ query conn "SELECT count(*) FROM tokens WHERE (user_id = ?)" (Only uid)
         return (tokens, numTokens)
 
@@ -130,17 +130,31 @@ displayToken
        )
     => UserID
     -> TokenID
-    -> m (Maybe (Maybe ClientID, Scope, TokenID))
+    -> m (Maybe (Maybe ClientID, Scope, Token, TokenID))
 displayToken user_id token_id = do
     pool <- ask
     withResource pool $ \conn -> do
         liftIO . debugM logName $ "Retrieving token with id " <> show token_id <> " for user " <> show user_id
-        tokens <- liftIO $ query conn "SELECT client_id, scope, token_id FROM tokens WHERE (token_id = ?) AND (user_id = ?) AND revoked is NULL" (token_id, user_id)
+        tokens <- liftIO $ query conn "SELECT client_id, scope, token, token_id FROM tokens WHERE (token_id = ?) AND (user_id = ?) AND revoked is NULL" (token_id, user_id)
         case tokens of
             []  -> return Nothing
             [x] -> return $ Just x
             xs  -> let msg = "Should only be able to retrieve at most one token, retrieved: " <> show xs
                    in liftIO (errorM logName msg) >> fail msg
+
+createToken
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       , MonadReader (Pool Connection) m
+       )
+    => UserID
+    -> Scope
+    -> m TokenID
+createToken user_id scope = do
+    pool <- ask
+    withResource pool $ \conn ->
+        --liftIO $ execute conn "INSERT INTO tokens VALUES ..."
+        error "wat"
 
 revokeToken
     :: ( MonadIO m
