@@ -287,28 +287,28 @@ data RequestCode = RequestCode
 -- request types represented by 'GrantType' are supported, so some expected
 -- 'AccessRequest' constructors are not implemented.
 data AccessRequest
+    -- | grant_type=authorization_code
+    --   http://tools.ietf.org/html/rfc6749#section-4.1.3
     = RequestAuthorizationCode
-        -- ^ grant_type=authorization_code
-        -- http://tools.ietf.org/html/rfc6749#section-4.1.3
         { requestCode        :: Code
         , requestRedirectURI :: Maybe URI
         , requestClientID    :: Maybe ClientID
         }
+    -- | grant_type=password
+    --   http://tools.ietf.org/html/rfc6749#section-4.3.2
     | RequestPassword
-        -- ^ grant_type=password
-        -- http://tools.ietf.org/html/rfc6749#section-4.3.2
         { requestUsername :: Username
         , requestPassword :: Password
         , requestScope    :: Maybe Scope
         }
+    -- | grant_type=client_credentials
+    --   http://tools.ietf.org/html/rfc6749#section-4.4.2
     | RequestClientCredentials
-        -- ^ grant_type=client_credentials
-        -- http://tools.ietf.org/html/rfc6749#section-4.4.2
         { requestScope :: Maybe Scope
         }
+    -- | grant_type=refresh_token
+    --   http://tools.ietf.org/html/rfc6749#section-6
     | RequestRefreshToken
-        -- ^ grant_type=refresh_token
-        -- http://tools.ietf.org/html/rfc6749#section-6
         { requestRefreshToken :: Token
         , requestScope        :: Maybe Scope
         }
