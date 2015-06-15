@@ -25,13 +25,14 @@ import           Anchor.Tokens.Server.Types
 stylesheet :: String
 stylesheet = BS.unpack $(embedFile "style.css")
 
-renderTokensPage :: Int -> Page -> ([(Maybe ClientID, Scope, Token, TokenID)], Int) -> Html
-renderTokensPage size (Page p) (ts, numTokens) = docTypeHtml $ do
+renderTokensPage :: Scope -> Int -> Page -> ([(Maybe ClientID, Scope, Token, TokenID)], Int) -> Html
+renderTokensPage userScope size (Page p) (ts, numTokens) = docTypeHtml $ do
     head $ do
         title "Such Token"
         style ! type_ "text/css" $ toHtml stylesheet
     body $
         if validPage then do
+            htmlCreateTokenForm userScope
             htmlTokens ts
             when prevPages htmlPrevPageButton
             when nextPages htmlNextPageButton
@@ -48,6 +49,9 @@ renderTokensPage size (Page p) (ts, numTokens) = docTypeHtml $ do
     htmlPrevPageButton = htmlPageButton (p-1)
     htmlNextPageButton = htmlPageButton (p+1)
     htmlInvalidPage = h2 "Invalid page number!"
+
+htmlCreateTokenForm :: Scope -> Html
+htmlCreateTokenForm s = return ()
 
 htmlTokens :: [(Maybe ClientID, Scope, Token, TokenID)] -> Html
 htmlTokens [] = h2 "You have no tokens!"

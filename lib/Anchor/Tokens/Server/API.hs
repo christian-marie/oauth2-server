@@ -94,12 +94,14 @@ type VerifyEndpoint
 type ListTokens
     = "tokens"
     :> Header OAuthUserHeader UserID
+    :> Header OAuthUserScopeHeader Scope
     :> QueryParam "page" Page
     :> Get '[HTML] Html
 
 type DisplayToken
     = "tokens"
     :> Header OAuthUserHeader UserID
+    :> Header OAuthUserScopeHeader Scope
     :> Capture "token_id" TokenID
     :> Get '[HTML] Html
 
@@ -131,9 +133,22 @@ server ServerState{..}
        = tokenEndpoint serverOAuth2Server
     :<|> error ""
     :<|> error ""
-    :<|> serverListTokens serverPGConnPool (optUIPageSize serverOpts)
-    :<|> serverDisplayToken serverPGConnPool
+    :<|> handleShib (serverListTokens serverPGConnPool (optUIPageSize serverOpts))
+    :<|> handleShib (serverDisplayToken serverPGConnPool)
     :<|> serverPostToken serverPGConnPool
+
+handleShib
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       , MonadError ServantErr m
+       )
+    => (UserID -> Scope -> a -> m b)
+    -> Maybe UserID
+    -> Maybe Scope
+    -> a
+    -> m b
+handleShib f (Just u) (Just s) = f u s
+handleShib _ _        _        = const $ throwError err500
 
 serverDisplayToken
     :: ( MonadIO m
@@ -141,15 +156,15 @@ serverDisplayToken
        , MonadError ServantErr m
        )
     => Pool Connection
-    -> Maybe UserID
+    -> UserID
+    -> Scope
     -> TokenID
     -> m Html
-serverDisplayToken _    Nothing  _ = throwError err500
-serverDisplayToken pool (Just u) t = do
+serverDisplayToken pool u s t = do
     res <- runReaderT (displayToken u t) pool
     case res of
         Nothing -> throwError err404
-        Just x -> return $ renderTokensPage 1 (Page 1) ([x], 1)
+        Just x -> return $ renderTokensPage s 1 (Page 1) ([x], 1)
 
 serverListTokens
     :: ( MonadIO m
@@ -158,14 +173,14 @@ serverListTokens
        )
     => Pool Connection
     -> Int
-    -> Maybe UserID
+    -> UserID
+    -> Scope
     -> Maybe Page
     -> m Html
-serverListTokens _    _    Nothing  _ = throwError err500
-serverListTokens pool size (Just u) p = do
+serverListTokens pool size u s p = do
     let p' = fromMaybe (Page 1) p
     res <- runReaderT (listTokens size u p') pool
-    return $ renderTokensPage size p' res
+    return $ renderTokensPage s size p' res
 
 serverPostToken
     :: ( MonadIO m
@@ -178,13 +193,9 @@ serverPostToken
     -> TokenRequest
     -> Maybe TokenID
     -> m Html
-serverPostToken pool u s r t = case (u, s) of
-    (Just u', Just s') -> serverPostToken' pool u' s' r t
-    _                  -> throwError err500 -- Need all shib auth headers to do anything
-  where
-    serverPostToken' pool u _  DeleteRequest      (Just t) = serverRevokeToken pool u t
-    serverPostToken' pool u _  DeleteRequest      Nothing  = throwError err400
-    serverPostToken' pool u us (CreateRequest rs) _        = serverCreateToken pool u us rs
+serverPostToken pool u s DeleteRequest      (Just t) = handleShib (serverRevokeToken pool) u s t
+serverPostToken pool u s DeleteRequest      Nothing  = throwError err400
+serverPostToken pool u s (CreateRequest rs) _        = handleShib (serverCreateToken pool) u s rs
 
 serverRevokeToken
     :: ( MonadIO m
@@ -193,9 +204,10 @@ serverRevokeToken
        )
     => Pool Connection
     -> UserID
+    -> Scope
     -> TokenID
     -> m Html
-serverRevokeToken pool u t = do
+serverRevokeToken pool u _ t = do
     runReaderT (revokeToken u t) pool
     throwError err302{errHeaders = [(hLocation, "/tokens")]}     --Redirect to tokens page
 
