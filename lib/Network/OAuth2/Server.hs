@@ -10,8 +10,8 @@ module Network.OAuth2.Server (
     processTokenRequest,
     tokenEndpoint,
     TokenEndpoint,
-    NoStore,
-    NoCache,
+    NoStore(NoStore),
+    NoCache(NoCache),
 ) where
 
 import Control.Monad.Error.Class
