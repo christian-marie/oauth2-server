@@ -136,6 +136,8 @@ authDetails =
     fromPair (client_id, secret) =
         AuthHeader "Basic" $ (review clientID client_id) <> " " <> encodeUtf8 (review password secret)
 
+-- | Given an AuthHeader sent by a client, verify that it authenticates.
+--   If it does, return the authenticated ClientID; otherwise, Nothing.
 checkClientAuth
     :: ( MonadIO m
        , MonadBaseControl IO m
@@ -145,7 +147,6 @@ checkClientAuth
     => AuthHeader
     -> m (Maybe ClientID)
 checkClientAuth auth = do
-    pool  <- ask
     case preview authDetails auth of
         Nothing -> do
             liftIO . debugM logName $ "Got an invalid auth header."
@@ -153,10 +154,11 @@ checkClientAuth auth = do
                                      (preview errorDescription "Invalid auth header provided.")
                                      Nothing
         Just (client_id, secret) -> do
+            pool <- ask
             hashes :: [EncryptedPass] <- withResource pool $ \conn ->
                 liftIO $ query conn "SELECT client_secret FROM clients WHERE (client_id = ?)" (client_id)
             case hashes of
-                [secret] -> fail "aaargh"
+                [hash]   -> return $ verifyClientSecret client_id secret hash
                 []       -> do
                     liftIO . debugM logName $ "Got a request for invalid client_id " <> show client_id
                     throwError $ OAuth2Error InvalidClient
@@ -165,6 +167,13 @@ checkClientAuth auth = do
                 _        -> do
                     liftIO . errorM logName $ "Consistency error: multiple clients with client_id " <> show client_id
                     fail "Consistency error"
+  where
+    verifyClientSecret client_id secret hash =
+        let pass = Pass . encodeUtf8 $ review password secret in
+        -- Verify with default scrypt params.
+        if verifyPass' pass hash
+            then (Just client_id)
+            else Nothing
 
 -- | Check the supplied credentials against the database.
 checkCredentials
