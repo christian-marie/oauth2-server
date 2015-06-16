@@ -75,6 +75,7 @@ instance FromText ResponseTypeCode where
 type AuthorizeEndpoint
     = "authorize"
     :> Header OAuthUserHeader UserID
+    :> Header OAuthUserScopeHeader Scope
     :> QueryParam "response_type" ResponseTypeCode
     :> QueryParam "client_id" ClientID
     :> QueryParam "redirect_uri" URI
@@ -179,22 +180,26 @@ authorizeEndpoint
        )
     => Pool Connection
     -> Maybe UserID
+    -> Maybe Scope
     -> Maybe ResponseTypeCode
     -> Maybe ClientID
     -> Maybe URI
     -> Maybe Scope
     -> Maybe ClientState
     -> m Html
-authorizeEndpoint pool u' rt c_id' redirect sc' st = do
+authorizeEndpoint pool u' permissions' rt c_id' redirect sc' st = do
     case rt of
         Nothing -> error "NOOOO"
         Just ResponseTypeCode -> return ()
     u_id <- case u' of
         Nothing -> error "NOOOO"
         Just u_id -> return u_id
+    permissions <- case permissions' of
+        Nothing -> error "NOOOO"
+        Just permissions -> return permissions
     sc <- case sc' of
         Nothing -> error "NOOOO"
-        Just sc -> return sc
+        Just sc -> if sc `compatibleScope` permissions then return sc else error "NOOOOO"
     c_id <- case c_id' of
         Nothing -> error "NOOOO"
         Just c_id -> return c_id
