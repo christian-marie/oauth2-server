@@ -1,21 +1,22 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE TemplateHaskell   #-}
 
 module Anchor.Tokens.Server.UI where
 
 import           Control.Lens
 import           Control.Monad
-import           Data.ByteString                 (ByteString)
-import qualified Data.ByteString.Char8           as BS
+import qualified Data.ByteString.Char8       as BS
 import           Data.FileEmbed
 import           Data.Maybe
 import           Data.Monoid
-import           Data.Text.Lazy                  (Text)
-import qualified Data.Text.Lazy                  as T
-import           Prelude                         hiding (head)
-import           Text.Blaze.Html.Renderer.Pretty
-import           Text.Blaze.Html5                hiding (div)
-import           Text.Blaze.Html5.Attributes     hiding (form, style, title)
+import qualified Data.Set                    as S
+import           Data.Text                   (Text)
+import qualified Data.Text.Encoding          as T
+import           Prelude                     hiding (head)
+import           Prelude                     hiding (head)
+import           Text.Blaze.Html5            hiding (div, map)
+import           Text.Blaze.Html5.Attributes hiding (form, scope, style, title)
 
 import           Network.OAuth2.Server.Types
 
@@ -24,13 +25,25 @@ import           Anchor.Tokens.Server.Types
 stylesheet :: String
 stylesheet = BS.unpack $(embedFile "style.css")
 
-renderTokensPage :: Int -> Page -> ([(Maybe ClientID, Scope, TokenID)], Int) -> Html
-renderTokensPage size (Page p) (ts, numTokens) = docTypeHtml $ do
+renderAuthorizePage :: UserID -> ClientDetails -> Scope -> Maybe Text -> Html
+renderAuthorizePage user_id cd@ClientDetails{..} sc st = docTypeHtml $ do
+    head $ do
+        title "Such Token"
+        style ! type_ "text/css" $ toHtml stylesheet
+    body $ do
+        p $ toHtml (show user_id)
+        p $ toHtml (show cd)
+        p $ toHtml (show sc)
+        p $ toHtml (show st)
+
+renderTokensPage :: Scope -> Int -> Page -> ([(Maybe ClientID, Scope, Token, TokenID)], Int) -> Html
+renderTokensPage userScope size (Page p) (ts, numTokens) = docTypeHtml $ do
     head $ do
         title "Such Token"
         style ! type_ "text/css" $ toHtml stylesheet
     body $
         if validPage then do
+            htmlCreateTokenForm userScope
             htmlTokens ts
             when prevPages htmlPrevPageButton
             when nextPages htmlNextPageButton
@@ -48,26 +61,45 @@ renderTokensPage size (Page p) (ts, numTokens) = docTypeHtml $ do
     htmlNextPageButton = htmlPageButton (p+1)
     htmlInvalidPage = h2 "Invalid page number!"
 
-htmlTokens :: [(Maybe ClientID, Scope, TokenID)] -> Html
+htmlCreateTokenForm :: Scope -> Html
+htmlCreateTokenForm s = do
+    let scopeTokens = map (T.decodeUtf8 . review scopeToken) $ S.toList $ scope # s
+    form ! method "POST" ! action "/tokens" $ do
+        input ! type_ "hidden" ! name "method" ! value "create"
+        forM_ scopeTokens $ \t -> do
+            input ! type_ "checkbox" ! name "scope" ! value (toValue t)
+            toHtml t
+        br
+        input ! type_ "submit" ! value "Create Token"
+
+htmlTokens :: [(Maybe ClientID, Scope, Token, TokenID)] -> Html
 htmlTokens [] = h2 "You have no tokens!"
-htmlTokens ts = table ! class_ "zebra" $ do
-    tokHeader
-    mapM_ htmlToken ts
+htmlTokens ts = do
+    br
+    a "Tokens List" ! href "/tokens"
+    br
+    br
+    table ! class_ "zebra" $ do
+        tokHeader
+        mapM_ htmlToken ts
   where
     tokHeader = thead $ do
         th "client id"
         th "scope"
+        th "token"
         th ""
 
-htmlToken :: (Maybe ClientID, Scope, TokenID) -> Html
-htmlToken (cid, scope, tid) = tr $ do
+htmlToken :: (Maybe ClientID, Scope, Token, TokenID) -> Html
+htmlToken (cid, scope, t, tid) = tr $ do
     td htmlCid
     td htmlScope
+    td htmlToken'
     td htmlRevokeButton
   where
-    htmlCid = toHtml $ BS.unpack $ maybe "None" (review clientID) cid
-    htmlScope = preEscapedToHtml $ BS.unpack $ scopeToBs scope
+    htmlCid    = toHtml $ T.decodeUtf8 $ maybe "None" (review clientID) cid
+    htmlScope  = toHtml $ T.decodeUtf8 $ scopeToBs scope
+    htmlToken' = toHtml $ T.decodeUtf8 $ token # t
     htmlRevokeButton =
-        form ! method "POST" ! action ("/tokens/" <> toValue tid) $ do
+        form ! method "POST" ! action ("/tokens?token_id=" <> toValue tid) $ do
             input ! type_ "hidden" ! name "method" ! value "delete"
             input ! type_ "submit" ! value "Revoke Token"

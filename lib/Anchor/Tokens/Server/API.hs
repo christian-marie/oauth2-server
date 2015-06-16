@@ -8,25 +8,32 @@
 -- | Description: HTTP API implementation.
 module Anchor.Tokens.Server.API where
 
+import           Control.Monad
+import           Control.Lens
 import           Control.Monad.Error.Class
 import           Control.Monad.IO.Class
-import           Control.Monad.Reader.Class
 import           Control.Monad.Trans.Control
+import           Control.Monad.Trans.Except
 import           Control.Monad.Trans.Reader
 import           Data.ByteString             (ByteString)
 import qualified Data.ByteString.Lazy.Char8  as BSL
+import           Data.Either
 import           Data.Maybe
 import           Data.Monoid
 import           Data.Pool
 import           Data.Proxy
+import           Data.Text                   (Text)
+import qualified Data.Set                    as S
 import qualified Data.Text                   as T
+import qualified Data.Text.Encoding          as T
 import           Database.PostgreSQL.Simple
 import           Network.HTTP.Types          hiding (Header)
 import           Pipes.Concurrent
-import           Servant.API
+import           Servant.API                 hiding (URI)
 import           Servant.HTML.Blaze
 import           Servant.Server
-import           Text.Blaze.Html5
+import           URI.ByteString
+import           Text.Blaze.Html5            hiding (map)
 
 import           Network.OAuth2.Server
 
@@ -34,15 +41,34 @@ import           Anchor.Tokens.Server.Store
 import           Anchor.Tokens.Server.Types
 import           Anchor.Tokens.Server.UI
 
+import Debug.Trace
+
 type OAuthUserHeader = "Identity-OAuthUser"
+type OAuthUserScopeHeader = "Identity-OAuthUserScopes"
 
-data DeleteRequest = DeleteRequest
+data TokenRequest = DeleteRequest
+                  | CreateRequest Scope
 
-instance FromFormUrlEncoded DeleteRequest where
-    fromFormUrlEncoded o = case lookup "method" o of
+instance FromFormUrlEncoded TokenRequest where
+    fromFormUrlEncoded o = trace (show o) $ case lookup "method" o of
         Nothing -> Left "method field missing"
         Just "delete" -> Right DeleteRequest
+        Just "create" -> do
+            let processScope x = case (T.encodeUtf8 x) ^? scopeToken of
+                    Nothing -> Left $ T.unpack x
+                    Just ts -> Right ts
+            let scopes = map (processScope . snd) $ filter (\x -> fst x == "scope") o
+            case lefts scopes of
+                [] -> case S.fromList (rights scopes) ^? scope of
+                    Nothing -> Left "empty scope is invalid"
+                    Just s  -> Right $ CreateRequest s
+                es -> Left $ "invalid scopes: " <> show es
         Just x        -> Left . T.unpack $ "Invalid method field value, got: " <> x
+
+data ResponseTypeCode = ResponseTypeCode
+instance FromText ResponseTypeCode where
+    fromText "code" = Just ResponseTypeCode
+    fromText _ = Nothing
 
 -- | OAuth2 Authorization Endpoint
 --
@@ -50,11 +76,15 @@ instance FromFormUrlEncoded DeleteRequest where
 -- request.
 --
 -- http://tools.ietf.org/html/rfc6749#section-3.1
---
--- @TODO(thsutton): This type should correctly describe the endpoint.
 type AuthorizeEndpoint
     = "authorize"
-    :> Get '[JSON] ()
+    :> Header OAuthUserHeader UserID
+    :> QueryParam "response_type" ResponseTypeCode
+    :> QueryParam "client_id" ClientID
+    :> QueryParam "redirect_uri" URI
+    :> QueryParam "scope" Scope
+    :> QueryParam "state" Text
+    :> Get '[HTML] Html
 
 -- | Facilitates services checking tokens.
 --
@@ -73,20 +103,23 @@ type VerifyEndpoint
 type ListTokens
     = "tokens"
     :> Header OAuthUserHeader UserID
+    :> Header OAuthUserScopeHeader Scope
     :> QueryParam "page" Page
     :> Get '[HTML] Html
 
 type DisplayToken
     = "tokens"
     :> Header OAuthUserHeader UserID
+    :> Header OAuthUserScopeHeader Scope
     :> Capture "token_id" TokenID
     :> Get '[HTML] Html
 
-type DeleteToken
+type PostToken
     = "tokens"
     :> Header OAuthUserHeader UserID
-    :> ReqBody '[FormUrlEncoded] DeleteRequest
-    :> Capture "token_id" TokenID
+    :> Header OAuthUserScopeHeader Scope
+    :> ReqBody '[FormUrlEncoded] TokenRequest
+    :> QueryParam "token_id" TokenID
     :> Post '[HTML] Html
 
 -- | Anchor Token Server HTTP endpoints.
@@ -99,7 +132,7 @@ type AnchorOAuth2API
     :<|> "oauth2" :> AuthorizeEndpoint
     :<|> ListTokens
     :<|> DisplayToken
-    :<|> DeleteToken
+    :<|> PostToken
 
 anchorOAuth2API :: Proxy AnchorOAuth2API
 anchorOAuth2API = Proxy
@@ -108,10 +141,62 @@ server :: ServerState -> Server AnchorOAuth2API
 server ServerState{..}
        = tokenEndpoint serverOAuth2Server
     :<|> error ""
-    :<|> error ""
-    :<|> serverListTokens serverPGConnPool (optUIPageSize serverOpts)
-    :<|> serverDisplayToken serverPGConnPool
-    :<|> serverDeleteToken serverPGConnPool
+    :<|> authorizeEndpoint serverPGConnPool
+    :<|> handleShib (serverListTokens serverPGConnPool (optUIPageSize serverOpts))
+    :<|> handleShib (serverDisplayToken serverPGConnPool)
+    :<|> serverPostToken serverPGConnPool
+
+-- Any shibboleth authed endpoint must have all relevant headers defined,
+-- and any other case is an internal error. handleShib consolidates
+-- checking these headers.
+handleShib
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       , MonadError ServantErr m
+       )
+    => (UserID -> Scope -> a -> m b)
+    -> Maybe UserID
+    -> Maybe Scope
+    -> a
+    -> m b
+handleShib f (Just u) (Just s) = f u s
+handleShib _ _        _        = const $ throwError err500
+
+authorizeEndpoint
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       , MonadError ServantErr m
+       )
+    => Pool Connection
+    -> Maybe UserID
+    -> Maybe ResponseTypeCode
+    -> Maybe ClientID
+    -> Maybe URI
+    -> Maybe Scope
+    -> Maybe Text
+    -> m Html
+authorizeEndpoint pool u' rt c_id' redirect' sc' st = do
+    u_id <- case u' of
+        Nothing -> error "NOOOO"
+        Just u_id -> return u_id
+    case rt of
+        Nothing -> error "NOOOO"
+        Just ResponseTypeCode -> return ()
+    client_details <- case c_id' of
+        Nothing -> error "NOOOO"
+        Just c_id -> do
+            res <- runReaderT (lookupClient c_id) pool
+            case res of
+                Nothing -> error "NOOOO"
+                Just client_details@ClientDetails{..} -> do
+                    case redirect' of
+                        Nothing -> return ()
+                        Just uri -> when (uri /= clientRedirectURI) $ error "NOOOO"
+                    return client_details
+    sc <- case sc' of
+        Nothing -> error "NOOOO"
+        Just sc -> return sc
+    return $ renderAuthorizePage u_id client_details sc st
 
 serverDisplayToken
     :: ( MonadIO m
@@ -119,15 +204,15 @@ serverDisplayToken
        , MonadError ServantErr m
        )
     => Pool Connection
-    -> Maybe UserID
+    -> UserID
+    -> Scope
     -> TokenID
     -> m Html
-serverDisplayToken _    Nothing  _ = throwError err403
-serverDisplayToken pool (Just u) t = do
+serverDisplayToken pool u s t = do
     res <- runReaderT (displayToken u t) pool
     case res of
         Nothing -> throwError err404
-        Just x -> return $ renderTokensPage 1 (Page 1) ([x], 1)
+        Just x -> return $ renderTokensPage s 1 (Page 1) ([x], 1)
 
 serverListTokens
     :: ( MonadIO m
@@ -136,30 +221,60 @@ serverListTokens
        )
     => Pool Connection
     -> Int
-    -> Maybe UserID
+    -> UserID
+    -> Scope
     -> Maybe Page
     -> m Html
-serverListTokens _    _    Nothing  _ = throwError err403
-serverListTokens pool size (Just u) p = do
+serverListTokens pool size u s p = do
     let p' = fromMaybe (Page 1) p
     res <- runReaderT (listTokens size u p') pool
-    return $ renderTokensPage size p' res
+    return $ renderTokensPage s size p' res
 
-serverDeleteToken
+serverPostToken
     :: ( MonadIO m
        , MonadBaseControl IO m
        , MonadError ServantErr m
        )
     => Pool Connection
     -> Maybe UserID
-    -> DeleteRequest
+    -> Maybe Scope
+    -> TokenRequest
+    -> Maybe TokenID
+    -> m Html
+serverPostToken pool u s DeleteRequest      (Just t) = handleShib (serverRevokeToken pool) u s t
+serverPostToken pool u s DeleteRequest      Nothing  = throwError err400
+serverPostToken pool u s (CreateRequest rs) _        = handleShib (serverCreateToken pool) u s rs
+
+serverRevokeToken
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       , MonadError ServantErr m
+       )
+    => Pool Connection
+    -> UserID
+    -> Scope
     -> TokenID
     -> m Html
-serverDeleteToken _    Nothing  _ _ = error "Auth failed remove yourself please"
-serverDeleteToken pool (Just u) _ t = do
+serverRevokeToken pool u _ t = do
     runReaderT (revokeToken u t) pool
---    let redirectLink = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy ListTokens)
     throwError err302{errHeaders = [(hLocation, "/tokens")]}     --Redirect to tokens page
+
+serverCreateToken
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       , MonadError ServantErr m
+       )
+    => Pool Connection
+    -> UserID
+    -> Scope
+    -> Scope
+    -> m Html
+serverCreateToken pool user_id userScope reqScope = do
+    if compatibleScope reqScope userScope then do
+        TokenID t <- runReaderT (createToken user_id reqScope) pool
+        throwError err302{errHeaders = [(hLocation, "/tokens?token_id=" <> T.encodeUtf8 t)]} --Redirect to tokens page
+    else throwError err403
+
 
 -- * OAuth2 Server
 --
