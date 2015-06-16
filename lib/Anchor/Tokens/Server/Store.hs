@@ -74,6 +74,41 @@ lookupClient client_id = do
             xs  -> let msg = "Should only be able to retrieve at most one client, retrieved: " <> show xs
                    in liftIO (errorM logName msg) >> fail msg
 
+createCode
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       , MonadReader (Pool Connection) m
+       )
+    => UserID
+    -> ClientID
+    -> Maybe URI
+    -> Scope
+    -> Maybe ClientState
+    -> m RequestCode
+createCode u_id c_id redirect sc st = do
+    error "NOOOO"
+
+activateCode
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       , MonadReader (Pool Connection) m
+       )
+    => Code
+    -> UserID
+    -> m (Maybe URI)
+activateCode code u_id = do
+    error "NOOOO"
+
+lookupCode
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       , MonadReader (Pool Connection) m
+       )
+    => Code
+    -> m (Maybe RequestCodeDetails)
+lookupCode code = do
+    error "NOOOO"
+
 -- | Record a new token grant in the database.
 saveToken
     :: ( MonadIO m

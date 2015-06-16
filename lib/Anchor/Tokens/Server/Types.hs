@@ -1,4 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings          #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -13,13 +14,14 @@ import           Data.ByteString                      (ByteString)
 import           Data.Pool
 import           Data.Text                            (Text)
 import qualified Data.Text.Encoding                   as T
+import           Data.Time.Clock
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.FromField
 import           Database.PostgreSQL.Simple.ToField
 import           Network.Wai.Handler.Warp             hiding (Connection)
 import           Pipes.Concurrent
 import           Servant.API                          hiding (URI)
-import           Text.Blaze.Html5
+import           Text.Blaze.Html5                     hiding (code)
 import           URI.ByteString
 
 import           Network.OAuth2.Server
@@ -97,3 +99,16 @@ data ClientDetails = ClientDetails
     , clientAppUrl       :: URI
     }
   deriving (Eq, Show)
+
+data RequestCodeDetails = RequestCodeDetails
+    { requestCode          :: RequestCode
+    , requestCodeExpires   :: UTCTime
+    , requestCodeActivated :: Bool
+    }
+
+instance FromFormUrlEncoded Code where
+    fromFormUrlEncoded xs = case lookup "code" xs of
+        Nothing -> Left "No code"
+        Just x -> case T.encodeUtf8 x ^? code of
+            Nothing -> Left "Invalid Code Syntax"
+            Just c -> Right c

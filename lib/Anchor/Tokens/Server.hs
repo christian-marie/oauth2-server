@@ -7,13 +7,13 @@ module Anchor.Tokens.Server (
     module X,
     ) where
 
-import           Control.Concurrent.Async
 import           Control.Concurrent
+import           Control.Concurrent.Async
 import           Data.Pool
 import qualified Data.Streaming.Network             as N
 import           Database.PostgreSQL.Simple
-import           Network.Wai.Handler.Warp           hiding (Connection)
 import qualified Network.Socket                     as S
+import           Network.Wai.Handler.Warp           hiding (Connection)
 import           Pipes.Concurrent
 import           Servant.Server
 import           System.Log.Logger
