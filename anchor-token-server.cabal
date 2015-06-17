@@ -94,6 +94,7 @@ test-suite             test-tokenserver
       base
     , QuickCheck
     , anchor-token-server
+    , hspec 
 
 test-suite             test-tokenstore
   type:                exitcode-stdio-1.0
