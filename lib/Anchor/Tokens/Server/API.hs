@@ -10,10 +10,14 @@ module Anchor.Tokens.Server.API where
 
 import           Blaze.ByteString.Builder    (toByteString)
 import           Control.Lens
+import           Control.Monad
 import           Control.Monad.Error.Class
 import           Control.Monad.IO.Class
 import           Control.Monad.Trans.Control
 import           Control.Monad.Trans.Reader
+import           Data.ByteString             (ByteString)
+import           Data.Time.Clock
+import qualified Data.ByteString.Lazy.Char8  as BSL
 import           Data.Either
 import           Data.Maybe
 import           Data.Monoid
@@ -28,16 +32,20 @@ import           Pipes.Concurrent
 import           Servant.API                 hiding (URI)
 import           Servant.HTML.Blaze
 import           Servant.Server
+import           System.Log.Logger
 import           URI.ByteString
 import           Text.Blaze.Html5            hiding (map, code,rt)
 
 import           Network.OAuth2.Server
 
-import           Anchor.Tokens.Server.Store
+import           Anchor.Tokens.Server.Store hiding (logName)
 import           Anchor.Tokens.Server.Types
 import           Anchor.Tokens.Server.UI
 
 import Debug.Trace
+
+logName :: String
+logName = "Anchor.Tokens.Server.API"
 
 type OAuthUserHeader = "Identity-OAuthUser"
 type OAuthUserScopeHeader = "Identity-OAuthUserScopes"
@@ -148,9 +156,9 @@ anchorOAuth2API :: Proxy AnchorOAuth2API
 anchorOAuth2API = Proxy
 
 server :: ServerState -> Server AnchorOAuth2API
-server ServerState{..}
+server state@ServerState{..}
        = tokenEndpoint serverOAuth2Server
-    :<|> error ""
+    :<|> verifyEndpoint state
     :<|> authorizeEndpoint serverPGConnPool
     :<|> authorizePost serverPGConnPool
     :<|> handleShib (serverListTokens serverPGConnPool (optUIPageSize serverOpts))
@@ -225,6 +233,58 @@ authorizePost pool u code' = do
         Just uri -> do
             let uri' = uri & uriQueryL . queryPairsL %~ (<> [("code", code' ^.re code)])
             throwError err302{ errHeaders = [(hLocation, toByteString $ serializeURI uri')] }
+
+-- | Verify a token and return information about the principal and grant.
+--
+--   Restricted to authorized clients.
+verifyEndpoint
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       , MonadError ServantErr m
+       )
+    => ServerState
+    -> Maybe AuthHeader
+    -> Token
+    -> m (Headers '[Header "Cache-Control" NoCache] AccessResponse)
+verifyEndpoint ServerState{..} Nothing _token = throwError
+    err401 { errHeaders = toHeaders challenge
+           , errBody = "You must login to validate a token."
+           }
+  where
+    challenge = BasicAuth $ Realm (optVerifyRealm serverOpts)
+verifyEndpoint ServerState{..} (Just auth) token' = do
+    -- 1. Check client authentication.
+    client_id' <- runStore serverPGConnPool $ checkClientAuth auth
+    client_id <- case client_id' of
+        Left e -> do
+            logE $ "Error verifying token: " <> show e
+            throwError err500 { errBody = "Error checking client credentials." }
+        Right Nothing -> do
+            logD $ "Invalid client credentials: " <> show auth
+            throwError denied
+        Right (Just cid) -> do
+            return cid
+    -- 2. Load token information.
+    token <- runStore serverPGConnPool $ (loadToken token')
+    case token of
+        Left e -> do
+            logE $ "Error verifying token: " <> show e
+            throwError denied
+        Right Nothing -> do
+            logD $ "Cannot verify token: failed to lookup " <> show token'
+            throwError denied
+        Right (Just details) -> do
+            -- 3. Check client authorization.
+            when (Just client_id /= tokenDetailsClientID details) $ do
+                logD $ "Client " <> show client_id <> " attempted to verify someone elses token: " <> show token'
+                throwError denied
+            -- 4. Send the access response.
+            now <- liftIO getCurrentTime
+            return . addHeader NoCache $ grantResponse now details (Just token')
+  where
+    denied = err404 { errBody = "This is not a valid token for you." }
+    logD = liftIO . debugM (logName <> ".verifyEndpoint")
+    logE = liftIO . errorM (logName <> ".verifyEndpoint")
 
 serverDisplayToken
     :: ( MonadIO m
