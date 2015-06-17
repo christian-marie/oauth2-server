@@ -13,6 +13,13 @@
 module Network.OAuth2.Server.Configuration where
 
 import Network.OAuth2.Server.Types
+    ( TokenGrant,
+      TokenDetails,
+      Token,
+      Scope,
+      ClientID,
+      AuthHeader,
+      AccessRequest )
 
 -- | The configuration for an OAuth2 server.
 data OAuth2Server m = OAuth2Server

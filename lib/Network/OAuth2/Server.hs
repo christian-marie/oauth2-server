@@ -14,14 +14,23 @@ module Network.OAuth2.Server (
     NoCache(NoCache),
 ) where
 
-import Control.Monad.Error.Class
-import Control.Monad.IO.Class
-import Control.Monad.Trans.Except
-import Data.Aeson
-import Data.ByteString.Conversion
-import Data.Time.Clock
+import Control.Monad.Error.Class ( MonadError(throwError) )
+import Control.Monad.IO.Class ( MonadIO(liftIO) )
+import Control.Monad.Trans.Except ( ExceptT, runExceptT )
+import Data.Aeson ( encode )
+import Data.ByteString.Conversion ( ToByteString(..) )
+import Data.Time.Clock ( UTCTime, addUTCTime, getCurrentTime )
 import Servant.API
+    ( type (:>),
+      Headers,
+      AddHeader(addHeader),
+      ReqBody,
+      Post,
+      Header,
+      JSON,
+      FormUrlEncoded )
 import Servant.Server
+    ( ServantErr(errBody, errHeaders), Server, err400 )
 
 import Network.OAuth2.Server.Configuration as X
 import Network.OAuth2.Server.Types as X
