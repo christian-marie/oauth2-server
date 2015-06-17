@@ -113,8 +113,14 @@ activateCode
     => Code
     -> UserID
     -> m (Maybe URI)
-activateCode code u_id = do
-    error "NOOOO"
+activateCode code user_id = do
+    pool <- ask
+    withResource pool $ \conn -> do
+        res <- liftIO $ query conn "UPDATE request_codes SET authorized = TRUE WHERE code = ? AND user_id = ? RETURNING redirect_url" (code, user_id)
+        case res of
+            [] -> return Nothing
+            [Only uri] -> return uri
+            _ -> error "WOT"
 
 lookupCode
     :: ( MonadIO m
@@ -331,6 +337,9 @@ instance FromField Code where
         case x ^? code of
             Nothing    -> returnError ConversionFailed f ""
             Just c -> pure c
+
+instance ToField Code where
+    toField x = toField $ x ^.re code
 
 -- | Get a PostgreSQL field using a parsing function.
 --
