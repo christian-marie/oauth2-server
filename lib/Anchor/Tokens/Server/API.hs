@@ -31,16 +31,20 @@ import           Pipes.Concurrent
 import           Servant.API                 hiding (URI)
 import           Servant.HTML.Blaze
 import           Servant.Server
+import           System.Log.Logger
 import           URI.ByteString
 import           Text.Blaze.Html5            hiding (map, code,rt)
 
 import           Network.OAuth2.Server
 
-import           Anchor.Tokens.Server.Store
+import           Anchor.Tokens.Server.Store hiding (logName)
 import           Anchor.Tokens.Server.Types
 import           Anchor.Tokens.Server.UI
 
 import Debug.Trace
+
+logName :: String
+logName = "Anchor.Tokens.Server.API"
 
 type OAuthUserHeader = "Identity-OAuthUser"
 type OAuthUserScopeHeader = "Identity-OAuthUserScopes"
@@ -253,16 +257,24 @@ verifyEndpoint ServerState{..} (Just auth) token' = do
     -- 2. Load token information.
     token <- runStore serverPGConnPool $ (loadToken token')
     case token of
-        Left e        -> throwError denied
-        Right Nothing -> throwError denied 
+        Left e -> do
+            logE $ "Encountered error verifying token: " <> show e
+            throwError denied
+        Right Nothing -> do
+            logD $ "Cannot verify token: failed to lookup " <> show token'
+            throwError denied
         Right (Just details) -> do
             -- 3. Check client authorization.
-            when (client_id /= tokenDetailsClientID details) $ throwError denied
+            when (client_id /= tokenDetailsClientID details) $ do
+                logD $ "Client " <> show client_id <> " attempted to verify someone elses token: " <> show token'
+                throwError denied
             -- 4. Send the access response.
             now <- liftIO getCurrentTime
             return . addHeader NoCache $ grantResponse now details (Just token')
   where
     denied = err404 { errBody = "This is not a valid token for you." }
+    logD = liftIO . debugM (logName <> ".verifyEndpoint")
+    logE = liftIO . errorM (logName <> ".verifyEndpoint")
 
 serverDisplayToken
     :: ( MonadIO m
