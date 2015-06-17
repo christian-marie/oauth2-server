@@ -49,31 +49,53 @@ module Network.OAuth2.Server.Types (
   vschar,
 ) where
 
-import Blaze.ByteString.Builder
+import Blaze.ByteString.Builder ( toByteString )
 import Control.Applicative
-import Control.Lens.Fold
-import Control.Lens.Operators hiding ((.=))
-import Control.Lens.Prism
-import Control.Lens.Review
-import Control.Monad
+    ( Applicative((<*), (<*>), pure), (<$>) )
+import Control.Lens.Fold ( (^?) )
+import Control.Lens.Operators ( (^.) )
+import Control.Lens.Prism ( Prism', prism' )
+import Control.Lens.Review ( review, re )
+import Control.Monad ( guard )
 import Data.Aeson
+    ( Value(String),
+      ToJSON(..),
+      FromJSON(..),
+      object,
+      withText,
+      withObject,
+      (.=),
+      (.:?),
+      (.:) )
 import Data.Attoparsec.ByteString
-import Data.ByteString (ByteString)
-import qualified Data.ByteString as B
+    ( Parser, endOfInput, sepBy1, word8, takeWhile1, parseOnly )
+import Data.ByteString ( ByteString )
+import qualified Data.ByteString as B ( null, intercalate, all )
 import qualified Data.ByteString.Lazy as BSL
-import Data.CaseInsensitive
-import Data.Char
-import Data.Monoid
-import Data.Set (Set)
+    ( toStrict, fromStrict )
+import Data.CaseInsensitive ( mk )
+import Data.Char ( ord )
+import Data.Monoid ( (<>) )
+import Data.Set ( Set )
 import qualified Data.Set as S
-import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
-import Data.Time.Clock
-import Data.Typeable
-import Data.Word
-import Servant.API hiding (URI)
+    ( toList, null, fromList, difference )
+import Data.Text ( Text )
+import qualified Data.Text as T ( unpack, all )
+import qualified Data.Text.Encoding as T ( encodeUtf8, decodeUtf8 )
+import Data.Time.Clock ( UTCTime, diffUTCTime )
+import Data.Typeable ( Typeable )
+import Data.Word ( Word8 )
+import Servant.API
+    ( ToText(..),
+      FromText(..),
+      ToFormUrlEncoded(..),
+      OctetStream,
+      MimeUnrender(..),
+      MimeRender(..),
+      FromFormUrlEncoded(..) )
 import URI.ByteString
+    ( URI, strictURIParserOptions, serializeURI, parseURI )
+
 
 vschar :: Word8 -> Bool
 vschar c = c>=0x20 && c<=0x7E
