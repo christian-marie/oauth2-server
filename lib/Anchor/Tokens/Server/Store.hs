@@ -250,13 +250,13 @@ checkCredentials (Just auth) req = do
         RequestRefreshToken tok scope ->
             checkRefreshToken auth tok scope
   where
-    checkClientAuthCode _ Nothing _ = throwError $ OAuth2Error InvalidRequest
+    checkClientAuthCode _ _ Nothing _ = throwError $ OAuth2Error InvalidRequest
                                                                (preview errorDescription "No redirect URI supplied.")
                                                                Nothing
-    checkClientAuthCode _ _ Nothing = throwError $ OAuth2Error InvalidRequest
+    checkClientAuthCode _ _ _ Nothing = throwError $ OAuth2Error InvalidRequest
                                                                (preview errorDescription "No client ID supplied.")
                                                                Nothing
-    checkClientAuthCode auth (Just _) (Just purported_client) = do
+    checkClientAuthCode auth _ (Just _) (Just purported_client) = do
         client_id <- checkClientAuth auth
         case client_id of
             Nothing -> throwError $ OAuth2Error UnauthorizedClient
@@ -265,8 +265,9 @@ checkCredentials (Just auth) req = do
             Just client_id' -> do
                 when (client_id' /= purported_client) $ throwError $
                     OAuth2Error UnauthorizedClient
-                                (preview errorDescription "Invalid client credentials"
+                                (preview errorDescription "Invalid client credentials")
                                 Nothing
+                -- fixme: check code
                 fail "I don't know what scope I'm supposed to return here"
 
 
@@ -277,7 +278,11 @@ checkCredentials (Just auth) req = do
                                                                 Nothing
     checkClientCredentials auth (Just scope) = do
         client_id <- checkClientAuth auth
-        return (client_id, scope)
+        case client_id of
+            Nothing -> throwError $ OAuth2Error UnauthorizedClient
+                                                (preview errorDescription "Invalid client credentials")
+                                                Nothing
+            Just client_id' -> return (client_id, scope)
 
     -- Verify client credentials and scope, and that the request token is
     -- valid.
