@@ -171,7 +171,7 @@ handleShib
     -> a
     -> m b
 handleShib f (Just u) (Just s) = f u s
-handleShib _ _        _        = const $ throwError err500
+handleShib _ _        _        = const $ throwError err500{errBody = "We're having some trouble with our internal auth systems, please try again later =("}
 
 authorizeEndpoint
     :: ( MonadIO m
@@ -239,7 +239,7 @@ serverDisplayToken
 serverDisplayToken pool u s t = do
     res <- runReaderT (displayToken u t) pool
     case res of
-        Nothing -> throwError err404
+        Nothing -> throwError err404{errBody = "There's nothing here! =("}
         Just x -> return $ renderTokensPage s 1 (Page 1) ([x], 1)
 
 serverListTokens
@@ -270,7 +270,7 @@ serverPostToken
     -> Maybe TokenID
     -> m Html
 serverPostToken pool u s DeleteRequest      (Just t) = handleShib (serverRevokeToken pool) u s t
-serverPostToken pool u s DeleteRequest      Nothing  = throwError err400
+serverPostToken pool u s DeleteRequest      Nothing  = throwError err400{errBody = "Malformed delete request"}
 serverPostToken pool u s (CreateRequest rs) _        = handleShib (serverCreateToken pool) u s rs
 
 serverRevokeToken
@@ -301,7 +301,7 @@ serverCreateToken pool user_id userScope reqScope = do
     if compatibleScope reqScope userScope then do
         TokenID t <- runReaderT (createToken user_id reqScope) pool
         throwError err302{errHeaders = [(hLocation, "/tokens?token_id=" <> T.encodeUtf8 t)]} --Redirect to tokens page
-    else throwError err403
+    else throwError err403{errBody = "Invalid requested token scope"}
 
 
 -- * OAuth2 Server
