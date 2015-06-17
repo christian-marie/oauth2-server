@@ -23,6 +23,7 @@ import           Blaze.ByteString.Builder                   (toByteString)
 import           Control.Applicative
 import           Control.Lens                               (preview)
 import           Control.Lens.Operators
+import           Control.Lens.Prism
 import           Control.Lens.Review
 import           Control.Monad.Base
 import           Control.Monad.Error.Class
@@ -30,11 +31,18 @@ import           Control.Monad.IO.Class
 import           Control.Monad.Reader
 import           Control.Monad.Trans.Control
 import           Control.Monad.Trans.Except
+import           Crypto.Scrypt
 import           Data.ByteString                            (ByteString)
+import qualified Data.ByteString                            as BS
+import qualified Data.ByteString.Char8                      as BC
+import qualified Data.ByteString.Base64                     as B64
+import           Data.Char
 import           Data.Monoid
 import           Data.Pool
 import qualified Data.Set                                   as S
 import           Data.Text                                  (Text)
+import           Data.Text.Encoding
+import           Data.Text.Lens
 import           Data.Typeable
 import qualified Data.Vector                                as V
 import           Database.PostgreSQL.Simple
@@ -147,8 +155,73 @@ loadToken
     -> m (Maybe TokenDetails)
 loadToken tok = do
     liftIO . debugM logName $ "Loading token: " <> show tok
-    -- SELECT * FROM tokens WHERE (token = ?) AND (type = ?)
-    fail "Waaah"
+    pool  <- ask
+    tokens :: [TokenDetails] <- withResource pool $ \conn -> do
+        liftIO $ query conn "SELECT token_type, token, expires, user_id, client_id, scope FROM tokens WHERE (token = ?)" (Only tok)
+    case tokens of
+        [t] -> return $ Just t
+        []  -> do
+            liftIO $ debugM logName $ "No tokens found matching " <> show tok
+            return Nothing
+        _   -> do
+            liftIO $ errorM logName $ "Consistency error: multiple tokens found matching " <> show tok
+            return Nothing
+
+authDetails :: Prism' AuthHeader (ClientID, Password)
+authDetails =
+    prism' fromPair toPair
+  where
+    toPair AuthHeader{..} = case authScheme of
+        "Basic" -> let param = B64.decode authParam in
+            case BS.split (fromIntegral (ord ':')) authParam of
+                [client_id, secret] -> do
+                    client_id' <- preview clientID client_id
+                    secret' <- preview password $ decodeUtf8 secret
+                    return (client_id', secret')
+                _                   -> Nothing
+        _       -> Nothing
+
+    fromPair (client_id, secret) =
+        AuthHeader "Basic" $ (review clientID client_id) <> " " <> encodeUtf8 (review password secret)
+
+-- | Given an AuthHeader sent by a client, verify that it authenticates.
+--   If it does, return the authenticated ClientID; otherwise, Nothing.
+checkClientAuth
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       , MonadError OAuth2Error m
+       , MonadReader (Pool Connection) m
+       )
+    => AuthHeader
+    -> m (Maybe ClientID)
+checkClientAuth auth = do
+    case preview authDetails auth of
+        Nothing -> do
+            liftIO . debugM logName $ "Got an invalid auth header."
+            throwError $ OAuth2Error InvalidRequest
+                                     (preview errorDescription "Invalid auth header provided.")
+                                     Nothing
+        Just (client_id, secret) -> do
+            pool <- ask
+            hashes :: [EncryptedPass] <- withResource pool $ \conn ->
+                liftIO $ query conn "SELECT client_secret FROM clients WHERE (client_id = ?)" (client_id)
+            case hashes of
+                [hash]   -> return $ verifyClientSecret client_id secret hash
+                []       -> do
+                    liftIO . debugM logName $ "Got a request for invalid client_id " <> show client_id
+                    throwError $ OAuth2Error InvalidClient
+                                             (preview errorDescription "No such client.")
+                                             Nothing
+                _        -> do
+                    liftIO . errorM logName $ "Consistency error: multiple clients with client_id " <> show client_id
+                    fail "Consistency error"
+  where
+    verifyClientSecret client_id secret hash =
+        let pass = Pass . encodeUtf8 $ review password secret in
+        -- Verify with default scrypt params.
+        if verifyPass' pass hash
+            then (Just client_id)
+            else Nothing
 
 -- | Check the supplied credentials against the database.
 checkCredentials
@@ -160,11 +233,24 @@ checkCredentials
     => Maybe AuthHeader
     -> AccessRequest
     -> m (Maybe ClientID, Scope)
-checkCredentials _auth _req = do
-    pool <- ask
-    withResource pool $ \_conn -> do
-        liftIO . debugM logName $ "Checking some credentials"
-        fail "Nope"
+checkCredentials Nothing _ = do
+    liftIO . debugM logName $ "Checking credentials but none provided."
+    throwError $  OAuth2Error InvalidRequest
+                              (preview errorDescription "No credentials provided")
+                              Nothing
+checkCredentials (Just auth) req = do
+    liftIO . debugM logName $ "Checking some credentials"
+    case req of
+        RequestAuthorizationCode code uri client -> fail "shit"
+        RequestPassword username password scope -> fail "shit"
+        RequestClientCredentials scope -> fail "shit"
+        RequestRefreshToken tok scope -> checkRefreshToken auth tok scope
+  where
+    -- Verify client credentials and scope, and that the request token is
+    -- valid.
+    checkRefreshToken auth tok scope = do
+      client_id <- checkClientAuth auth
+      fail "no"
 
 -- * User Interface operations
 
@@ -242,6 +328,14 @@ revokeToken user_id token_id = do
 
 -- * Support Code
 
+instance FromField EncryptedPass where
+    fromField f bs = do
+        p <- fromField f bs
+        return $ EncryptedPass p
+
+instance FromRow EncryptedPass where
+    fromRow = field
+
 -- $ Here we implement support for, e.g., sorting oauth2-server types in
 -- PostgreSQL databases.
 --
@@ -254,6 +348,9 @@ instance FromField ClientID where
 
 instance ToField ClientID where
     toField c_id = toField $ c_id ^.re clientID
+
+instance ToRow ClientID where
+    toRow client_id = toRow (Only (review clientID client_id))
 
 instance FromField ScopeToken where
     fromField f bs = do
@@ -268,6 +365,9 @@ instance FromField Scope where
         case S.fromList (V.toList tokenVector) ^? scope of
             Nothing    -> returnError ConversionFailed f ""
             Just scope -> pure scope
+
+instance ToField Token where
+    toField tok = toField $ review token tok
 
 instance ToField Scope where
     toField s = toField $ V.fromList $ fmap (review scopeToken) $ S.toList $ s ^.re scope

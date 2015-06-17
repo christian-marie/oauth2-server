@@ -43,6 +43,8 @@ library
     , containers
     , ekg
     , ekg-core
+    , scrypt
+    , base64-bytestring
     , file-embed
     , hslogger
     , http-types
