@@ -254,19 +254,28 @@ verifyEndpoint ServerState{..} Nothing _token = throwError
     challenge = BasicAuth $ Realm (optVerifyRealm serverOpts)
 verifyEndpoint ServerState{..} (Just auth) token' = do
     -- 1. Check client authentication.
-    let client_id = preview clientID "LOL"
+    client_id' <- runStore serverPGConnPool $ checkClientAuth auth
+    client_id <- case client_id' of
+        Left e -> do
+            logE $ "Error verifying token: " <> show e
+            throwError err500 { errBody = "Error checking client credentials." }
+        Right Nothing -> do
+            logD $ "Invalid client credentials: " <> show auth
+            throwError denied
+        Right (Just cid) -> do
+            return cid
     -- 2. Load token information.
     token <- runStore serverPGConnPool $ (loadToken token')
     case token of
         Left e -> do
-            logE $ "Encountered error verifying token: " <> show e
+            logE $ "Error verifying token: " <> show e
             throwError denied
         Right Nothing -> do
             logD $ "Cannot verify token: failed to lookup " <> show token'
             throwError denied
         Right (Just details) -> do
             -- 3. Check client authorization.
-            when (client_id /= tokenDetailsClientID details) $ do
+            when (Just client_id /= tokenDetailsClientID details) $ do
                 logD $ "Client " <> show client_id <> " attempted to verify someone elses token: " <> show token'
                 throwError denied
             -- 4. Send the access response.
