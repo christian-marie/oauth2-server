@@ -122,16 +122,6 @@ activateCode code user_id = do
             [Only uri] -> return uri
             _ -> error "WOT"
 
-lookupCode
-    :: ( MonadIO m
-       , MonadBaseControl IO m
-       , MonadReader (Pool Connection) m
-       )
-    => Code
-    -> m (Maybe RequestCodeDetails)
-lookupCode code = do
-    error "NOOOO"
-
 -- | Record a new token grant in the database.
 saveToken
     :: ( MonadIO m
