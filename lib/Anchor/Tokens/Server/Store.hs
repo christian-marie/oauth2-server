@@ -243,14 +243,48 @@ checkCredentials (Just auth) req = do
     case req of
         RequestAuthorizationCode code uri client -> fail "shit"
         RequestPassword username password scope -> fail "shit"
-        RequestClientCredentials scope -> fail "shit"
+        RequestClientCredentials scope -> checkClientCredentials auth scope
         RequestRefreshToken tok scope -> checkRefreshToken auth tok scope
   where
     -- Verify client credentials and scope, and that the request token is
     -- valid.
-    checkRefreshToken auth tok scope = do
-      client_id <- checkClientAuth auth
-      fail "no"
+    checkRefreshToken _ _ Nothing     = throwError $ OAuth2Error InvalidRequest
+                                                                 (preview errorDescription "No scope supplied.")
+                                                                 Nothing
+    checkRefreshToken auth tok (Just scope) = do
+        details <- loadToken tok
+        case details of
+            Nothing -> do
+                liftIO . debugM logName $ "Got passed invalid token " <> show tok
+                throwError $ OAuth2Error InvalidRequest
+                                         (preview errorDescription "Invalid token")
+                                         Nothing
+            Just details' -> do
+                when (not (compatibleScope scope (tokenDetailsScope details'))) $ do
+                    liftIO . debugM logName $
+                        "Incompatible scopes " <>
+                        show scope <>
+                        " and " <>
+                        show (tokenDetailsScope details') <>
+                        ", refusing to verify"
+                    throwError $ OAuth2Error InvalidScope
+                                             (preview errorDescription "Invalid scope")
+                                             Nothing
+                client_id <- checkClientAuth auth
+                case client_id of
+                    Nothing -> throwError $ OAuth2Error UnauthorizedClient
+                                                        (preview errorDescription "Invalid client credentials")
+                                                        Nothing
+                    Just client_id' -> return (Just client_id', scope)
+
+    -- We can't do anything sensible to verify the scope here, so just
+    -- ignore it.
+    checkClientCredentials _ Nothing = throwError $ OAuth2Error InvalidRequest
+                                                                (preview errorDescription "No scope supplied.")
+                                                                Nothing
+    checkClientCredentials auth (Just scope) = do
+        client_id <- checkClientAuth auth
+        return (client_id, scope)
 
 -- * User Interface operations
 
