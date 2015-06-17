@@ -19,6 +19,7 @@
 -- | Description: OAuth2 token storage using PostgreSQL.
 module Anchor.Tokens.Server.Store where
 
+import           Blaze.ByteString.Builder                   (toByteString)
 import           Control.Applicative
 import           Control.Lens                               (preview)
 import           Control.Lens.Operators
@@ -85,8 +86,24 @@ createCode
     -> Scope
     -> Maybe ClientState
     -> m RequestCode
-createCode u_id c_id redirect sc st = do
-    error "NOOOO"
+createCode user_id client_id redirect sc requestCodeState = do
+    pool <- ask
+    withResource pool $ \conn -> do
+        res <- liftIO $ query conn "SELECT redirect_url FROM clients WHERE (client_id = ?)" (Only client_id)
+        requestCodeRedirectURI <- case res of
+            [] -> error "NOOOO"
+            [Only requestCodeRedirectURI] -> case redirect of
+                Nothing -> return requestCodeRedirectURI
+                Just redirect_url
+                    | redirect_url == requestCodeRedirectURI ->
+                          return requestCodeRedirectURI
+                    | otherwise -> error "NOOOO"
+            _ -> error "WOT"
+        [(requestCodeCode, requestCodeExpires)] <-
+            liftIO $ query conn "INSERT INTO request_codes (client_id, user_id, redirect_url, scope, state) VALUES (?,?,?,?) RETURNING code, expires" (client_id, user_id, requestCodeRedirectURI, sc, requestCodeState)
+        let requestCodeClientID = client_id
+            requestCodeScope = Just sc
+        return RequestCode{..}
 
 activateCode
     :: ( MonadIO m
@@ -256,6 +273,9 @@ instance FromField Scope where
             Nothing    -> returnError ConversionFailed f ""
             Just scope -> pure scope
 
+instance ToField Scope where
+    toField s = toField $ V.fromList $ fmap (review scopeToken) $ S.toList $ s ^.re scope
+
 instance ToField TokenType where
     toField Bearer = toField ("bearer" :: Text)
     toField Refresh = toField ("refresh" :: Text)
@@ -290,6 +310,9 @@ instance FromField URI where
             Left e -> returnError ConversionFailed f (show e)
             Right uri -> return uri
 
+instance ToField URI where
+    toField x = toField $ toByteString $ serializeURI x
+
 instance FromRow ClientDetails where
     fromRow = ClientDetails <$> field
                             <*> field
@@ -298,6 +321,16 @@ instance FromRow ClientDetails where
                             <*> field
                             <*> field
                             <*> field
+
+instance ToField ClientState where
+    toField x = toField $ x ^.re clientState
+
+instance FromField Code where
+    fromField f bs = do
+        x <- fromField f bs
+        case x ^? code of
+            Nothing    -> returnError ConversionFailed f ""
+            Just c -> pure c
 
 -- | Get a PostgreSQL field using a parsing function.
 --
