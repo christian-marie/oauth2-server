@@ -109,7 +109,7 @@ instance Show ScopeToken where
 instance Read ScopeToken where
     readsPrec n s = [ (x,rest) | (b,rest) <- readsPrec n s, Just x <- [b ^? scopeToken]]
 
--- | A scope is a nonemty set of `ScopeToken`s
+-- | A scope is a non-empty set of `ScopeToken`s
 newtype Scope = Scope { unScope :: Set ScopeToken }
   deriving (Eq, Read, Show, Typeable)
 
