@@ -19,7 +19,7 @@ import           Servant.Server
 import           System.Log.Logger
 import qualified System.Remote.Monitoring           as EKG
 
-import           Anchor.Tokens.Server.API           as X
+import           Anchor.Tokens.Server.API           as X hiding (logName)
 import           Anchor.Tokens.Server.Configuration as X
 import           Anchor.Tokens.Server.Statistics    as X
 import           Anchor.Tokens.Server.Types         as X

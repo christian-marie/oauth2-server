@@ -21,6 +21,7 @@ defaultServerOptions =
         optServiceHost = "*"
         optServicePort = 8080
         optUIPageSize = 10
+        optVerifyRealm = "verify-token"
     in ServerOptions{..}
 
 instance Configured HostPreference where
@@ -34,6 +35,7 @@ loadOptions conf = do
     optServiceHost <- ldef optServiceHost "api.host"
     optServicePort <- ldef optServicePort "api.port"
     optUIPageSize <- ldef optUIPageSize "ui.page_size"
+    optVerifyRealm <- ldef optVerifyRealm "api.verify_realm"
     return ServerOptions{..}
   where
     ldef f k = lookupDefault (f defaultServerOptions) conf k
