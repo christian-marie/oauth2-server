@@ -1,16 +1,17 @@
-{-# LANGUAGE OverloadedStrings, RecordWildCards #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards   #-}
 module Main where
 
-import Control.Applicative
-import Control.Concurrent
-import Control.Concurrent.Async
-import Control.Exception
-import Control.Monad
-import Data.Configurator as C
-import System.Environment
-import System.Log.Logger
+import           Control.Applicative
+import           Control.Concurrent
+import           Control.Concurrent.Async
+import           Control.Exception
+import           Control.Monad
+import           Data.Configurator        as C
+import           System.Environment
+import           System.Log.Logger
 
-import Anchor.Tokens.Server
+import           Anchor.Tokens.Server
 
 logName :: String
 logName = "Anchor.Tokens.Server.Store"
