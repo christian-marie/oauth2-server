@@ -14,7 +14,7 @@ import qualified Data.Set                    as S
 import qualified Data.Text.Encoding          as T
 import           Prelude                     hiding (head)
 import           Prelude                     hiding (head)
-import           Text.Blaze.Html5            hiding (div, map)
+import           Text.Blaze.Html5            hiding (div, map, code)
 import           Text.Blaze.Html5.Attributes hiding (form, scope, style, title)
 
 import           Network.OAuth2.Server.Types
@@ -27,10 +27,14 @@ stylesheet = BS.unpack $(embedFile "style.css")
 renderAuthorizePage :: RequestCode -> Html
 renderAuthorizePage req@RequestCode{..} = docTypeHtml $ do
     head $ do
-        title "Such Token"
+        title "Such Authorize"
         style ! type_ "text/css" $ toHtml stylesheet
     body $ do
-        p $ toHtml (show req)
+        h1 "Authorize"
+        h2 $ toHtml (show req)
+        form ! method "POST" ! action "/authorize" $ do
+            br
+            input ! type_ "submit" ! value "YES"
 
 renderTokensPage :: Scope -> Int -> Page -> ([(Maybe ClientID, Scope, Token, TokenID)], Int) -> Html
 renderTokensPage userScope size (Page p) (ts, numTokens) = docTypeHtml $ do
