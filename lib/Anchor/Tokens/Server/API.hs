@@ -14,6 +14,9 @@ import           Control.Monad.Error.Class
 import           Control.Monad.IO.Class
 import           Control.Monad.Trans.Control
 import           Control.Monad.Trans.Reader
+import           Data.ByteString             (ByteString)
+import           Data.Time.Clock
+import qualified Data.ByteString.Lazy.Char8  as BSL
 import           Data.Either
 import           Data.Maybe
 import           Data.Monoid
@@ -150,7 +153,7 @@ anchorOAuth2API = Proxy
 server :: ServerState -> Server AnchorOAuth2API
 server ServerState{..}
        = tokenEndpoint serverOAuth2Server
-    :<|> error ""
+    :<|> verifyEndpoint serverPGConnPool
     :<|> authorizeEndpoint serverPGConnPool
     :<|> authorizePost serverPGConnPool
     :<|> handleShib (serverListTokens serverPGConnPool (optUIPageSize serverOpts))
@@ -225,6 +228,37 @@ authorizePost pool u code' = do
         Just uri -> do
             let uri' = uri & uriQueryL . queryPairsL %~ (<> [("code", code' ^.re code)])
             throwError err302{ errHeaders = [(hLocation, toByteString $ serializeURI uri')] }
+
+-- | Verify a token and return information about the principal and grant.
+--
+--   Restricted to authorized clients.
+verifyEndpoint
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       , MonadError ServantErr m
+       )
+    => Pool Connection
+    -> Maybe AuthHeader
+    -> Token
+    -> m (Headers '[Header "Cache-Control" NoCache] AccessResponse)
+verifyEndpoint pool Nothing _token = throwError
+    err401{ errHeaders = [("WWW-Authenticate", "Basic realm=\"trololololo\"")]
+          }
+verifyEndpoint pool (Just auth) token' = do
+    -- 1. Check client authentication.
+    let client_id = preview clientID "LOL"
+    -- 2. Load token information.
+    token <- runStore pool $ (loadToken token')
+    case token of
+        Left e        -> throwError err500
+        Right Nothing -> throwError err404
+        Right (Just details) -> do
+            -- 3. Check client authorization.
+            when (client_id /= tokenDetailsClientID details) $
+                throwError err500
+            -- 4. Send the access response.
+            now <- liftIO getCurrentTime
+            return . addHeader NoCache $ grantResponse now details (Just token')
 
 serverDisplayToken
     :: ( MonadIO m
