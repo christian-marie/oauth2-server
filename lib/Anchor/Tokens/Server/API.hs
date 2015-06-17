@@ -10,6 +10,7 @@ module Anchor.Tokens.Server.API where
 
 import           Blaze.ByteString.Builder    (toByteString)
 import           Control.Lens
+import           Control.Monad
 import           Control.Monad.Error.Class
 import           Control.Monad.IO.Class
 import           Control.Monad.Trans.Control
