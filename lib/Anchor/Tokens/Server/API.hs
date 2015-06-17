@@ -151,9 +151,9 @@ anchorOAuth2API :: Proxy AnchorOAuth2API
 anchorOAuth2API = Proxy
 
 server :: ServerState -> Server AnchorOAuth2API
-server ServerState{..}
+server state@ServerState{..}
        = tokenEndpoint serverOAuth2Server
-    :<|> verifyEndpoint serverPGConnPool
+    :<|> verifyEndpoint state
     :<|> authorizeEndpoint serverPGConnPool
     :<|> authorizePost serverPGConnPool
     :<|> handleShib (serverListTokens serverPGConnPool (optUIPageSize serverOpts))
@@ -237,28 +237,32 @@ verifyEndpoint
        , MonadBaseControl IO m
        , MonadError ServantErr m
        )
-    => Pool Connection
+    => ServerState
     -> Maybe AuthHeader
     -> Token
     -> m (Headers '[Header "Cache-Control" NoCache] AccessResponse)
-verifyEndpoint pool Nothing _token = throwError
-    err401{ errHeaders = [("WWW-Authenticate", "Basic realm=\"trololololo\"")]
-          }
-verifyEndpoint pool (Just auth) token' = do
+verifyEndpoint ServerState{..} Nothing _token = throwError
+    err401 { errHeaders = toHeaders challenge
+           , errBody = "You must login to validate a token."
+           }
+  where
+    challenge = BasicAuth $ Realm (optVerifyRealm serverOpts)
+verifyEndpoint ServerState{..} (Just auth) token' = do
     -- 1. Check client authentication.
     let client_id = preview clientID "LOL"
     -- 2. Load token information.
-    token <- runStore pool $ (loadToken token')
+    token <- runStore serverPGConnPool $ (loadToken token')
     case token of
-        Left e        -> throwError err500
-        Right Nothing -> throwError err404
+        Left e        -> throwError denied
+        Right Nothing -> throwError denied 
         Right (Just details) -> do
             -- 3. Check client authorization.
-            when (client_id /= tokenDetailsClientID details) $
-                throwError err500
+            when (client_id /= tokenDetailsClientID details) $ throwError denied
             -- 4. Send the access response.
             now <- liftIO getCurrentTime
             return . addHeader NoCache $ grantResponse now details (Just token')
+  where
+    denied = err404 { errBody = "This is not a valid token for you." }
 
 serverDisplayToken
     :: ( MonadIO m
