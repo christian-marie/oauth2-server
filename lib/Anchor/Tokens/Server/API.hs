@@ -8,21 +8,17 @@
 -- | Description: HTTP API implementation.
 module Anchor.Tokens.Server.API where
 
-import           Control.Monad
+import           Blaze.ByteString.Builder    (toByteString)
 import           Control.Lens
 import           Control.Monad.Error.Class
 import           Control.Monad.IO.Class
 import           Control.Monad.Trans.Control
-import           Control.Monad.Trans.Except
 import           Control.Monad.Trans.Reader
-import           Data.ByteString             (ByteString)
-import qualified Data.ByteString.Lazy.Char8  as BSL
 import           Data.Either
 import           Data.Maybe
 import           Data.Monoid
 import           Data.Pool
 import           Data.Proxy
-import           Data.Text                   (Text)
 import qualified Data.Set                    as S
 import qualified Data.Text                   as T
 import qualified Data.Text.Encoding          as T
@@ -33,7 +29,7 @@ import           Servant.API                 hiding (URI)
 import           Servant.HTML.Blaze
 import           Servant.Server
 import           URI.ByteString
-import           Text.Blaze.Html5            hiding (map)
+import           Text.Blaze.Html5            hiding (map, code,rt)
 
 import           Network.OAuth2.Server
 
@@ -79,12 +75,25 @@ instance FromText ResponseTypeCode where
 type AuthorizeEndpoint
     = "authorize"
     :> Header OAuthUserHeader UserID
+    :> Header OAuthUserScopeHeader Scope
     :> QueryParam "response_type" ResponseTypeCode
     :> QueryParam "client_id" ClientID
     :> QueryParam "redirect_uri" URI
     :> QueryParam "scope" Scope
-    :> QueryParam "state" Text
+    :> QueryParam "state" ClientState
     :> Get '[HTML] Html
+
+-- | OAuth2 Authorization Endpoint
+--
+-- Allows authenticated users to review and authorize a code token grant
+-- request.
+--
+-- http://tools.ietf.org/html/rfc6749#section-3.1
+type AuthorizePost
+    = "authorize"
+    :> Header OAuthUserHeader UserID
+    :> ReqBody '[FormUrlEncoded] Code
+    :> Post '[HTML] ()
 
 -- | Facilitates services checking tokens.
 --
@@ -130,6 +139,7 @@ type AnchorOAuth2API
        = "oauth2" :> TokenEndpoint  -- From oauth2-server
     :<|> "oauth2" :> VerifyEndpoint
     :<|> "oauth2" :> AuthorizeEndpoint
+    :<|> "oauth2" :> AuthorizePost
     :<|> ListTokens
     :<|> DisplayToken
     :<|> PostToken
@@ -142,6 +152,7 @@ server ServerState{..}
        = tokenEndpoint serverOAuth2Server
     :<|> error ""
     :<|> authorizeEndpoint serverPGConnPool
+    :<|> authorizePost serverPGConnPool
     :<|> handleShib (serverListTokens serverPGConnPool (optUIPageSize serverOpts))
     :<|> handleShib (serverDisplayToken serverPGConnPool)
     :<|> serverPostToken serverPGConnPool
@@ -169,34 +180,51 @@ authorizeEndpoint
        )
     => Pool Connection
     -> Maybe UserID
+    -> Maybe Scope
     -> Maybe ResponseTypeCode
     -> Maybe ClientID
     -> Maybe URI
     -> Maybe Scope
-    -> Maybe Text
+    -> Maybe ClientState
     -> m Html
-authorizeEndpoint pool u' rt c_id' redirect' sc' st = do
-    u_id <- case u' of
-        Nothing -> error "NOOOO"
-        Just u_id -> return u_id
+authorizeEndpoint pool u' permissions' rt c_id' redirect sc' st = do
     case rt of
         Nothing -> error "NOOOO"
         Just ResponseTypeCode -> return ()
-    client_details <- case c_id' of
+    u_id <- case u' of
         Nothing -> error "NOOOO"
-        Just c_id -> do
-            res <- runReaderT (lookupClient c_id) pool
-            case res of
-                Nothing -> error "NOOOO"
-                Just client_details@ClientDetails{..} -> do
-                    case redirect' of
-                        Nothing -> return ()
-                        Just uri -> when (uri /= clientRedirectURI) $ error "NOOOO"
-                    return client_details
+        Just u_id -> return u_id
+    permissions <- case permissions' of
+        Nothing -> error "NOOOO"
+        Just permissions -> return permissions
     sc <- case sc' of
         Nothing -> error "NOOOO"
-        Just sc -> return sc
-    return $ renderAuthorizePage u_id client_details sc st
+        Just sc -> if sc `compatibleScope` permissions then return sc else error "NOOOOO"
+    c_id <- case c_id' of
+        Nothing -> error "NOOOO"
+        Just c_id -> return c_id
+    request_code <- runReaderT (createCode u_id c_id redirect sc st) pool
+    return $ renderAuthorizePage request_code
+
+authorizePost
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       , MonadError ServantErr m
+       )
+    => Pool Connection
+    -> Maybe UserID
+    -> Code
+    -> m ()
+authorizePost pool u code' = do
+    u_id <- case u of
+        Nothing -> error "NOOOO"
+        Just u_id -> return u_id
+    res <- runReaderT (activateCode code' u_id) pool
+    case res of
+        Nothing -> error "NOOOO"
+        Just uri -> do
+            let uri' = uri & uriQueryL . queryPairsL %~ (<> [("code", code' ^.re code)])
+            throwError err302{ errHeaders = [(hLocation, toByteString $ serializeURI uri')] }
 
 serverDisplayToken
     :: ( MonadIO m

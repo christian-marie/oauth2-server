@@ -37,6 +37,7 @@ library
       base >=4.7 && <4.8
     , async
     , blaze-html
+    , blaze-builder
     , bytestring
     , configurator
     , containers
@@ -61,11 +62,13 @@ library
     , stm >=2.4.2
     , streaming-commons
     , text
+    , time
     , transformers
     , transformers-base
     , transformers-compat
     , unordered-containers
     , uri-bytestring
+    , uuid
     , vector
     , warp
 
