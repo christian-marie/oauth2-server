@@ -466,8 +466,8 @@ instance MonadTransControl Store where
 
 deriving instance MonadBase b m => MonadBase b (Store m)
 
-instance MonadBaseControl IO (Store IO) where
-  type StM (Store IO) a  = ComposeSt Store IO a
+instance MonadBaseControl b m => MonadBaseControl b (Store m) where
+  type StM (Store m) a = ComposeSt Store m a
   liftBaseWith = defaultLiftBaseWith
   restoreM     = defaultRestoreM
 
