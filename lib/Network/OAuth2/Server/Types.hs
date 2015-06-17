@@ -16,6 +16,8 @@ module Network.OAuth2.Server.Types (
   bsToScope,
   ClientID,
   clientID,
+  ClientState,
+  clientState,
   Code,
   code,
   compatibleScope,
@@ -274,6 +276,9 @@ instance FromJSON ClientState where
             Nothing -> fail $ T.unpack t <> " is not a valid ClientState."
             Just s -> return s
 
+instance FromText ClientState where
+    fromText t = T.encodeUtf8 t ^? clientState
+
 data RequestCode = RequestCode
     { requestCodeCode        :: Code
     , requestCodeExpires     :: UTCTime
@@ -282,7 +287,7 @@ data RequestCode = RequestCode
     , requestCodeScope       :: Maybe Scope
     , requestCodeState       :: Maybe ClientState
     }
-  deriving (Typeable)
+  deriving (Typeable, Show)
 
 -- | A request to the token endpoint.
 --
