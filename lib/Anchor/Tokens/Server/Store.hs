@@ -180,10 +180,14 @@ instance TokenStore (Pool Connection) IO where
                     liftIO . errorM logName $ "Consistency error: multiple redirect URLs found"
                     error "Consistency error: multiple redirect URLs found"
 
-    storeSaveToken _pool grant = do
+    storeSaveToken pool grant = do
         debugM logName $ "Saving new token: " <> show grant
-        -- INSERT the grant into the databass, returning the new token's ID.
-        fail "Nope"
+        res :: [TokenDetails] <- withResource pool $ \conn -> do
+            liftIO $ query conn "INSERT INTO tokens (token_type, expires, user_id, client_id, scope) VALUES (?,?,?,?,?) RETURNING (token_type, token, expires, user_id, client_id, scope)" (grant)
+        case res of
+            [] -> fail $ "Failed to save new token: " <> show grant
+            [token] -> return token
+            _       -> fail "Impossible: multiple tokens returned from single insert"
 
     storeLoadToken pool tok = do
         liftIO . debugM logName $ "Loading token: " <> show tok
