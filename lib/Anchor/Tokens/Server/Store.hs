@@ -249,11 +249,16 @@ instance TokenStore (Pool Connection) IO where
                                  throwIO $ OAuth2Error InvalidRequest
                                                        (preview errorDescription "Invalid redirect URI")
                                                        Nothing
-                             return (client_id', requestCodeScope rc)
+                             case requestCodeScope rc of
+                                 Nothing -> do
+                                     liftIO . debugM logName $ "No scope found for code " <> show code
+                                     throwIO $ OAuth2Error InvalidScope
+                                                           (preview errorDescription "No scope found")
+                                                           Nothing
+                                 Just scope -> return (Just client_id', scope)
                         _ -> do
                             liftIO . errorM logName $ "Consistency error: duplicate code " <> show code
                             fail $ "Consistency error: duplicate code " <> show code
-                    fail "I don't know what scope I'm supposed to return here"
 
         -- We can't do anything sensible to verify the scope here, so just
         -- ignore it.
