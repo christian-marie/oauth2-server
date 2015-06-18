@@ -1,24 +1,78 @@
-OAuth2 Server
-=============
+Anchor Token Server
+===================
 
-[![Build Status][badge]][status]
-[![Coverage Status](https://coveralls.io/repos/anchor/oauth2-server/badge.svg)](https://coveralls.io/r/anchor/oauth2-server)
+Anchor Token Server is a small web application which allows clients, users, and
+services to request, approve, and verify OAuth2 tokens.
 
-[badge]: https://travis-ci.org/anchor/oauth2-server.svg?branch=master
-[status]: https://travis-ci.org/anchor/oauth2-server
+The intended use case is a fleet of related, but not necessarily integrated,
+web services. Rather than integrate OAuth2 server functionality into each
+service (and give each of them access to user authentication details, etc.) we
+centralise user authentication and token management.
 
-This is a small suite of packages for implementing OAuth2 providers in Haskell.
-The core OAuth2 functionality is implemented in the `oauth2-server` package and
-Snap Framework-specific code in `oauth2-server-snap`.
+Architecture
+------------
+
+There are four roles involved in a deployment of Anchor Token Server:
+
+- A *user* is an agent (typically a human or a web-browser driven by a human)
+trying to use a service via a client.
+
+- A *client* is a program trying to interact with a service on behalf of
+a user.
+
+- A *service* is a program which provides some resource or performs some action
+for a user.
+
+- A *server* is a program (this program!) which allows clients, users, and
+services to request, approve, and verify tokens.
+
+![Interactions between components][diagram:interactions]
+
+These interactions, at a high level, include:
+
+1. A user requests that a client perform some action.
+
+2. If the client does not already have a token for the user, it requests one
+from the server.
+
+3. If required, the user reviews and approves the token request. The client
+should, if possible, store and reuse the token in subsequent requests.
+
+4. The client uses the token to make requests to the service.
+
+5. The service verifies the token with the server. This returns information
+about the token validity, owner, scope, etc.
+
+Authentication
+--------------
+
+As Anchor Token Service is intended to be deployed in a closed environment all
+parties are authenticated:
+
+- The server authenticates users with Shibboleth. Shibboleth provides the `uid`
+attribute used to identify users and the `member` attribute which lists all
+available scopes.
+
+- The server authenticates clients/services by username and password with HTTP
+Basic authentication.
+
+- The users, clients, and services authenticate the server by enabling server
+certificate validation in their TLS implementation.
+
+Security considerations
+-----------------------
+
+All interactions with Anchor Token Server itself and between the other parties
+contain sensitive information and MUST be protected with correctly configured
+TLS. All parties SHOULD validate the certificate used by Anchor Token Server.
 
 Testing
 -------
 
-You can run unit tests for all packages with the `tests/unit-tests.sh` script.
+If your environment is sufficiently like mine you can use the `runit.sh`
+script to setup a temporary database, run the server, and clean up.
 
-You can run acceptance tests the supported OAuth2 server functionality with the 
-`tests/acceptance-tests.sh` script.
+**Warning** you *must* review the `runit.sh` script *before* you use it. It
+will drop your PostgreSQL databases without asking for confirmation!
 
-Both scripts should be run from the repository root directory; and the
-acceptance tests should be run *after* the unit tests (to ensure that the code
-is actually built).
+[diagram:interactions]: https://raw.githubusercontent.com/anchor/anchor-token-server/master/docs/architecture.png

@@ -51,38 +51,46 @@ module Network.OAuth2.Server.Types (
   vschar,
 ) where
 
-import Blaze.ByteString.Builder (toByteString)
-import Control.Applicative (Applicative ((<*), (<*>), pure), (<$>))
-import Control.Exception (Exception)
-import Control.Lens.Fold (preview, (^?))
-import Control.Lens.Operators ((%~), (&), (^.))
-import Control.Lens.Prism (Prism', prism')
-import Control.Lens.Review (re, review)
-import Control.Monad (guard)
-import Data.Aeson (FromJSON (..), ToJSON (..), Value (String), object,
-                   withObject, withText, (.:), (.:?), (.=))
-import qualified Data.Aeson.Types as Aeson (Parser)
-import Data.Attoparsec.ByteString (Parser, endOfInput, parseOnly, sepBy1,
-                                   takeWhile1, word8)
-import Data.ByteString (ByteString)
-import qualified Data.ByteString as B (all, intercalate, null)
-import qualified Data.ByteString.Lazy as BSL (fromStrict, toStrict)
-import Data.CaseInsensitive (mk)
-import Data.Char (ord)
-import Data.Monoid ((<>))
-import Data.Set (Set)
-import qualified Data.Set as S (difference, fromList, null, toList)
-import Data.Text (Text)
-import qualified Data.Text as T (all, unpack)
-import qualified Data.Text.Encoding as T (decodeUtf8, encodeUtf8)
-import Data.Time.Clock (UTCTime, diffUTCTime)
-import Data.Typeable (Typeable)
-import Data.Word (Word8)
-import Servant.API (FromFormUrlEncoded (..), FromText (..), MimeRender (..),
-                    MimeUnrender (..), OctetStream, ToFormUrlEncoded (..),
-                    ToText (..))
-import URI.ByteString (URI, parseURI, queryPairsL, serializeURI,
-                       strictURIParserOptions, uriFragmentL, uriQueryL)
+import           Blaze.ByteString.Builder   (toByteString)
+import           Control.Applicative        (Applicative ((<*), (<*>), pure),
+                                             (<$>))
+import           Control.Exception          (Exception)
+import           Control.Lens.Fold          (preview, (^?))
+import           Control.Lens.Operators     ((%~), (&), (^.))
+import           Control.Lens.Prism         (Prism', prism')
+import           Control.Lens.Review        (re, review)
+import           Control.Monad              (guard)
+import           Data.Aeson                 (FromJSON (..), ToJSON (..),
+                                             Value (String), object,
+                                             withObject, withText, (.:),
+                                             (.:?), (.=))
+import qualified Data.Aeson.Types           as Aeson (Parser)
+import           Data.Attoparsec.ByteString (Parser, endOfInput, parseOnly,
+                                             sepBy1, takeWhile1, word8)
+import           Data.ByteString            (ByteString)
+import qualified Data.ByteString            as B (all, intercalate, null)
+import qualified Data.ByteString.Lazy       as BSL (fromStrict, toStrict)
+import           Data.CaseInsensitive       (mk)
+import           Data.Char                  (ord)
+import           Data.Monoid                ((<>))
+import           Data.Set                   (Set)
+import qualified Data.Set                   as S (difference, fromList, null,
+                                                  toList)
+import           Data.Text                  (Text)
+import qualified Data.Text                  as T (all, unpack)
+import qualified Data.Text.Encoding         as T (decodeUtf8, encodeUtf8)
+import           Data.Time.Clock            (UTCTime, diffUTCTime)
+import           Data.Typeable              (Typeable)
+import           Data.Word                  (Word8)
+import           Servant.API                (FromFormUrlEncoded (..),
+                                             FromText (..), MimeRender (..),
+                                             MimeUnrender (..), OctetStream,
+                                             ToFormUrlEncoded (..),
+                                             ToText (..))
+import           URI.ByteString             (URI, parseURI, queryPairsL,
+                                             serializeURI,
+                                             strictURIParserOptions,
+                                             uriFragmentL, uriQueryL)
 
 
 vschar :: Word8 -> Bool

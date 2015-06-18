@@ -28,7 +28,7 @@ steps:
       # - none: Do not perform any alignment.
       #
       # Default: global.
-      align: none
+      align: global
 
   # Language pragmas
   - language_pragmas:

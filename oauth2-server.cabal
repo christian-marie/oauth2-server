@@ -16,37 +16,106 @@ source-repository HEAD
   type: git
   location: https://github.com/anchor/oauth2-server
 
-flag network-uri
-   description: Get Network.URI from the network-uri package
-   default: True
-
 Library
   default-language:    Haskell2010
   hs-source-dirs:      lib
-  exposed-modules:
-      Network.OAuth2.Server
-    , Network.OAuth2.Server.Configuration
-    , Network.OAuth2.Server.Types
+  exposed-modules:     Anchor.Tokens.Server
+                     , Anchor.Tokens.Server.API
+                     , Anchor.Tokens.Server.Configuration
+                     , Anchor.Tokens.Server.Statistics
+                     , Anchor.Tokens.Server.Store
+                     , Anchor.Tokens.Server.Types
+                     , Anchor.Tokens.Server.UI
+                     , Network.OAuth2.Server
+                     , Network.OAuth2.Server.Configuration
+                     , Network.OAuth2.Server.Types
   build-depends:       base >=4.7 && <4.9
                      , aeson
+                     , async
                      , attoparsec
+                     , base64-bytestring
                      , blaze-builder
+                     , blaze-html
                      , bytestring
                      , bytestring-conversion
                      , case-insensitive
+                     , configurator
                      , containers
+                     , ekg
+                     , ekg-core
+                     , file-embed
+                     , hslogger
+                     , http-types
                      , lens
+                     , monad-control
                      , mtl
+                     , network
+                     , pipes-concurrency
+                     , postgresql-simple
+                     , resource-pool
+                     , scrypt
                      , servant >=0.4 && <0.5
+                     , servant-blaze
                      , servant-server >=0.4 && <0.5
+                     , stm >=2.4.2
+                     , streaming-commons
                      , text
                      , time
                      , transformers
+                     , transformers-base
                      , transformers-compat
+                     , unordered-containers
                      , uri-bytestring
+                     , uuid
+                     , vector
+                     , warp
 
   ghc-options: -Wall -fwarn-tabs -funbox-strict-fields
 
+executable             tokenserver
+  default-language:    Haskell2010
+  hs-source-dirs:      src
+  main-is:             tokenserver.hs
+  build-depends:       base
+                     , async
+                     , configurator
+                     , hslogger
+                     , oauth2-server
+                     , stm
+  ghc-options: -threaded
+
+test-suite             test-tokenserver
+  type:                exitcode-stdio-1.0
+  default-language:    Haskell2010
+  hs-source-dirs:      test
+  main-is:             tokenserver.hs
+  build-depends:       base
+                     , hspec
+                     , oauth2-server
+                     , QuickCheck
+
+test-suite             test-tokenstore
+  type:                exitcode-stdio-1.0
+  default-language:    Haskell2010
+  hs-source-dirs:      test
+  main-is:             tokenstore.hs
+  build-depends:       base
+                     , async
+                     , bytestring
+                     , configurator
+                     , errors
+                     , hspec
+                     , lens
+                     , mtl
+                     , oauth2-server
+                     , oauth2-server
+                     , pipes-concurrency
+                     , postgresql-simple
+                     , process
+                     , QuickCheck
+                     , resource-pool
+                     , text
+                     , time
 
 test-suite test
   type:                exitcode-stdio-1.0
@@ -57,11 +126,11 @@ test-suite test
                      , aeson
                      , bytestring
                      , containers
+                     , hoauth2
                      , hspec
+                     , http-client
                      , lens
                      , lens-properties
-                     , http-client
-                     , hoauth2
                      , mtl
                      , oauth2-server
                      , QuickCheck

@@ -1,0 +1,14 @@
+digraph "Anchor Token Server" {
+
+    user [label="User"];
+    client [label="Client"];
+    service [label="Service"];
+    server [label="ATS"];
+
+    user -> client    [label="1. Request action"];
+    client -> server  [label="2. Request token"];
+    user -> server    [label="3. Approve token"];
+    client -> service [label="4. Perform action"];
+    service -> server [label="5. Verify token"];
+
+}
