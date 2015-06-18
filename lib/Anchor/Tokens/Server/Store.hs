@@ -209,8 +209,9 @@ instance TokenStore (Pool Connection) IO where
             -- https://tools.ietf.org/html/rfc6749#section-4.1.3
             RequestAuthorizationCode code uri client ->
                 checkClientAuthCode auth code uri client
+            -- https://tools.ietf.org/html/rfc6749#section-4.3.2
             RequestPassword username password scope ->
-                fail "shit"
+                checkPassword auth username password scope
             RequestClientCredentials scope ->
                 checkClientCredentials pool auth scope
             RequestRefreshToken tok scope ->
@@ -259,6 +260,10 @@ instance TokenStore (Pool Connection) IO where
                         _ -> do
                             liftIO . errorM logName $ "Consistency error: duplicate code " <> show code
                             fail $ "Consistency error: duplicate code " <> show code
+
+        checkPassword _ _ _ _ = throwIO $ OAuth2Error UnsupportedGrantType
+                                                      (preview errorDescription "password grants not supported")
+                                                      Nothing
 
         -- We can't do anything sensible to verify the scope here, so just
         -- ignore it.
