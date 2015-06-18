@@ -152,14 +152,18 @@ instance TokenStore (Pool Connection) IO where
             res <- liftIO $
                 query conn "SELECT redirect_url FROM clients WHERE (client_id = ?)" (Only client_id)
             requestCodeRedirectURI <- case res of
-                [] -> error "NOOOO"
+                [] -> do
+                    liftIO . errorM logName $ "No redirect URL found for client " <> show client_id
+                    error "No redirect URL found for client"
                 [Only requestCodeRedirectURI] -> case redirect of
                     Nothing -> return requestCodeRedirectURI
                     Just redirect_url
                         | redirect_url == requestCodeRedirectURI ->
                             return requestCodeRedirectURI
                         | otherwise -> error "NOOOO"
-                _ -> error "WOT"
+                _ -> do
+                    liftIO . errorM logName $ "Consistency error: multiple redirect URLs found for client " <> show client_id
+                    error "Multiple redirect URLs found for client"
             [(requestCodeCode, requestCodeExpires)] <-
                 liftIO $ query conn "INSERT INTO request_codes (client_id, user_id, redirect_url, scope, state) VALUES (?,?,?,?) RETURNING code, expires" (client_id, user_id, requestCodeRedirectURI, sc, requestCodeState)
             let requestCodeClientID = client_id
@@ -172,7 +176,9 @@ instance TokenStore (Pool Connection) IO where
             case res of
                 [] -> return Nothing
                 [Only uri] -> return uri
-                _ -> error "WOT"
+                _ -> do
+                    liftIO . errorM logName $ "Consistency error: multiple redirect URLs found"
+                    error "Consistency error: multiple redirect URLs found"
 
     storeSaveToken _pool grant = do
         debugM logName $ "Saving new token: " <> show grant
