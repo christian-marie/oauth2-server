@@ -8,7 +8,6 @@
 -- | Description: HTTP API implementation.
 module Anchor.Tokens.Server.API where
 
-import           Blaze.ByteString.Builder    (toByteString)
 import           Control.Lens
 import           Control.Monad
 import           Control.Monad.Error.Class
@@ -31,7 +30,6 @@ import           Servant.API                 hiding (URI)
 import           Servant.HTML.Blaze
 import           Servant.Server
 import           System.Log.Logger
-import           URI.ByteString
 import           Text.Blaze.Html5            hiding (map, code,rt)
 
 import           Network.OAuth2.Server
@@ -84,7 +82,7 @@ type AuthorizeEndpoint
     :> Header OAuthUserScopeHeader Scope
     :> QueryParam "response_type" ResponseTypeCode
     :> QueryParam "client_id" ClientID
-    :> QueryParam "redirect_uri" URI
+    :> QueryParam "redirect_uri" RedirectURI
     :> QueryParam "scope" Scope
     :> QueryParam "state" ClientState
     :> Get '[HTML] Html
@@ -185,7 +183,7 @@ authorizeEndpoint
     -> Scope
     -> Maybe ResponseTypeCode
     -> Maybe ClientID
-    -> Maybe URI
+    -> Maybe RedirectURI
     -> Maybe Scope
     -> Maybe ClientState
     -> m Html
@@ -217,8 +215,8 @@ authorizePost pool user_id _scope code' = do
     case res of
         Nothing -> error "NOOOO"
         Just uri -> do
-            let uri' = uri & uriQueryL . queryPairsL %~ (<> [("code", code' ^.re code)])
-            throwError err302{ errHeaders = [(hLocation, toByteString $ serializeURI uri')] }
+            let uri' = addQueryParameters uri [("code", code' ^.re code)]
+            throwError err302{ errHeaders = [(hLocation, uri' ^.re redirectURI)] }
 
 -- | Verify a token and return information about the principal and grant.
 --

@@ -98,7 +98,7 @@ data ClientDetails = ClientDetails
     { clientClientId     :: ClientID
     , clientSecret       :: ClientSecret
     , clientConfidential :: Bool
-    , clientRedirectURI  :: URI
+    , clientRedirectURI  :: RedirectURI
     , clientName         :: Text
     , clientDescription  :: Text
     , clientAppUrl       :: URI

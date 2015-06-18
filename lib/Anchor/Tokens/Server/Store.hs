@@ -90,7 +90,7 @@ createCode
        )
     => UserID
     -> ClientID
-    -> Maybe URI
+    -> Maybe RedirectURI
     -> Scope
     -> Maybe ClientState
     -> m RequestCode
@@ -120,7 +120,7 @@ activateCode
        )
     => Code
     -> UserID
-    -> m (Maybe URI)
+    -> m (Maybe RedirectURI)
 activateCode code user_id = do
     pool <- ask
     withResource pool $ \conn -> do
@@ -408,6 +408,16 @@ instance FromField URI where
 
 instance ToField URI where
     toField x = toField $ toByteString $ serializeURI x
+
+instance FromField RedirectURI where
+    fromField f bs = do
+        x <- fromField f bs
+        case x ^? redirectURI of
+            Nothing -> returnError ConversionFailed f ""
+            Just uri -> return uri
+
+instance ToField RedirectURI where
+    toField = toField . review redirectURI
 
 instance FromRow ClientDetails where
     fromRow = ClientDetails <$> field
