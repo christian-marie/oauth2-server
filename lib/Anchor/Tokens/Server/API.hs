@@ -15,9 +15,7 @@ import           Control.Monad.Error.Class
 import           Control.Monad.IO.Class
 import           Control.Monad.Trans.Control
 import           Control.Monad.Trans.Reader
-import           Data.ByteString             (ByteString)
 import           Data.Time.Clock
-import qualified Data.ByteString.Lazy.Char8  as BSL
 import           Data.Either
 import           Data.Maybe
 import           Data.Monoid
@@ -175,7 +173,7 @@ handleShib
     -> Maybe Scope
     -> a
 handleShib f (Just u) (Just s) = f u s
-handleShib _ _        _        = error "Expexted Shibbloleth headers"
+handleShib _ _        _        = error "Expected Shibbloleth headers"
 
 authorizeEndpoint
     :: ( MonadIO m
