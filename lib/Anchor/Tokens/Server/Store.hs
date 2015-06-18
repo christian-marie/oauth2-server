@@ -369,9 +369,11 @@ instance TokenStore (Pool Connection) IO where
     storeRevokeToken pool user_id token_id = do
         withResource pool $ \conn -> do
             liftIO . debugM logName $ "Revoking token with id " <> show token_id <> " for user " <> show user_id
-            -- TODO: Inspect the return value
-            _ <- liftIO $ execute conn "UPDATE tokens SET revoked = NOW() WHERE (token_id = ?) AND (user_id = ?)" (token_id, user_id)
-            return ()
+            rows <- liftIO $ execute conn "UPDATE tokens SET revoked = NOW() WHERE (token_id = ?) AND (user_id = ?)" (token_id, user_id)
+            case rows of
+                1 -> liftIO . debugM logName $ "Revoked token with id " <> show token_id <> " for user " <> show user_id
+                0 -> fail $ "Failed to revoke token " <> show token_id <> " for user " <> show user_id
+                _ -> liftIO . errorM logName $ "Consistency error: revoked multiple tokens " <> show token_id <> " for user " <> show user_id
 
     storeLift = liftIO
 
