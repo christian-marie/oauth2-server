@@ -21,20 +21,16 @@ module Anchor.Tokens.Server.Store where
 
 import           Blaze.ByteString.Builder                   (toByteString)
 import           Control.Applicative
+import           Control.Exception
 import           Control.Lens                               (preview)
 import           Control.Lens.Operators
 import           Control.Lens.Prism
 import           Control.Lens.Review
-import           Control.Monad.Base
-import           Control.Monad.Error.Class
 import           Control.Monad.IO.Class
 import           Control.Monad.Reader
-import           Control.Monad.Trans.Control
-import           Control.Monad.Trans.Except
 import           Crypto.Scrypt
 import           Data.ByteString                            (ByteString)
 import qualified Data.ByteString                            as BS
-import qualified Data.ByteString.Char8                      as BC
 import qualified Data.ByteString.Base64                     as B64
 import           Data.Char
 import           Data.Monoid
@@ -42,7 +38,6 @@ import           Data.Pool
 import qualified Data.Set                                   as S
 import           Data.Text                                  (Text)
 import           Data.Text.Encoding
-import           Data.Text.Lens
 import           Data.Typeable
 import qualified Data.Vector                                as V
 import           Database.PostgreSQL.Simple
@@ -62,110 +57,282 @@ import           Anchor.Tokens.Server.Types
 logName :: String
 logName = "Anchor.Tokens.Server.Store"
 
--- * OAuth2 Server operations
+-- | A token store is some read only reference (connection, ioref, etc)
+-- accompanied by some functions to do things like create and revoke tokens.
+--
+-- It is parametrised by a underlying monad and includes a natural
+-- transformation to any MonadIO m'
+class TokenStore ref m where
+    -- | TODO: Document the part of the RFC this is from
+    storeCreateCode
+        :: ref
+        -> UserID
+        -> ClientID
+        -> Maybe URI
+        -> Scope
+        -> Maybe ClientState
+        -> m RequestCode
 
--- | Lookup a registered Client.
-lookupClient
-    :: ( MonadIO m
-       , MonadBaseControl IO m
-       , MonadReader (Pool Connection) m
-       )
-    => ClientID
-    -> m (Maybe ClientDetails)
-lookupClient client_id = do
-    pool <- ask
-    withResource pool $ \conn -> do
-        liftIO . debugM logName $ "Looking up client: " <> show client_id
-        clients <- liftIO $ query conn "SELECT client_id, client_secret, confidential, redirect_url, name, description, app_url FROM clients WHERE (client_id = ?)" (Only client_id)
-        case clients of
-            [] -> return Nothing
-            [x] -> return $ Just x
-            xs  -> let msg = "Should only be able to retrieve at most one client, retrieved: " <> show xs
-                   in liftIO (errorM logName msg) >> fail msg
+    -- | TODO: Document
+    storeActivateCode
+        :: ref
+        -> Code
+        -> UserID
+        -> m (Maybe URI)
 
-createCode
-    :: ( MonadIO m
-       , MonadBaseControl IO m
-       , MonadReader (Pool Connection) m
-       )
-    => UserID
-    -> ClientID
-    -> Maybe URI
-    -> Scope
-    -> Maybe ClientState
-    -> m RequestCode
-createCode user_id client_id redirect sc requestCodeState = do
-    pool <- ask
-    withResource pool $ \conn -> do
-        res <- liftIO $ query conn "SELECT redirect_url FROM clients WHERE (client_id = ?)" (Only client_id)
-        requestCodeRedirectURI <- case res of
-            [] -> error "NOOOO"
-            [Only requestCodeRedirectURI] -> case redirect of
-                Nothing -> return requestCodeRedirectURI
-                Just redirect_url
-                    | redirect_url == requestCodeRedirectURI ->
-                          return requestCodeRedirectURI
-                    | otherwise -> error "NOOOO"
-            _ -> error "WOT"
-        [(requestCodeCode, requestCodeExpires)] <-
-            liftIO $ query conn "INSERT INTO request_codes (client_id, user_id, redirect_url, scope, state) VALUES (?,?,?,?) RETURNING code, expires" (client_id, user_id, requestCodeRedirectURI, sc, requestCodeState)
-        let requestCodeClientID = client_id
-            requestCodeScope = Just sc
-        return RequestCode{..}
+    -- | Record a new token grant in the database.
+    storeSaveToken
+        :: ref
+        -> TokenGrant
+        -> m TokenDetails
 
-activateCode
-    :: ( MonadIO m
-       , MonadBaseControl IO m
-       , MonadReader (Pool Connection) m
-       )
-    => Code
-    -> UserID
-    -> m (Maybe URI)
-activateCode code user_id = do
-    pool <- ask
-    withResource pool $ \conn -> do
-        res <- liftIO $ query conn "UPDATE request_codes SET authorized = TRUE WHERE code = ? AND user_id = ? RETURNING redirect_url" (code, user_id)
-        case res of
-            [] -> return Nothing
-            [Only uri] -> return uri
-            _ -> error "WOT"
+    -- | Retrieve the details of a previously issued token from the database.
+    storeLoadToken
+        :: ref
+        -> Token
+        -> m (Maybe TokenDetails)
 
--- | Record a new token grant in the database.
-saveToken
-    :: ( MonadIO m
-       , MonadBaseControl IO m
-       , MonadError OAuth2Error m
-       , MonadReader (Pool Connection) m
-       )
-    => TokenGrant
-    -> m TokenDetails
-saveToken grant = do
-    liftIO . debugM logName $ "Saving new token: " <> show grant
-    -- INSERT the grant into the databass, returning the new token's ID.
-    fail "Nope"
+    -- | Check the supplied credentials against the database.
+    storeCheckCredentials
+        :: ref
+        -> Maybe AuthHeader
+        -> AccessRequest
+        -> m (Maybe ClientID, Scope)
 
--- | Retrieve the details of a previously issued token from the database.
-loadToken
-    :: ( MonadIO m
-       , MonadBaseControl IO m
-       , MonadError OAuth2Error m
-       , MonadReader (Pool Connection) m
-       )
-    => Token
-    -> m (Maybe TokenDetails)
-loadToken tok = do
-    liftIO . debugM logName $ "Loading token: " <> show tok
-    pool  <- ask
-    tokens :: [TokenDetails] <- withResource pool $ \conn -> do
-        liftIO $ query conn "SELECT token_type, token, expires, user_id, client_id, scope FROM tokens WHERE (token = ?)" (Only tok)
-    case tokens of
-        [t] -> return $ Just t
-        []  -> do
-            liftIO $ debugM logName $ "No tokens found matching " <> show tok
-            return Nothing
-        _   -> do
-            liftIO $ errorM logName $ "Consistency error: multiple tokens found matching " <> show tok
-            return Nothing
+    -- | Given an AuthHeader sent by a client, verify that it authenticates.
+    --   If it does, return the authenticated ClientID; otherwise, Nothing.
+    storeCheckClientAuth
+        :: ref
+        -> AuthHeader
+        -> m (Maybe ClientID)
+
+    -- * User Interface operations
+
+    -- | List the tokens for a user.
+    --
+    -- Returns a list of at most @page-size@ tokens along with the total number of
+    -- pages.
+    storeListTokens
+        :: ref
+        -> Int
+        -> UserID
+        -> Page
+        -> m ([(Maybe ClientID, Scope, Token, TokenID)], Int)
+
+    -- | Retrieve information for a single token for a user.
+    --
+    storeDisplayToken
+        :: ref
+        -> UserID
+        -> TokenID
+        -> m (Maybe (Maybe ClientID, Scope, Token, TokenID))
+
+    -- | TODO document me
+    storeCreateToken
+        :: ref
+        -> UserID
+        -> Scope
+        -> m TokenID
+
+    -- | TODO document me
+    storeRevokeToken
+        :: ref
+        -> UserID
+        -> TokenID
+        -> m ()
+
+    -- Lift a store action into any MonadIO, used for injecting any store
+    -- action into IO whilst keeping any underlying actions in the underlying
+    -- monad.
+    storeLift :: MonadIO m' => m a -> m' a
+
+instance TokenStore (Pool Connection) IO where
+    storeCreateCode pool user_id client_id redirect sc requestCodeState = do
+        withResource pool $ \conn -> do
+            res <- liftIO $
+                query conn "SELECT redirect_url FROM clients WHERE (client_id = ?)" (Only client_id)
+            requestCodeRedirectURI <- case res of
+                [] -> error "NOOOO"
+                [Only requestCodeRedirectURI] -> case redirect of
+                    Nothing -> return requestCodeRedirectURI
+                    Just redirect_url
+                        | redirect_url == requestCodeRedirectURI ->
+                            return requestCodeRedirectURI
+                        | otherwise -> error "NOOOO"
+                _ -> error "WOT"
+            [(requestCodeCode, requestCodeExpires)] <-
+                liftIO $ query conn "INSERT INTO request_codes (client_id, user_id, redirect_url, scope, state) VALUES (?,?,?,?) RETURNING code, expires" (client_id, user_id, requestCodeRedirectURI, sc, requestCodeState)
+            let requestCodeClientID = client_id
+                requestCodeScope = Just sc
+            return RequestCode{..}
+
+    storeActivateCode pool code' user_id = do
+        withResource pool $ \conn -> do
+            res <- liftIO $ query conn "UPDATE request_codes SET authorized = TRUE WHERE code = ? AND user_id = ? RETURNING redirect_url" (code', user_id)
+            case res of
+                [] -> return Nothing
+                [Only uri] -> return uri
+                _ -> error "WOT"
+
+    storeSaveToken _pool grant = do
+        debugM logName $ "Saving new token: " <> show grant
+        -- INSERT the grant into the databass, returning the new token's ID.
+        fail "Nope"
+
+    storeLoadToken pool tok = do
+        liftIO . debugM logName $ "Loading token: " <> show tok
+        tokens :: [TokenDetails] <- withResource pool $ \conn -> do
+            liftIO $ query conn "SELECT token_type, token, expires, user_id, client_id, scope FROM tokens WHERE (token = ?)" (Only tok)
+        case tokens of
+            [t] -> return $ Just t
+            []  -> do
+                liftIO $ debugM logName $ "No tokens found matching " <> show tok
+                return Nothing
+            _   -> do
+                liftIO $ errorM logName $ "Consistency error: multiple tokens found matching " <> show tok
+                return Nothing
+
+    storeCheckCredentials _ Nothing _ = do
+        liftIO . debugM logName $ "Checking credentials but none provided."
+        throwIO $  OAuth2Error InvalidRequest
+                                (preview errorDescription "No credentials provided")
+                                Nothing
+    storeCheckCredentials pool (Just auth) req = do
+        liftIO . debugM logName $ "Checking some credentials"
+        case req of
+            RequestAuthorizationCode code uri client ->
+                checkClientAuthCode auth code uri client
+            RequestPassword username password scope ->
+                fail "shit"
+            RequestClientCredentials scope ->
+                checkClientCredentials pool auth scope
+            RequestRefreshToken tok scope ->
+                checkRefreshToken auth tok scope
+      where
+        checkClientAuthCode _ _ Nothing _ = throwIO $ OAuth2Error InvalidRequest
+                                                                (preview errorDescription "No redirect URI supplied.")
+                                                                Nothing
+        checkClientAuthCode _ _ _ Nothing = throwIO $ OAuth2Error InvalidRequest
+                                                                (preview errorDescription "No client ID supplied.")
+                                                                Nothing
+        checkClientAuthCode auth _ (Just _) (Just purported_client) = do
+            client_id <- storeCheckClientAuth pool auth
+            case client_id of
+                Nothing -> throwIO $ OAuth2Error UnauthorizedClient
+                                                    (preview errorDescription "Invalid client credentials")
+                                                    Nothing
+                Just client_id' -> do
+                    when (client_id' /= purported_client) $ throwIO $
+                        OAuth2Error UnauthorizedClient
+                                    (preview errorDescription "Invalid client credentials")
+                                    Nothing
+                    -- fixme: check code
+                    fail "I don't know what scope I'm supposed to return here"
+
+        -- We can't do anything sensible to verify the scope here, so just
+        -- ignore it.
+        checkClientCredentials _ _ Nothing = throwIO $ OAuth2Error InvalidRequest
+                                                                    (preview errorDescription "No scope supplied.")
+                                                                    Nothing
+        checkClientCredentials _ auth (Just scope) = do
+            client_id <- storeCheckClientAuth pool auth
+            case client_id of
+                Nothing -> throwIO $ OAuth2Error UnauthorizedClient
+                                                 (preview errorDescription "Invalid client credentials")
+                                                 Nothing
+                Just client_id' -> return (client_id, scope)
+
+        -- Verify client credentials and scope, and that the request token is
+        -- valid.
+        checkRefreshToken _ _ Nothing     = throwIO $ OAuth2Error InvalidRequest
+                                                                    (preview errorDescription "No scope supplied.")
+                                                                    Nothing
+        checkRefreshToken auth tok (Just scope) = do
+            details <- liftIO $ storeLoadToken pool tok
+            case details of
+                Nothing -> do
+                    liftIO . debugM logName $ "Got passed invalid token " <> show tok
+                    throwIO $ OAuth2Error InvalidRequest
+                                            (preview errorDescription "Invalid token")
+                                            Nothing
+                Just details' -> do
+                    unless (compatibleScope scope (tokenDetailsScope details')) $ do
+                        liftIO . debugM logName $
+                            "Incompatible scopes " <>
+                            show scope <>
+                            " and " <>
+                            show (tokenDetailsScope details') <>
+                            ", refusing to verify"
+                        throwIO $ OAuth2Error InvalidScope
+                                                (preview errorDescription "Invalid scope")
+                                                Nothing
+                    client_id <- storeCheckClientAuth pool auth
+                    case client_id of
+                        Nothing -> throwIO $ OAuth2Error UnauthorizedClient
+                                                            (preview errorDescription "Invalid client credentials")
+                                                            Nothing
+                        Just client_id' -> return (Just client_id', scope)
+
+
+
+    storeCheckClientAuth pool auth = do
+        case preview authDetails auth of
+            Nothing -> do
+                liftIO . debugM logName $ "Got an invalid auth header."
+                throwIO $ OAuth2Error InvalidRequest
+                                        (preview errorDescription "Invalid auth header provided.")
+                                        Nothing
+            Just (client_id, secret) -> do
+                hashes :: [EncryptedPass] <- withResource pool $ \conn ->
+                    liftIO $ query conn "SELECT client_secret FROM clients WHERE (client_id = ?)" (client_id)
+                case hashes of
+                    [hash]   -> return $ verifyClientSecret client_id secret hash
+                    []       -> do
+                        liftIO . debugM logName $ "Got a request for invalid client_id " <> show client_id
+                        throwIO $ OAuth2Error InvalidClient
+                                                (preview errorDescription "No such client.")
+                                                Nothing
+                    _        -> do
+                        liftIO . errorM logName $ "Consistency error: multiple clients with client_id " <> show client_id
+                        fail "Consistency error"
+      where
+        verifyClientSecret client_id secret hash =
+            let pass = Pass . encodeUtf8 $ review password secret in
+            -- Verify with default scrypt params.
+            if verifyPass' pass hash
+                then (Just client_id)
+                else Nothing
+
+    storeListTokens pool size uid (Page p) = do
+        withResource pool $ \conn -> do
+            liftIO . debugM logName $ "Listing tokens for " <> show uid
+            tokens <- liftIO $ query conn "SELECT client_id, scope, token, token_id FROM tokens WHERE (user_id = ?) AND revoked is NULL ORDER BY created LIMIT ? OFFSET ?" (uid, size, (p - 1) * size)
+            [Only numTokens] <- liftIO $ query conn "SELECT count(*) FROM tokens WHERE (user_id = ?)" (Only uid)
+            return (tokens, numTokens)
+
+    storeDisplayToken pool user_id token_id = do
+        withResource pool $ \conn -> do
+            liftIO . debugM logName $ "Retrieving token with id " <> show token_id <> " for user " <> show user_id
+            tokens <- liftIO $ query conn "SELECT client_id, scope, token, token_id FROM tokens WHERE (token_id = ?) AND (user_id = ?) AND revoked is NULL" (token_id, user_id)
+            case tokens of
+                []  -> return Nothing
+                [x] -> return $ Just x
+                xs  -> let msg = "Should only be able to retrieve at most one token, retrieved: " <> show xs
+                    in liftIO (errorM logName msg) >> fail msg
+
+    storeCreateToken pool user_id scope = do
+        withResource pool $ \conn ->
+            --liftIO $ execute conn "INSERT INTO tokens VALUES ..."
+            error "wat"
+
+    storeRevokeToken pool user_id token_id = do
+        withResource pool $ \conn -> do
+            liftIO . debugM logName $ "Revoking token with id " <> show token_id <> " for user " <> show user_id
+            -- TODO: Inspect the return value
+            _ <- liftIO $ execute conn "UPDATE tokens SET revoked = NOW() WHERE (token_id = ?) AND (user_id = ?)" (token_id, user_id)
+            return ()
+
+    storeLift = liftIO
 
 authDetails :: Prism' AuthHeader (ClientID, Password)
 authDetails =
@@ -183,213 +350,6 @@ authDetails =
 
     fromPair (client_id, secret) =
         AuthHeader "Basic" $ (review clientID client_id) <> " " <> encodeUtf8 (review password secret)
-
--- | Given an AuthHeader sent by a client, verify that it authenticates.
---   If it does, return the authenticated ClientID; otherwise, Nothing.
-checkClientAuth
-    :: ( MonadIO m
-       , MonadBaseControl IO m
-       , MonadError OAuth2Error m
-       , MonadReader (Pool Connection) m
-       )
-    => AuthHeader
-    -> m (Maybe ClientID)
-checkClientAuth auth = do
-    case preview authDetails auth of
-        Nothing -> do
-            liftIO . debugM logName $ "Got an invalid auth header."
-            throwError $ OAuth2Error InvalidRequest
-                                     (preview errorDescription "Invalid auth header provided.")
-                                     Nothing
-        Just (client_id, secret) -> do
-            pool <- ask
-            hashes :: [EncryptedPass] <- withResource pool $ \conn ->
-                liftIO $ query conn "SELECT client_secret FROM clients WHERE (client_id = ?)" (client_id)
-            case hashes of
-                [hash]   -> return $ verifyClientSecret client_id secret hash
-                []       -> do
-                    liftIO . debugM logName $ "Got a request for invalid client_id " <> show client_id
-                    throwError $ OAuth2Error InvalidClient
-                                             (preview errorDescription "No such client.")
-                                             Nothing
-                _        -> do
-                    liftIO . errorM logName $ "Consistency error: multiple clients with client_id " <> show client_id
-                    fail "Consistency error"
-  where
-    verifyClientSecret client_id secret hash =
-        let pass = Pass . encodeUtf8 $ review password secret in
-        -- Verify with default scrypt params.
-        if verifyPass' pass hash
-            then (Just client_id)
-            else Nothing
-
--- | Check the supplied credentials against the database.
-checkCredentials
-    :: ( MonadIO m
-       , MonadBaseControl IO m
-       , MonadError OAuth2Error m
-       , MonadReader (Pool Connection) m
-       )
-    => Maybe AuthHeader
-    -> AccessRequest
-    -> m (Maybe ClientID, Scope)
-checkCredentials Nothing _ = do
-    liftIO . debugM logName $ "Checking credentials but none provided."
-    throwError $  OAuth2Error InvalidRequest
-                              (preview errorDescription "No credentials provided")
-                              Nothing
-checkCredentials (Just auth) req = do
-    liftIO . debugM logName $ "Checking some credentials"
-    case req of
-        RequestAuthorizationCode code uri client ->
-            checkClientAuthCode auth code uri client
-        RequestPassword username password scope ->
-            fail "shit"
-        RequestClientCredentials scope ->
-            checkClientCredentials auth scope
-        RequestRefreshToken tok scope ->
-            checkRefreshToken auth tok scope
-  where
-    checkClientAuthCode _ _ Nothing _ = throwError $ OAuth2Error InvalidRequest
-                                                               (preview errorDescription "No redirect URI supplied.")
-                                                               Nothing
-    checkClientAuthCode _ _ _ Nothing = throwError $ OAuth2Error InvalidRequest
-                                                               (preview errorDescription "No client ID supplied.")
-                                                               Nothing
-    checkClientAuthCode auth _ (Just _) (Just purported_client) = do
-        client_id <- checkClientAuth auth
-        case client_id of
-            Nothing -> throwError $ OAuth2Error UnauthorizedClient
-                                                (preview errorDescription "Invalid client credentials")
-                                                Nothing
-            Just client_id' -> do
-                when (client_id' /= purported_client) $ throwError $
-                    OAuth2Error UnauthorizedClient
-                                (preview errorDescription "Invalid client credentials")
-                                Nothing
-                -- fixme: check code
-                fail "I don't know what scope I'm supposed to return here"
-
-
-    -- We can't do anything sensible to verify the scope here, so just
-    -- ignore it.
-    checkClientCredentials _ Nothing = throwError $ OAuth2Error InvalidRequest
-                                                                (preview errorDescription "No scope supplied.")
-                                                                Nothing
-    checkClientCredentials auth (Just scope) = do
-        client_id <- checkClientAuth auth
-        case client_id of
-            Nothing -> throwError $ OAuth2Error UnauthorizedClient
-                                                (preview errorDescription "Invalid client credentials")
-                                                Nothing
-            Just client_id' -> return (client_id, scope)
-
-    -- Verify client credentials and scope, and that the request token is
-    -- valid.
-    checkRefreshToken _ _ Nothing     = throwError $ OAuth2Error InvalidRequest
-                                                                 (preview errorDescription "No scope supplied.")
-                                                                 Nothing
-    checkRefreshToken auth tok (Just scope) = do
-        details <- loadToken tok
-        case details of
-            Nothing -> do
-                liftIO . debugM logName $ "Got passed invalid token " <> show tok
-                throwError $ OAuth2Error InvalidRequest
-                                         (preview errorDescription "Invalid token")
-                                         Nothing
-            Just details' -> do
-                when (not (compatibleScope scope (tokenDetailsScope details'))) $ do
-                    liftIO . debugM logName $
-                        "Incompatible scopes " <>
-                        show scope <>
-                        " and " <>
-                        show (tokenDetailsScope details') <>
-                        ", refusing to verify"
-                    throwError $ OAuth2Error InvalidScope
-                                             (preview errorDescription "Invalid scope")
-                                             Nothing
-                client_id <- checkClientAuth auth
-                case client_id of
-                    Nothing -> throwError $ OAuth2Error UnauthorizedClient
-                                                        (preview errorDescription "Invalid client credentials")
-                                                        Nothing
-                    Just client_id' -> return (Just client_id', scope)
-
-    
-
--- * User Interface operations
-
--- | List the tokens for a user.
---
--- Returns a list of at most @page-size@ tokens along with the total number of
--- pages.
-listTokens
-    :: ( MonadIO m
-       , MonadBaseControl IO m
-       , MonadReader (Pool Connection) m
-       )
-    => Int
-    -> UserID
-    -> Page
-    -> m ([(Maybe ClientID, Scope, Token, TokenID)], Int)
-listTokens size uid (Page p) = do
-    pool <- ask
-    withResource pool $ \conn -> do
-        liftIO . debugM logName $ "Listing tokens for " <> show uid
-        tokens <- liftIO $ query conn "SELECT client_id, scope, token, token_id FROM tokens WHERE (user_id = ?) AND revoked is NULL ORDER BY created LIMIT ? OFFSET ?" (uid, size, (p - 1) * size)
-        [Only numTokens] <- liftIO $ query conn "SELECT count(*) FROM tokens WHERE (user_id = ?)" (Only uid)
-        return (tokens, numTokens)
-
--- | Retrieve information for a single token for a user.
---
-displayToken
-    :: ( MonadIO m
-       , MonadBaseControl IO m
-       , MonadReader (Pool Connection) m
-       )
-    => UserID
-    -> TokenID
-    -> m (Maybe (Maybe ClientID, Scope, Token, TokenID))
-displayToken user_id token_id = do
-    pool <- ask
-    withResource pool $ \conn -> do
-        liftIO . debugM logName $ "Retrieving token with id " <> show token_id <> " for user " <> show user_id
-        tokens <- liftIO $ query conn "SELECT client_id, scope, token, token_id FROM tokens WHERE (token_id = ?) AND (user_id = ?) AND revoked is NULL" (token_id, user_id)
-        case tokens of
-            []  -> return Nothing
-            [x] -> return $ Just x
-            xs  -> let msg = "Should only be able to retrieve at most one token, retrieved: " <> show xs
-                   in liftIO (errorM logName msg) >> fail msg
-
-createToken
-    :: ( MonadIO m
-       , MonadBaseControl IO m
-       , MonadReader (Pool Connection) m
-       )
-    => UserID
-    -> Scope
-    -> m TokenID
-createToken user_id scope = do
-    pool <- ask
-    withResource pool $ \conn ->
-        --liftIO $ execute conn "INSERT INTO tokens VALUES ..."
-        error "wat"
-
-revokeToken
-    :: ( MonadIO m
-       , MonadBaseControl IO m
-       , MonadReader (Pool Connection) m
-       )
-    => UserID
-    -> TokenID
-    -> m ()
-revokeToken user_id token_id = do
-    pool <- ask
-    withResource pool $ \conn -> do
-        liftIO . debugM logName $ "Revoking token with id " <> show token_id <> " for user " <> show user_id
-        -- TODO: Inspect the return value
-        _ <- liftIO $ execute conn "UPDATE tokens SET revoked = NOW() WHERE (token_id = ?) AND (user_id = ?)" (token_id, user_id)
-        return ()
 
 -- * Support Code
 
@@ -508,33 +468,3 @@ mebbeField parse = fieldWith fld
     fld :: Field -> Maybe ByteString -> Conversion a
     fld f mbs = (parse <$> fromField f mbs) >>=
         maybe (returnError ConversionFailed f "") return
-
---------------------------------------------------------------------------------
-
--- * Strappings for running store standalone operations
-
-newtype Store m a = Store
-  { storeAction :: ExceptT OAuth2Error (ReaderT (Pool Connection) m) a }
-  deriving ( Functor, Applicative, Monad
-           , MonadIO, MonadReader (Pool Connection), MonadError OAuth2Error)
-
-instance MonadTrans Store where
-  lift = Store . lift . lift
-
-instance MonadTransControl Store where
-  type StT Store a = Either OAuth2Error a
-  liftWith f = Store . ExceptT . ReaderT
-             $ \server -> liftM return
-             $ f
-             $ \action -> runReaderT (runExceptT (storeAction action)) server
-  restoreT   = Store . ExceptT . ReaderT . const
-
-deriving instance MonadBase b m => MonadBase b (Store m)
-
-instance MonadBaseControl b m => MonadBaseControl b (Store m) where
-  type StM (Store m) a = ComposeSt Store m a
-  liftBaseWith = defaultLiftBaseWith
-  restoreM     = defaultRestoreM
-
-runStore :: Pool Connection -> Store m a -> m (Either OAuth2Error a)
-runStore s = flip runReaderT s . runExceptT . storeAction
