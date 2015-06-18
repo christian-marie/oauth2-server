@@ -224,6 +224,8 @@ suite = do
 
         hasCorrectJSON "OAuth2Error" (Proxy :: Proxy OAuth2Error)
 
+        hasCorrectJSON "URI" (Proxy :: Proxy URI)
+
         hasCorrectFormUrlEncoded "AccessRequest" (Proxy :: Proxy AccessRequest)
 
         prop "forall (x :: AuthHeader). fromText (toText x) === Just x" $ \(x :: AuthHeader) ->
