@@ -205,32 +205,35 @@ instance TokenStore (Pool Connection) IO where
                                 Nothing
     storeCheckCredentials pool (Just auth) req = do
         liftIO . debugM logName $ "Checking some credentials"
-        case req of
-            -- https://tools.ietf.org/html/rfc6749#section-4.1.3
-            RequestAuthorizationCode code uri client ->
-                checkClientAuthCode auth code uri client
-            -- https://tools.ietf.org/html/rfc6749#section-4.3.2
-            RequestPassword username password scope ->
-                checkPassword auth username password scope
-            RequestClientCredentials scope ->
-                checkClientCredentials pool auth scope
-            RequestRefreshToken tok scope ->
-                checkRefreshToken auth tok scope
+        client_id <- storeCheckClientAuth pool auth
+        case client_id of
+            Nothing -> throwIO $ OAuth2Error UnauthorizedClient
+                                             (preview errorDescription "Invalid client credentials")
+                                             Nothing
+            Just client_id' -> case req of
+                -- https://tools.ietf.org/html/rfc6749#section-4.1.3
+                RequestAuthorizationCode code uri client ->
+                    checkClientAuthCode client_id' code uri client
+                -- https://tools.ietf.org/html/rfc6749#section-4.3.2
+                RequestPassword username password scope ->
+                    checkPassword client_id' username password scope
+                -- http://tools.ietf.org/html/rfc6749#section-4.4.2
+                RequestClientCredentials scope ->
+                    checkClientCredentials client_id' scope
+                -- http://tools.ietf.org/html/rfc6749#section-6
+                RequestRefreshToken tok scope ->
+                    checkRefreshToken client_id' tok scope
       where
+
         checkClientAuthCode _ _ Nothing _ = throwIO $ OAuth2Error InvalidRequest
                                                                   (preview errorDescription "No redirect URI supplied.")
                                                                   Nothing
         checkClientAuthCode _ _ _ Nothing = throwIO $ OAuth2Error InvalidRequest
                                                                   (preview errorDescription "No client ID supplied.")
                                                                   Nothing
-        checkClientAuthCode auth code (Just uri) (Just purported_client) = do
-            client_id <- storeCheckClientAuth pool auth
-            case client_id of
-                Nothing -> throwIO $ OAuth2Error UnauthorizedClient
-                                                 (preview errorDescription "Invalid client credentials")
-                                                 Nothing
-                Just client_id' -> do
-                    when (client_id' /= purported_client) $ throwIO $
+        checkClientAuthCode client_id code (Just uri) (Just purported_client) = do
+             do
+                    when (client_id /= purported_client) $ throwIO $
                         OAuth2Error UnauthorizedClient
                                     (preview errorDescription "Invalid client credentials")
                                     Nothing
@@ -256,7 +259,7 @@ instance TokenStore (Pool Connection) IO where
                                      throwIO $ OAuth2Error InvalidScope
                                                            (preview errorDescription "No scope found")
                                                            Nothing
-                                 Just scope -> return (Just client_id', scope)
+                                 Just scope -> return (Just client_id, scope)
                         _ -> do
                             liftIO . errorM logName $ "Consistency error: duplicate code " <> show code
                             fail $ "Consistency error: duplicate code " <> show code
@@ -267,23 +270,17 @@ instance TokenStore (Pool Connection) IO where
 
         -- We can't do anything sensible to verify the scope here, so just
         -- ignore it.
-        checkClientCredentials _ _ Nothing = throwIO $ OAuth2Error InvalidRequest
+        checkClientCredentials _ Nothing = throwIO $ OAuth2Error InvalidRequest
                                                                    (preview errorDescription "No scope supplied.")
                                                                    Nothing
-        checkClientCredentials _ auth (Just scope) = do
-            client_id <- storeCheckClientAuth pool auth
-            case client_id of
-                Nothing -> throwIO $ OAuth2Error UnauthorizedClient
-                                                 (preview errorDescription "Invalid client credentials")
-                                                 Nothing
-                Just client_id' -> return (client_id, scope)
+        checkClientCredentials client_id (Just scope) = return (Just client_id, scope)
 
         -- Verify client credentials and scope, and that the request token is
         -- valid.
         checkRefreshToken _ _ Nothing     = throwIO $ OAuth2Error InvalidRequest
                                                                   (preview errorDescription "No scope supplied.")
                                                                   Nothing
-        checkRefreshToken auth tok (Just scope) = do
+        checkRefreshToken client_id tok (Just scope) = do
             details <- liftIO $ storeLoadToken pool tok
             case details of
                 Nothing -> do
@@ -302,14 +299,7 @@ instance TokenStore (Pool Connection) IO where
                         throwIO $ OAuth2Error InvalidScope
                                               (preview errorDescription "Invalid scope")
                                               Nothing
-                    client_id <- storeCheckClientAuth pool auth
-                    case client_id of
-                        Nothing -> throwIO $ OAuth2Error UnauthorizedClient
-                                                         (preview errorDescription "Invalid client credentials")
-                                                         Nothing
-                        Just client_id' -> return (Just client_id', scope)
-
-
+                    return (Just client_id, scope)
 
     storeCheckClientAuth pool auth = do
         case preview authDetails auth of
