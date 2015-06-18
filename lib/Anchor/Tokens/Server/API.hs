@@ -15,9 +15,7 @@ import           Control.Monad.Error.Class
 import           Control.Monad.IO.Class
 import           Control.Monad.Trans.Control
 import           Control.Monad.Trans.Reader
-import           Data.ByteString             (ByteString)
 import           Data.Time.Clock
-import qualified Data.ByteString.Lazy.Char8  as BSL
 import           Data.Either
 import           Data.Maybe
 import           Data.Monoid
@@ -100,6 +98,7 @@ type AuthorizeEndpoint
 type AuthorizePost
     = "authorize"
     :> Header OAuthUserHeader UserID
+    :> Header OAuthUserScopeHeader Scope
     :> ReqBody '[FormUrlEncoded] Code
     :> Post '[HTML] ()
 
@@ -159,8 +158,8 @@ server :: ServerState -> Server AnchorOAuth2API
 server state@ServerState{..}
        = tokenEndpoint serverOAuth2Server
     :<|> verifyEndpoint state
-    :<|> authorizeEndpoint serverPGConnPool
-    :<|> authorizePost serverPGConnPool
+    :<|> handleShib (authorizeEndpoint serverPGConnPool)
+    :<|> handleShib (authorizePost serverPGConnPool)
     :<|> handleShib (serverListTokens serverPGConnPool (optUIPageSize serverOpts))
     :<|> handleShib (serverDisplayToken serverPGConnPool)
     :<|> serverPostToken serverPGConnPool
@@ -169,17 +168,12 @@ server state@ServerState{..}
 -- and any other case is an internal error. handleShib consolidates
 -- checking these headers.
 handleShib
-    :: ( MonadIO m
-       , MonadBaseControl IO m
-       , MonadError ServantErr m
-       )
-    => (UserID -> Scope -> a -> m b)
+    :: (UserID -> Scope -> a)
     -> Maybe UserID
     -> Maybe Scope
     -> a
-    -> m b
 handleShib f (Just u) (Just s) = f u s
-handleShib _ _        _        = const $ throwError err500{errBody = "We're having some trouble with our internal auth systems, please try again later =("}
+handleShib _ _        _        = error "Expected Shibbloleth headers"
 
 authorizeEndpoint
     :: ( MonadIO m
@@ -187,31 +181,25 @@ authorizeEndpoint
        , MonadError ServantErr m
        )
     => Pool Connection
-    -> Maybe UserID
-    -> Maybe Scope
+    -> UserID
+    -> Scope
     -> Maybe ResponseTypeCode
     -> Maybe ClientID
     -> Maybe URI
     -> Maybe Scope
     -> Maybe ClientState
     -> m Html
-authorizeEndpoint pool u' permissions' rt c_id' redirect sc' st = do
+authorizeEndpoint pool user_id permissions rt c_id' redirect sc' st = do
     case rt of
         Nothing -> error "NOOOO"
         Just ResponseTypeCode -> return ()
-    u_id <- case u' of
-        Nothing -> error "NOOOO"
-        Just u_id -> return u_id
-    permissions <- case permissions' of
-        Nothing -> error "NOOOO"
-        Just permissions -> return permissions
     sc <- case sc' of
         Nothing -> error "NOOOO"
         Just sc -> if sc `compatibleScope` permissions then return sc else error "NOOOOO"
     c_id <- case c_id' of
         Nothing -> error "NOOOO"
         Just c_id -> return c_id
-    request_code <- runReaderT (createCode u_id c_id redirect sc st) pool
+    request_code <- runReaderT (createCode user_id c_id redirect sc st) pool
     return $ renderAuthorizePage request_code
 
 authorizePost
@@ -220,14 +208,12 @@ authorizePost
        , MonadError ServantErr m
        )
     => Pool Connection
-    -> Maybe UserID
+    -> UserID
+    -> Scope
     -> Code
     -> m ()
-authorizePost pool u code' = do
-    u_id <- case u of
-        Nothing -> error "NOOOO"
-        Just u_id -> return u_id
-    res <- runReaderT (activateCode code' u_id) pool
+authorizePost pool user_id _scope code' = do
+    res <- runReaderT (activateCode code' user_id) pool
     case res of
         Nothing -> error "NOOOO"
         Just uri -> do

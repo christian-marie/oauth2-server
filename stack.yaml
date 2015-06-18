@@ -1,0 +1,16 @@
+flags: {}
+packages:
+- '.'
+- location:
+    git: git@github.com:anchor/oauth2-server.git
+    commit: 36ac26db2858efa3da254f61e4a8a6a4c0086aa7
+extra-deps:
+- ekg-0.4.0.6
+- ekg-core-0.1.0.4
+- scrypt-0.5.0
+- servant-blaze-0.4.2
+- uri-bytestring-0.1.5
+- servant-0.4.2
+- servant-server-0.4.2
+- lens-properties-4.11
+resolver: lts-2.14
