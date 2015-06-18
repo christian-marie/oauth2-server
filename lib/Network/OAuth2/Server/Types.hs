@@ -6,6 +6,7 @@
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE ViewPatterns               #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- | Description: Data types for OAuth2 server.
 module Network.OAuth2.Server.Types (
@@ -644,11 +645,11 @@ instance FromJSON ErrorCode where
             Nothing -> fail $ T.unpack t <> " is not a valid URI."
             Just s -> return s
 
-uriToJSON :: URI -> Value
-uriToJSON = toJSON . T.decodeUtf8 . toByteString . serializeURI
+instance ToJSON URI where
+    toJSON = toJSON . T.decodeUtf8 . toByteString . serializeURI
 
-uriFromJSON :: Value -> Aeson.Parser URI
-uriFromJSON = withText "URI" $ \t ->
+instance FromJSON URI where
+    parseJSON = withText "URI" $ \t ->
         case parseURI strictURIParserOptions $ T.encodeUtf8 t of
             Left e -> fail $ show e
             Right u -> return u
@@ -657,15 +658,13 @@ instance ToJSON OAuth2Error where
     toJSON OAuth2Error{..} = object $
         [ "error" .= oauth2ErrorCode ] <>
         [ "error_description" .= desc | Just desc <- [oauth2ErrorDescription]] <>
-        [ "error_uri" .= uriToJSON uri | Just uri <- [oauth2ErrorURI]]
+        [ "error_uri" .= uri | Just uri <- [oauth2ErrorURI]]
 
 instance FromJSON OAuth2Error where
     parseJSON = withObject "OAuth2Error" $ \o -> OAuth2Error
         <$> o .: "error"
         <*> o .:? "error_description"
-        <*> (let f (Just uri) = Just <$> uriFromJSON uri
-                 f Nothing = pure Nothing
-             in o .:? "error_uri" >>= f)
+        <*> o .:? "error_uri"
 
 instance FromText Scope where
     fromText = bsToScope . T.encodeUtf8
