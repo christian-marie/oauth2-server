@@ -66,4 +66,13 @@ All interactions with Anchor Token Server itself and between the other parties
 contain sensitive information and MUST be protected with correctly configured
 TLS. All parties SHOULD validate the certificate used by Anchor Token Server.
 
+Testing
+-------
+
+If your environment is sufficiently like mine you can use the `runit.sh`
+script to setup a temporary database, run the server, and clean up.
+
+**Warning** you *must* review the `runit.sh` script *before* you use it. It
+will drop your PostgreSQL databases without asking for confirmation!
+
 [diagram:interactions]: https://raw.githubusercontent.com/anchor/anchor-token-server/master/docs/architecture.png
