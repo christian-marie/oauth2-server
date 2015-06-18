@@ -29,7 +29,9 @@ import           Crypto.Scrypt
 import           Data.ByteString                            (ByteString)
 import qualified Data.ByteString                            as BS
 import qualified Data.ByteString.Base64                     as B64
+import qualified Data.ByteString.Char8                      as BC
 import           Data.Char
+import           Data.Maybe
 import           Data.Monoid
 import           Data.Pool
 import qualified Data.Set                                   as S
@@ -408,8 +410,9 @@ instance FromField ClientID where
     fromField f bs = do
         c <- fromField f bs
         case c ^? clientID of
-            Nothing   -> returnError ConversionFailed f ""
             Just c_id -> pure c_id
+            Nothing   -> returnError ConversionFailed f $
+                            "Failed to convert with clientID: " <> show c
 
 instance ToField ClientID where
     toField c_id = toField $ c_id ^.re clientID
@@ -421,15 +424,17 @@ instance FromField ScopeToken where
     fromField f bs = do
         x <- fromField f bs
         case x ^? scopeToken of
-            Nothing         -> returnError ConversionFailed f ""
-            Just scopeToken -> pure scopeToken
+            Just s  -> pure s
+            Nothing -> returnError ConversionFailed f $
+                           "Failed to convert with scopeToken: " <> show x
 
 instance FromField Scope where
     fromField f bs = do
-        tokenVector <- fromField f bs
-        case S.fromList (V.toList tokenVector) ^? scope of
-            Nothing    -> returnError ConversionFailed f ""
-            Just scope -> pure scope
+        (v :: V.Vector ScopeToken) <- fromField f bs
+        case S.fromList (V.toList v) ^? scope of
+            Just s  -> pure s
+            Nothing -> returnError ConversionFailed f $
+                            "Failed to convert with scope."
 
 instance ToField Token where
     toField tok = toField $ review token tok
@@ -444,17 +449,24 @@ instance ToField TokenType where
 instance FromField TokenType where
     fromField f bs
         | typeOid f /= $(inlineTypoid TI.varchar) = returnError Incompatible f ""
-        | bs == Nothing = returnError UnexpectedNull f "Token type cannot be NULL"
         | bs == bearer  = pure Bearer
         | bs == refresh = pure Refresh
-        | otherwise     = returnError ConversionFailed f $ "Unknown token type: " <> show bs
+        | bs == Nothing = returnError UnexpectedNull f $
+                              "Token type cannot be NULL."
+        | otherwise     = returnError ConversionFailed f $
+                              "Unknown token type: " <> show bs
       where
         bearer = Just "bearer"
         refresh = Just "refresh"
 
 instance ToRow TokenGrant where
-    toRow (TokenGrant ty ex uid cid sc) =
-        toRow (ty, ex, review username <$> uid, review clientID <$> cid, scopeToBs sc)
+    toRow (TokenGrant ty ex uid cid sc) = toRow
+        ( ty
+        , ex
+        , review username <$> uid
+        , review clientID <$> cid
+        , scopeToBs sc
+        )
 
 instance FromRow TokenDetails where
     fromRow = TokenDetails <$> field
@@ -462,7 +474,7 @@ instance FromRow TokenDetails where
                            <*> field
                            <*> (preview username <$> field)
                            <*> (preview clientID <$> field)
-                           <*> mebbeField bsToScope
+                           <*> field
 
 instance FromField URI where
     fromField f bs = do
@@ -507,8 +519,9 @@ instance FromField Code where
     fromField f bs = do
         x <- fromField f bs
         case x ^? code of
-            Nothing    -> returnError ConversionFailed f ""
-            Just c -> pure c
+            Just c  -> pure c
+            Nothing -> returnError ConversionFailed f $
+                           "Failed to convert with code: " <> show x
 
 instance ToField Code where
     toField x = toField $ x ^.re code
