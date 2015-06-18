@@ -224,7 +224,9 @@ instance TokenStore (Pool Connection) IO where
                 RequestRefreshToken tok scope ->
                     checkRefreshToken client_id' tok scope
       where
-
+        --
+        -- Verify client, scope and request code.
+        --
         checkClientAuthCode _ _ Nothing _ = throwIO $ OAuth2Error InvalidRequest
                                                                   (preview errorDescription "No redirect URI supplied.")
                                                                   Nothing
@@ -264,19 +266,28 @@ instance TokenStore (Pool Connection) IO where
                             liftIO . errorM logName $ "Consistency error: duplicate code " <> show code
                             fail $ "Consistency error: duplicate code " <> show code
 
+        --
+        -- Check nothing and fail; we don't support password grants.
+        --
+
         checkPassword _ _ _ _ = throwIO $ OAuth2Error UnsupportedGrantType
                                                       (preview errorDescription "password grants not supported")
                                                       Nothing
 
-        -- We can't do anything sensible to verify the scope here, so just
-        -- ignore it.
+        --
+        -- Client has been verified and there's nothing to verify for the
+        -- scope, so this will always succeed unless we get no scope at all.
+        --
+
         checkClientCredentials _ Nothing = throwIO $ OAuth2Error InvalidRequest
                                                                    (preview errorDescription "No scope supplied.")
                                                                    Nothing
         checkClientCredentials client_id (Just scope) = return (Just client_id, scope)
 
-        -- Verify client credentials and scope, and that the request token is
-        -- valid.
+        --
+        -- Verify scope and request token.
+        --
+
         checkRefreshToken _ _ Nothing     = throwIO $ OAuth2Error InvalidRequest
                                                                   (preview errorDescription "No scope supplied.")
                                                                   Nothing
