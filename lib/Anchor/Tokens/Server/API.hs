@@ -1,9 +1,9 @@
-{-# LANGUAGE DataKinds           #-}
-{-# LANGUAGE FlexibleContexts    #-}
-{-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE RankNTypes          #-}
-{-# LANGUAGE RecordWildCards     #-}
-{-# LANGUAGE TypeOperators       #-}
+{-# LANGUAGE DataKinds         #-}
+{-# LANGUAGE FlexibleContexts  #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes        #-}
+{-# LANGUAGE RecordWildCards   #-}
+{-# LANGUAGE TypeOperators     #-}
 
 -- | Description: HTTP API implementation.
 module Anchor.Tokens.Server.API where
@@ -85,7 +85,7 @@ type AuthorizeEndpoint
     :> Header OAuthUserScopeHeader Scope
     :> QueryParam "response_type" ResponseTypeCode
     :> QueryParam "client_id" ClientID
-    :> QueryParam "redirect_uri" URI
+    :> QueryParam "redirect_uri" RedirectURI
     :> QueryParam "scope" Scope
     :> QueryParam "state" ClientState
     :> Get '[HTML] Html
@@ -186,7 +186,7 @@ authorizeEndpoint
     -> Scope
     -> Maybe ResponseTypeCode
     -> Maybe ClientID
-    -> Maybe URI
+    -> Maybe RedirectURI
     -> Maybe Scope
     -> Maybe ClientState
     -> m Html
@@ -218,8 +218,8 @@ authorizePost pool user_id _scope code' = do
     case res of
         Nothing -> error "NOOOO"
         Just uri -> do
-            let uri' = uri & uriQueryL . queryPairsL %~ (<> [("code", code' ^.re code)])
-            throwError err302{ errHeaders = [(hLocation, toByteString $ serializeURI uri')] }
+            let uri' = addQueryParameters uri [("code", code' ^.re code)]
+            throwError err302{ errHeaders = [(hLocation, uri' ^.re redirectURI)] }
 
 -- | Verify a token and return information about the principal and grant.
 --

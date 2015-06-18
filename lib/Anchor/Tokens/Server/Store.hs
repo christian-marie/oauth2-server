@@ -11,9 +11,6 @@
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TypeFamilies               #-}
 
--- needed for monad base/control as required by this API
-{-# LANGUAGE UndecidableInstances       #-}
-
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- | Description: OAuth2 token storage using PostgreSQL.
@@ -68,7 +65,7 @@ class TokenStore ref m where
         :: ref
         -> UserID
         -> ClientID
-        -> Maybe URI
+        -> Maybe RedirectURI
         -> Scope
         -> Maybe ClientState
         -> m RequestCode
@@ -78,7 +75,7 @@ class TokenStore ref m where
         :: ref
         -> Code
         -> UserID
-        -> m (Maybe URI)
+        -> m (Maybe RedirectURI)
 
     -- | Record a new token grant in the database.
     storeSaveToken
@@ -476,6 +473,16 @@ instance FromField URI where
 
 instance ToField URI where
     toField x = toField $ toByteString $ serializeURI x
+
+instance FromField RedirectURI where
+    fromField f bs = do
+        x <- fromField f bs
+        case x ^? redirectURI of
+            Nothing -> returnError ConversionFailed f ""
+            Just uri -> return uri
+
+instance ToField RedirectURI where
+    toField = toField . review redirectURI
 
 instance FromRow ClientDetails where
     fromRow = ClientDetails <$> field
