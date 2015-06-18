@@ -24,7 +24,7 @@ import           Anchor.Tokens.Server.Configuration as X
 import           Anchor.Tokens.Server.Statistics    as X
 import           Anchor.Tokens.Server.Types         as X
 
-import           Paths_anchor_token_server          as P
+import           Paths_oauth2_server                as P
 
 
 -- * Server
