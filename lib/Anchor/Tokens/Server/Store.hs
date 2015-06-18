@@ -180,10 +180,14 @@ instance TokenStore (Pool Connection) IO where
                     liftIO . errorM logName $ "Consistency error: multiple redirect URLs found"
                     error "Consistency error: multiple redirect URLs found"
 
-    storeSaveToken _pool grant = do
+    storeSaveToken pool grant = do
         debugM logName $ "Saving new token: " <> show grant
-        -- INSERT the grant into the databass, returning the new token's ID.
-        fail "Nope"
+        res :: [TokenDetails] <- withResource pool $ \conn -> do
+            liftIO $ query conn "INSERT INTO tokens (token_type, expires, user_id, client_id, scope) VALUES (?,?,?,?,?) RETURNING (token_type, token, expires, user_id, client_id, scope)" (grant)
+        case res of
+            [] -> fail $ "Failed to save new token: " <> show grant
+            [token] -> return token
+            _       -> fail "Impossible: multiple tokens returned from single insert"
 
     storeLoadToken pool tok = do
         liftIO . debugM logName $ "Loading token: " <> show tok
@@ -365,9 +369,11 @@ instance TokenStore (Pool Connection) IO where
     storeRevokeToken pool user_id token_id = do
         withResource pool $ \conn -> do
             liftIO . debugM logName $ "Revoking token with id " <> show token_id <> " for user " <> show user_id
-            -- TODO: Inspect the return value
-            _ <- liftIO $ execute conn "UPDATE tokens SET revoked = NOW() WHERE (token_id = ?) AND (user_id = ?)" (token_id, user_id)
-            return ()
+            rows <- liftIO $ execute conn "UPDATE tokens SET revoked = NOW() WHERE (token_id = ?) AND (user_id = ?)" (token_id, user_id)
+            case rows of
+                1 -> liftIO . debugM logName $ "Revoked token with id " <> show token_id <> " for user " <> show user_id
+                0 -> fail $ "Failed to revoke token " <> show token_id <> " for user " <> show user_id
+                _ -> liftIO . errorM logName $ "Consistency error: revoked multiple tokens " <> show token_id <> " for user " <> show user_id
 
     storeLift = liftIO
 
