@@ -206,6 +206,7 @@ instance TokenStore (Pool Connection) IO where
     storeCheckCredentials pool (Just auth) req = do
         liftIO . debugM logName $ "Checking some credentials"
         case req of
+            -- https://tools.ietf.org/html/rfc6749#section-4.1.3
             RequestAuthorizationCode code uri client ->
                 checkClientAuthCode auth code uri client
             RequestPassword username password scope ->
@@ -221,7 +222,7 @@ instance TokenStore (Pool Connection) IO where
         checkClientAuthCode _ _ _ Nothing = throwIO $ OAuth2Error InvalidRequest
                                                                   (preview errorDescription "No client ID supplied.")
                                                                   Nothing
-        checkClientAuthCode auth _ (Just _) (Just purported_client) = do
+        checkClientAuthCode auth code (Just uri) (Just purported_client) = do
             client_id <- storeCheckClientAuth pool auth
             case client_id of
                 Nothing -> throwIO $ OAuth2Error UnauthorizedClient
@@ -232,7 +233,26 @@ instance TokenStore (Pool Connection) IO where
                         OAuth2Error UnauthorizedClient
                                     (preview errorDescription "Invalid client credentials")
                                     Nothing
-                    -- fixme: check code
+                    codes :: [RequestCode] <- withResource pool $ \conn ->
+                        liftIO $ query conn "SELECT code, expires, client_id, redirect_url, scope, state FROM request_codes WHERE (code = ?)" (Only code)
+                    case codes of
+                        [] -> throwIO $ OAuth2Error InvalidGrant
+                                                    (preview errorDescription "Request code not found")
+                                                    Nothing
+                        [rc] -> do
+                             -- Fail if redirect_uri doesn't match what's in the database.
+                             when (uri /= (requestCodeRedirectURI rc)) $ do
+                                 liftIO . debugM logName $    "Redirect URI mismatch verifying access token request: requested"
+                                                           <> show uri
+                                                           <> " but got "
+                                                           <> show (requestCodeRedirectURI rc)
+                                 throwIO $ OAuth2Error InvalidRequest
+                                                       (preview errorDescription "Invalid redirect URI")
+                                                       Nothing
+                             return (client_id', requestCodeScope rc)
+                        _ -> do
+                            liftIO . errorM logName $ "Consistency error: duplicate code " <> show code
+                            fail $ "Consistency error: duplicate code " <> show code
                     fail "I don't know what scope I'm supposed to return here"
 
         -- We can't do anything sensible to verify the scope here, so just
@@ -449,6 +469,13 @@ instance FromRow ClientDetails where
                             <*> field
                             <*> field
 
+instance FromField ClientState where
+    fromField f bs = do
+        s <- fromField f bs
+        case preview clientState s of
+            Nothing -> returnError ConversionFailed f "Unable to parse ClientState"
+            Just state -> return state
+
 instance ToField ClientState where
     toField x = toField $ x ^.re clientState
 
@@ -461,6 +488,14 @@ instance FromField Code where
 
 instance ToField Code where
     toField x = toField $ x ^.re code
+
+instance FromRow RequestCode where
+    fromRow = RequestCode <$> field
+                          <*> field
+                          <*> field
+                          <*> field
+                          <*> field
+                          <*> field
 
 -- | Get a PostgreSQL field using a parsing function.
 --
