@@ -6,12 +6,12 @@
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE ViewPatterns               #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- | Description: Data types for OAuth2 server.
 module Network.OAuth2.Server.Types (
   AccessRequest(..),
   AccessResponse(..),
+  addQueryParameters,
   AuthHeader(..),
   bsToScope,
   ClientID,
@@ -32,6 +32,8 @@ module Network.OAuth2.Server.Types (
   Password,
   password,
   RequestCode(..),
+  RedirectURI,
+  redirectURI,
   Scope,
   scope,
   scopeToBs,
@@ -52,8 +54,8 @@ module Network.OAuth2.Server.Types (
 import Blaze.ByteString.Builder (toByteString)
 import Control.Applicative (Applicative ((<*), (<*>), pure), (<$>))
 import Control.Exception (Exception)
-import Control.Lens.Fold ((^?))
-import Control.Lens.Operators ((^.))
+import Control.Lens.Fold (preview, (^?))
+import Control.Lens.Operators ((%~), (&), (^.))
 import Control.Lens.Prism (Prism', prism')
 import Control.Lens.Review (re, review)
 import Control.Monad (guard)
@@ -79,7 +81,8 @@ import Data.Word (Word8)
 import Servant.API (FromFormUrlEncoded (..), FromText (..), MimeRender (..),
                     MimeUnrender (..), OctetStream, ToFormUrlEncoded (..),
                     ToText (..))
-import URI.ByteString (URI, parseURI, serializeURI, strictURIParserOptions)
+import URI.ByteString (URI, parseURI, queryPairsL, serializeURI,
+                       strictURIParserOptions, uriFragmentL, uriQueryL)
 
 
 vschar :: Word8 -> Bool
@@ -290,7 +293,7 @@ data RequestCode = RequestCode
     { requestCodeCode        :: Code
     , requestCodeExpires     :: UTCTime
     , requestCodeClientID    :: ClientID
-    , requestCodeRedirectURI :: URI
+    , requestCodeRedirectURI :: RedirectURI
     , requestCodeScope       :: Maybe Scope
     , requestCodeState       :: Maybe ClientState
     }
@@ -306,7 +309,7 @@ data AccessRequest
     --   http://tools.ietf.org/html/rfc6749#section-4.1.3
     = RequestAuthorizationCode
         { requestCode        :: Code
-        , requestRedirectURI :: Maybe URI
+        , requestRedirectURI :: Maybe RedirectURI
         , requestClientID    :: Maybe ClientID
         }
     -- | grant_type=password
@@ -354,9 +357,9 @@ instance FromFormUrlEncoded AccessRequest where
                     Just x -> return $ x
                 requestRedirectURI <- case lookup "redirect_uri" xs of
                     Nothing -> return Nothing
-                    Just r -> case parseURI strictURIParserOptions $ T.encodeUtf8 r of
-                        Left e -> Left $ show e
-                        Right x -> return $ Just x
+                    Just r -> case fromText r of
+                        Nothing -> Left $ "Error decoding redirect_uri: " <> T.unpack r
+                        Just x -> return $ Just x
                 requestClientID <- case lookup "client_id" xs of
                     Nothing -> return Nothing
                     Just cid -> case T.encodeUtf8 cid ^? clientID of
@@ -404,7 +407,7 @@ instance ToFormUrlEncoded AccessRequest where
         [ ("grant_type", "authorization_code")
         , ("code", T.decodeUtf8 $ requestCode ^.re code)
         ] <>
-        [ ("redirect_uri", T.decodeUtf8 . toByteString . serializeURI $ r)
+        [ ("redirect_uri", toText r)
           | Just r <- return requestRedirectURI ] <>
         [ ("client_id", T.decodeUtf8 $ c ^.re clientID)
           | Just c <- return requestClientID ]
@@ -645,31 +648,53 @@ instance FromJSON ErrorCode where
             Nothing -> fail $ T.unpack t <> " is not a valid URI."
             Just s -> return s
 
-instance ToJSON URI where
-    toJSON = toJSON . T.decodeUtf8 . toByteString . serializeURI
+newtype RedirectURI = RedirectURI { unRedirectURI :: URI }
+  deriving (Eq, Show, Typeable)
 
-instance FromJSON URI where
-    parseJSON = withText "URI" $ \t ->
-        case parseURI strictURIParserOptions $ T.encodeUtf8 t of
-            Left e -> fail $ show e
-            Right u -> return u
+addQueryParameters :: RedirectURI -> [(ByteString, ByteString)] -> RedirectURI
+addQueryParameters (RedirectURI uri) params = RedirectURI $ uri & uriQueryL . queryPairsL %~ (<> params)
+
+redirectURI :: Prism' ByteString RedirectURI
+redirectURI = prism' fromRedirect toRedirect
+  where
+    fromRedirect :: RedirectURI -> ByteString
+    fromRedirect = toByteString . serializeURI . unRedirectURI
+
+    toRedirect :: ByteString -> Maybe RedirectURI
+    toRedirect bs = case parseURI strictURIParserOptions bs of
+        Left _ -> Nothing
+        Right uri -> case uri ^. uriFragmentL of
+            Just _ -> Nothing
+            Nothing -> Just $ RedirectURI uri
+
+instance FromText RedirectURI where
+    fromText = preview redirectURI . T.encodeUtf8
+
+instance ToText RedirectURI where
+    toText = T.decodeUtf8 . review redirectURI
+
+uriToJSON :: URI -> Value
+uriToJSON = toJSON . T.decodeUtf8 . toByteString . serializeURI
 
 instance ToJSON OAuth2Error where
     toJSON OAuth2Error{..} = object $
         [ "error" .= oauth2ErrorCode ] <>
         [ "error_description" .= desc | Just desc <- [oauth2ErrorDescription]] <>
-        [ "error_uri" .= uri | Just uri <- [oauth2ErrorURI]]
+        [ "error_uri" .= uriToJSON uri | Just uri <- [oauth2ErrorURI]]
+
+uriFromJSON :: Value -> Aeson.Parser URI
+uriFromJSON = withText "URI" $ \t ->
+    case parseURI strictURIParserOptions $ T.encodeUtf8 t of
+        Left e -> fail $ show e
+        Right u -> return u
 
 instance FromJSON OAuth2Error where
     parseJSON = withObject "OAuth2Error" $ \o -> OAuth2Error
         <$> o .: "error"
         <*> o .:? "error_description"
-        <*> o .:? "error_uri"
+        <*> (let f (Just uri) = Just <$> uriFromJSON uri
+                 f Nothing = pure Nothing
+             in o .:? "error_uri" >>= f)
 
 instance FromText Scope where
     fromText = bsToScope . T.encodeUtf8
-
-instance FromText URI where
-    fromText t = case parseURI strictURIParserOptions . T.encodeUtf8 $ t of
-        Left _ -> Nothing
-        Right x -> Just x

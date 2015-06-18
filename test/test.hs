@@ -99,6 +99,15 @@ instance CoArbitrary Code where
 instance Function Code where
     function = functionShow
 
+instance Arbitrary RedirectURI where
+    arbitrary = do
+        uri <- elements
+            [ "http://www.ietf.org/rfc/rfc2396.txt"
+            ]
+        case uri ^? redirectURI of
+            Nothing -> fail $ "instance Arbitrary URI broken: " <> show uri
+            Just x -> return x
+
 instance Arbitrary AccessRequest where
     arbitrary = oneof
         [ RequestAuthorizationCode <$> arbitrary <*> arbitrary <*> arbitrary
@@ -223,8 +232,6 @@ suite = do
         hasCorrectJSON "AccessResponse" (Proxy :: Proxy AccessResponse)
 
         hasCorrectJSON "OAuth2Error" (Proxy :: Proxy OAuth2Error)
-
-        hasCorrectJSON "URI" (Proxy :: Proxy URI)
 
         hasCorrectFormUrlEncoded "AccessRequest" (Proxy :: Proxy AccessRequest)
 
