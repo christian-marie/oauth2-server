@@ -6,6 +6,7 @@
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE ViewPatterns               #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- | Description: Data types for OAuth2 server.
 module Network.OAuth2.Server.Types (
@@ -48,53 +49,37 @@ module Network.OAuth2.Server.Types (
   vschar,
 ) where
 
-import Blaze.ByteString.Builder ( toByteString )
-import Control.Applicative
-    ( Applicative((<*), (<*>), pure), (<$>) )
-import Control.Lens.Fold ( (^?) )
-import Control.Lens.Operators ( (^.) )
-import Control.Lens.Prism ( Prism', prism' )
-import Control.Lens.Review ( review, re )
-import Control.Monad ( guard )
-import Data.Aeson
-    ( Value(String),
-      ToJSON(..),
-      FromJSON(..),
-      object,
-      withText,
-      withObject,
-      (.=),
-      (.:?),
-      (.:) )
+import Blaze.ByteString.Builder (toByteString)
+import Control.Applicative (Applicative ((<*), (<*>), pure), (<$>))
+import Control.Exception (Exception)
+import Control.Lens.Fold ((^?))
+import Control.Lens.Operators ((^.))
+import Control.Lens.Prism (Prism', prism')
+import Control.Lens.Review (re, review)
+import Control.Monad (guard)
+import Data.Aeson (FromJSON (..), ToJSON (..), Value (String), object,
+                   withObject, withText, (.:), (.:?), (.=))
 import qualified Data.Aeson.Types as Aeson (Parser)
-import Data.Attoparsec.ByteString
-    ( Parser, endOfInput, sepBy1, word8, takeWhile1, parseOnly )
-import Data.ByteString ( ByteString )
-import qualified Data.ByteString as B ( null, intercalate, all )
-import qualified Data.ByteString.Lazy as BSL
-    ( toStrict, fromStrict )
-import Data.CaseInsensitive ( mk )
-import Data.Char ( ord )
-import Data.Monoid ( (<>) )
-import Data.Set ( Set )
-import qualified Data.Set as S
-    ( toList, null, fromList, difference )
-import Data.Text ( Text )
-import qualified Data.Text as T ( unpack, all )
-import qualified Data.Text.Encoding as T ( encodeUtf8, decodeUtf8 )
-import Data.Time.Clock ( UTCTime, diffUTCTime )
-import Data.Typeable ( Typeable )
-import Data.Word ( Word8 )
-import Servant.API
-    ( ToText(..),
-      FromText(..),
-      ToFormUrlEncoded(..),
-      OctetStream,
-      MimeUnrender(..),
-      MimeRender(..),
-      FromFormUrlEncoded(..) )
-import URI.ByteString
-    ( URI, strictURIParserOptions, serializeURI, parseURI )
+import Data.Attoparsec.ByteString (Parser, endOfInput, parseOnly, sepBy1,
+                                   takeWhile1, word8)
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as B (all, intercalate, null)
+import qualified Data.ByteString.Lazy as BSL (fromStrict, toStrict)
+import Data.CaseInsensitive (mk)
+import Data.Char (ord)
+import Data.Monoid ((<>))
+import Data.Set (Set)
+import qualified Data.Set as S (difference, fromList, null, toList)
+import Data.Text (Text)
+import qualified Data.Text as T (all, unpack)
+import qualified Data.Text.Encoding as T (decodeUtf8, encodeUtf8)
+import Data.Time.Clock (UTCTime, diffUTCTime)
+import Data.Typeable (Typeable)
+import Data.Word (Word8)
+import Servant.API (FromFormUrlEncoded (..), FromText (..), MimeRender (..),
+                    MimeUnrender (..), OctetStream, ToFormUrlEncoded (..),
+                    ToText (..))
+import URI.ByteString (URI, parseURI, serializeURI, strictURIParserOptions)
 
 
 vschar :: Word8 -> Bool
@@ -617,6 +602,7 @@ data OAuth2Error = OAuth2Error
     , oauth2ErrorURI         :: Maybe URI
     }
   deriving (Eq, Show, Typeable)
+instance Exception OAuth2Error
 
 data ErrorCode
     = InvalidClient
@@ -659,11 +645,11 @@ instance FromJSON ErrorCode where
             Nothing -> fail $ T.unpack t <> " is not a valid URI."
             Just s -> return s
 
-uriToJSON :: URI -> Value
-uriToJSON = toJSON . T.decodeUtf8 . toByteString . serializeURI
+instance ToJSON URI where
+    toJSON = toJSON . T.decodeUtf8 . toByteString . serializeURI
 
-uriFromJSON :: Value -> Aeson.Parser URI
-uriFromJSON = withText "URI" $ \t ->
+instance FromJSON URI where
+    parseJSON = withText "URI" $ \t ->
         case parseURI strictURIParserOptions $ T.encodeUtf8 t of
             Left e -> fail $ show e
             Right u -> return u
@@ -672,15 +658,13 @@ instance ToJSON OAuth2Error where
     toJSON OAuth2Error{..} = object $
         [ "error" .= oauth2ErrorCode ] <>
         [ "error_description" .= desc | Just desc <- [oauth2ErrorDescription]] <>
-        [ "error_uri" .= uriToJSON uri | Just uri <- [oauth2ErrorURI]]
+        [ "error_uri" .= uri | Just uri <- [oauth2ErrorURI]]
 
 instance FromJSON OAuth2Error where
     parseJSON = withObject "OAuth2Error" $ \o -> OAuth2Error
         <$> o .: "error"
         <*> o .:? "error_description"
-        <*> (let f (Just uri) = Just <$> uriFromJSON uri
-                 f Nothing = pure Nothing
-             in o .:? "error_uri" >>= f)
+        <*> o .:? "error_uri"
 
 instance FromText Scope where
     fromText = bsToScope . T.encodeUtf8
