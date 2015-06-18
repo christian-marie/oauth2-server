@@ -379,10 +379,10 @@ instance ToField TokenType where
 instance FromField TokenType where
     fromField f bs
         | typeOid f /= $(inlineTypoid TI.varchar) = returnError Incompatible f ""
-        | bs == Nothing = returnError UnexpectedNull f ""
+        | bs == Nothing = returnError UnexpectedNull f "Token type cannot be NULL"
         | bs == bearer  = pure Bearer
         | bs == refresh = pure Refresh
-        | otherwise     = returnError ConversionFailed f ""
+        | otherwise     = returnError ConversionFailed f $ "Unknown token type: " <> show bs
       where
         bearer = Just "bearer"
         refresh = Just "refresh"
