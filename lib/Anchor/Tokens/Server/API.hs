@@ -1,14 +1,15 @@
-{-# LANGUAGE DataKinds         #-}
-{-# LANGUAGE FlexibleContexts  #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RankNTypes        #-}
-{-# LANGUAGE RecordWildCards   #-}
-{-# LANGUAGE TypeOperators     #-}
+{-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE RankNTypes          #-}
+{-# LANGUAGE RecordWildCards     #-}
+{-# LANGUAGE TypeOperators       #-}
 
 -- | Description: HTTP API implementation.
 module Anchor.Tokens.Server.API where
 
 import           Blaze.ByteString.Builder    (toByteString)
+import           Control.Exception           (try)
 import           Control.Lens
 import           Control.Monad
 import           Control.Monad.Error.Class
@@ -199,7 +200,7 @@ authorizeEndpoint pool user_id permissions rt c_id' redirect sc' st = do
     c_id <- case c_id' of
         Nothing -> error "NOOOO"
         Just c_id -> return c_id
-    request_code <- runReaderT (createCode user_id c_id redirect sc st) pool
+    request_code <- liftIO $ storeCreateCode pool user_id c_id redirect sc st
     return $ renderAuthorizePage request_code
 
 authorizePost
@@ -213,7 +214,7 @@ authorizePost
     -> Code
     -> m ()
 authorizePost pool user_id _scope code' = do
-    res <- runReaderT (activateCode code' user_id) pool
+    res <- liftIO $ storeActivateCode pool code' user_id
     case res of
         Nothing -> error "NOOOO"
         Just uri -> do
@@ -240,10 +241,10 @@ verifyEndpoint ServerState{..} Nothing _token = throwError
     challenge = BasicAuth $ Realm (optVerifyRealm serverOpts)
 verifyEndpoint ServerState{..} (Just auth) token' = do
     -- 1. Check client authentication.
-    client_id' <- runStore serverPGConnPool $ checkClientAuth auth
+    client_id' <- liftIO . try $ storeCheckClientAuth serverPGConnPool auth
     client_id <- case client_id' of
         Left e -> do
-            logE $ "Error verifying token: " <> show e
+            logE $ "Error verifying token: " <> show (e :: OAuth2Error)
             throwError err500 { errBody = "Error checking client credentials." }
         Right Nothing -> do
             logD $ "Invalid client credentials: " <> show auth
@@ -251,10 +252,10 @@ verifyEndpoint ServerState{..} (Just auth) token' = do
         Right (Just cid) -> do
             return cid
     -- 2. Load token information.
-    token <- runStore serverPGConnPool $ (loadToken token')
+    token <- liftIO . try $ storeLoadToken serverPGConnPool token'
     case token of
         Left e -> do
-            logE $ "Error verifying token: " <> show e
+            logE $ "Error verifying token: " <> show (e :: OAuth2Error)
             throwError denied
         Right Nothing -> do
             logD $ "Cannot verify token: failed to lookup " <> show token'
@@ -283,7 +284,7 @@ serverDisplayToken
     -> TokenID
     -> m Html
 serverDisplayToken pool u s t = do
-    res <- runReaderT (displayToken u t) pool
+    res <- liftIO $ storeDisplayToken pool u t
     case res of
         Nothing -> throwError err404{errBody = "There's nothing here! =("}
         Just x -> return $ renderTokensPage s 1 (Page 1) ([x], 1)
@@ -301,7 +302,7 @@ serverListTokens
     -> m Html
 serverListTokens pool size u s p = do
     let p' = fromMaybe (Page 1) p
-    res <- runReaderT (listTokens size u p') pool
+    res <- liftIO $ storeListTokens pool size u p'
     return $ renderTokensPage s size p' res
 
 serverPostToken
@@ -330,7 +331,7 @@ serverRevokeToken
     -> TokenID
     -> m Html
 serverRevokeToken pool u _ t = do
-    runReaderT (revokeToken u t) pool
+    liftIO $ storeRevokeToken pool u t
     throwError err302{errHeaders = [(hLocation, "/tokens")]}     --Redirect to tokens page
 
 serverCreateToken
@@ -345,7 +346,7 @@ serverCreateToken
     -> m Html
 serverCreateToken pool user_id userScope reqScope = do
     if compatibleScope reqScope userScope then do
-        TokenID t <- runReaderT (createToken user_id reqScope) pool
+        TokenID t <- liftIO $ storeCreateToken pool user_id reqScope
         throwError err302{errHeaders = [(hLocation, "/tokens?token_id=" <> T.encodeUtf8 t)]} --Redirect to tokens page
     else throwError err403{errBody = "Invalid requested token scope"}
 
@@ -364,7 +365,7 @@ anchorOAuth2Server
     -> Output a
     -> OAuth2Server m
 anchorOAuth2Server pool out =
-    let oauth2StoreSave grant = runReaderT (saveToken grant) pool
-        oauth2StoreLoad tok = runReaderT (loadToken tok) pool
-        oauth2CheckCredentials auth req = runReaderT (checkCredentials auth req) pool
+    let oauth2StoreSave grant = liftIO $ storeSaveToken pool grant
+        oauth2StoreLoad tok = liftIO $ storeLoadToken pool tok
+        oauth2CheckCredentials auth req = liftIO $ storeCheckCredentials pool auth req
     in OAuth2Server{..}
