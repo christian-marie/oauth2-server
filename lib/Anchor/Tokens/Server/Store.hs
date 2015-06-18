@@ -210,17 +210,17 @@ instance TokenStore (Pool Connection) IO where
                 checkRefreshToken auth tok scope
       where
         checkClientAuthCode _ _ Nothing _ = throwIO $ OAuth2Error InvalidRequest
-                                                                (preview errorDescription "No redirect URI supplied.")
-                                                                Nothing
+                                                                  (preview errorDescription "No redirect URI supplied.")
+                                                                  Nothing
         checkClientAuthCode _ _ _ Nothing = throwIO $ OAuth2Error InvalidRequest
-                                                                (preview errorDescription "No client ID supplied.")
-                                                                Nothing
+                                                                  (preview errorDescription "No client ID supplied.")
+                                                                  Nothing
         checkClientAuthCode auth _ (Just _) (Just purported_client) = do
             client_id <- storeCheckClientAuth pool auth
             case client_id of
                 Nothing -> throwIO $ OAuth2Error UnauthorizedClient
-                                                    (preview errorDescription "Invalid client credentials")
-                                                    Nothing
+                                                 (preview errorDescription "Invalid client credentials")
+                                                 Nothing
                 Just client_id' -> do
                     when (client_id' /= purported_client) $ throwIO $
                         OAuth2Error UnauthorizedClient
@@ -232,8 +232,8 @@ instance TokenStore (Pool Connection) IO where
         -- We can't do anything sensible to verify the scope here, so just
         -- ignore it.
         checkClientCredentials _ _ Nothing = throwIO $ OAuth2Error InvalidRequest
-                                                                    (preview errorDescription "No scope supplied.")
-                                                                    Nothing
+                                                                   (preview errorDescription "No scope supplied.")
+                                                                   Nothing
         checkClientCredentials _ auth (Just scope) = do
             client_id <- storeCheckClientAuth pool auth
             case client_id of
@@ -245,16 +245,16 @@ instance TokenStore (Pool Connection) IO where
         -- Verify client credentials and scope, and that the request token is
         -- valid.
         checkRefreshToken _ _ Nothing     = throwIO $ OAuth2Error InvalidRequest
-                                                                    (preview errorDescription "No scope supplied.")
-                                                                    Nothing
+                                                                  (preview errorDescription "No scope supplied.")
+                                                                  Nothing
         checkRefreshToken auth tok (Just scope) = do
             details <- liftIO $ storeLoadToken pool tok
             case details of
                 Nothing -> do
                     liftIO . debugM logName $ "Got passed invalid token " <> show tok
                     throwIO $ OAuth2Error InvalidRequest
-                                            (preview errorDescription "Invalid token")
-                                            Nothing
+                                          (preview errorDescription "Invalid token")
+                                          Nothing
                 Just details' -> do
                     unless (compatibleScope scope (tokenDetailsScope details')) $ do
                         liftIO . debugM logName $
@@ -264,13 +264,13 @@ instance TokenStore (Pool Connection) IO where
                             show (tokenDetailsScope details') <>
                             ", refusing to verify"
                         throwIO $ OAuth2Error InvalidScope
-                                                (preview errorDescription "Invalid scope")
-                                                Nothing
+                                              (preview errorDescription "Invalid scope")
+                                              Nothing
                     client_id <- storeCheckClientAuth pool auth
                     case client_id of
                         Nothing -> throwIO $ OAuth2Error UnauthorizedClient
-                                                            (preview errorDescription "Invalid client credentials")
-                                                            Nothing
+                                                         (preview errorDescription "Invalid client credentials")
+                                                         Nothing
                         Just client_id' -> return (Just client_id', scope)
 
 
