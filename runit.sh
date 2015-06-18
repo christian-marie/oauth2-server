@@ -6,7 +6,7 @@
 # expressions).
 DBNAME="token_server_test"
 DBUSER="token_server_test"
-DBPASS="I am your password"
+DBPASS="password"
 DBDESC="Transient database for token server testing"
 
 TESTCONF="/tmp/anchor-token-server-$$.conf"

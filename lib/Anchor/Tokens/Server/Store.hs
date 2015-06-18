@@ -172,13 +172,13 @@ authDetails =
     prism' fromPair toPair
   where
     toPair AuthHeader{..} = case authScheme of
-        "Basic" -> let param = B64.decode authParam in
-            case BS.split (fromIntegral (ord ':')) authParam of
-                [client_id, secret] -> do
+        "Basic" ->
+            case BS.split (fromIntegral (ord ':')) <$> B64.decode authParam of
+                Right [client_id, secret] -> do
                     client_id' <- preview clientID client_id
                     secret' <- preview password $ decodeUtf8 secret
                     return (client_id', secret')
-                _                   -> Nothing
+                _                         -> Nothing
         _       -> Nothing
 
     fromPair (client_id, secret) =
