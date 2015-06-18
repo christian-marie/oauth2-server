@@ -102,12 +102,9 @@ suite = describe "Token Store" $ do
   it "can save then load a token" $ monadicIO $ do
     state   <- testStore
     grant   <- pick arbitrary
-    details <- lift . runStore state . saveToken $ grant
-    case details of
-      Left _   -> return False
-      Right d1 -> do
-        d2 <- lift . runStore state . loadToken $ tokenDetailsToken d1
-        return $ Just d1 == (join . hush $ d2)
+    d1 <- liftIO $ storeSaveToken state grant
+    Just d2 <- liftIO $ storeLoadToken state $ tokenDetailsToken d1
+    return $ d1 == d2
 
   prop "can list existing tokens" pending
   prop "can revoke existing tokens" pending

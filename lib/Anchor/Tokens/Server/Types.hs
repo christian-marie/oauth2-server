@@ -11,13 +11,17 @@ import           Control.Lens.Operators
 import           Control.Monad
 import           Control.Monad.Trans.Except
 import           Data.ByteString                      (ByteString)
+import qualified Data.ByteString.Char8                as BC
+import           Data.Monoid
 import           Data.Pool
+import           Data.String
 import           Data.Text                            (Text)
 import qualified Data.Text.Encoding                   as T
 import           Data.Time.Clock
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.FromField
 import           Database.PostgreSQL.Simple.ToField
+import           Network.HTTP.Types.Header            as HTTP
 import           Network.Wai.Handler.Warp             hiding (Connection)
 import           Pipes.Concurrent
 import           Servant.API                          hiding (URI)
@@ -62,6 +66,7 @@ data ServerOptions = ServerOptions
     , optServiceHost :: HostPreference
     , optServicePort :: Int
     , optUIPageSize  :: Int
+    , optVerifyRealm :: ByteString
     }
   deriving (Eq, Show)
 
@@ -112,3 +117,34 @@ instance FromFormUrlEncoded Code where
         Just x -> case T.encodeUtf8 x ^? code of
             Nothing -> Left "Invalid Code Syntax"
             Just c -> Right c
+
+-- * Just HTTPy Things - justhttpythings.tumblr.com
+--
+-- $ Here are some things to support various HTTP functionality in the
+--   application. Tumblr pictures with embedded captions to follow.
+
+-- | Quote a string, as described in the RFC2616 HTTP/1.1
+--
+--   Assumes that the string contains only legitimate characters (i.e. no
+--   controls).
+quotedString :: ByteString -> ByteString
+quotedString s = "\"" <> escape s <> "\""
+  where
+    escape = BC.intercalate "\\\"" . BC.split '"'
+
+-- | Produce headers to be included in a request.
+class ToHTTPHeaders a where
+    -- | Generate headers to be included in a HTTP request/response.
+    toHeaders :: a -> [HTTP.Header]
+
+-- | Realm for HTTP authentication.
+newtype HTTPAuthRealm = Realm { unpackRealm :: ByteString }
+  deriving (Eq, IsString)
+
+-- | HTTP authentication challenge to send to a client.
+data HTTPAuthChallenge
+    = BasicAuth { authRealm :: HTTPAuthRealm }
+
+instance ToHTTPHeaders HTTPAuthChallenge where
+    toHeaders (BasicAuth (Realm realm)) =
+        [ ("WWW-Authenticate", "Basic realm=" <> quotedString realm) ]

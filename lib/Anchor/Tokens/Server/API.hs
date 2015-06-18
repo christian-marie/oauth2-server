@@ -1,19 +1,24 @@
-{-# LANGUAGE DataKinds         #-}
-{-# LANGUAGE FlexibleContexts  #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RankNTypes        #-}
-{-# LANGUAGE RecordWildCards   #-}
-{-# LANGUAGE TypeOperators     #-}
+{-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE RankNTypes          #-}
+{-# LANGUAGE RecordWildCards     #-}
+{-# LANGUAGE TypeOperators       #-}
 
 -- | Description: HTTP API implementation.
 module Anchor.Tokens.Server.API where
 
 import           Blaze.ByteString.Builder    (toByteString)
+import           Control.Exception           (try)
 import           Control.Lens
+import           Control.Monad
 import           Control.Monad.Error.Class
 import           Control.Monad.IO.Class
 import           Control.Monad.Trans.Control
 import           Control.Monad.Trans.Reader
+import           Data.ByteString             (ByteString)
+import           Data.Time.Clock
+import qualified Data.ByteString.Lazy.Char8  as BSL
 import           Data.Either
 import           Data.Maybe
 import           Data.Monoid
@@ -28,16 +33,20 @@ import           Pipes.Concurrent
 import           Servant.API                 hiding (URI)
 import           Servant.HTML.Blaze
 import           Servant.Server
+import           System.Log.Logger
 import           URI.ByteString
 import           Text.Blaze.Html5            hiding (map, code,rt)
 
 import           Network.OAuth2.Server
 
-import           Anchor.Tokens.Server.Store
+import           Anchor.Tokens.Server.Store hiding (logName)
 import           Anchor.Tokens.Server.Types
 import           Anchor.Tokens.Server.UI
 
 import Debug.Trace
+
+logName :: String
+logName = "Anchor.Tokens.Server.API"
 
 type OAuthUserHeader = "Identity-OAuthUser"
 type OAuthUserScopeHeader = "Identity-OAuthUserScopes"
@@ -148,9 +157,9 @@ anchorOAuth2API :: Proxy AnchorOAuth2API
 anchorOAuth2API = Proxy
 
 server :: ServerState -> Server AnchorOAuth2API
-server ServerState{..}
+server state@ServerState{..}
        = tokenEndpoint serverOAuth2Server
-    :<|> error ""
+    :<|> verifyEndpoint state
     :<|> authorizeEndpoint serverPGConnPool
     :<|> authorizePost serverPGConnPool
     :<|> handleShib (serverListTokens serverPGConnPool (optUIPageSize serverOpts))
@@ -171,7 +180,7 @@ handleShib
     -> a
     -> m b
 handleShib f (Just u) (Just s) = f u s
-handleShib _ _        _        = const $ throwError err500
+handleShib _ _        _        = const $ throwError err500{errBody = "We're having some trouble with our internal auth systems, please try again later =("}
 
 authorizeEndpoint
     :: ( MonadIO m
@@ -203,7 +212,7 @@ authorizeEndpoint pool u' permissions' rt c_id' redirect sc' st = do
     c_id <- case c_id' of
         Nothing -> error "NOOOO"
         Just c_id -> return c_id
-    request_code <- runReaderT (createCode u_id c_id redirect sc st) pool
+    request_code <- liftIO $ storeCreateCode pool u_id c_id redirect sc st
     return $ renderAuthorizePage request_code
 
 authorizePost
@@ -219,12 +228,64 @@ authorizePost pool u code' = do
     u_id <- case u of
         Nothing -> error "NOOOO"
         Just u_id -> return u_id
-    res <- runReaderT (activateCode code' u_id) pool
+    res <- liftIO $ storeActivateCode pool code' u_id
     case res of
         Nothing -> error "NOOOO"
         Just uri -> do
             let uri' = uri & uriQueryL . queryPairsL %~ (<> [("code", code' ^.re code)])
             throwError err302{ errHeaders = [(hLocation, toByteString $ serializeURI uri')] }
+
+-- | Verify a token and return information about the principal and grant.
+--
+--   Restricted to authorized clients.
+verifyEndpoint
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       , MonadError ServantErr m
+       )
+    => ServerState
+    -> Maybe AuthHeader
+    -> Token
+    -> m (Headers '[Header "Cache-Control" NoCache] AccessResponse)
+verifyEndpoint ServerState{..} Nothing _token = throwError
+    err401 { errHeaders = toHeaders challenge
+           , errBody = "You must login to validate a token."
+           }
+  where
+    challenge = BasicAuth $ Realm (optVerifyRealm serverOpts)
+verifyEndpoint ServerState{..} (Just auth) token' = do
+    -- 1. Check client authentication.
+    client_id' <- liftIO . try $ storeCheckClientAuth serverPGConnPool auth
+    client_id <- case client_id' of
+        Left e -> do
+            logE $ "Error verifying token: " <> show (e :: OAuth2Error)
+            throwError err500 { errBody = "Error checking client credentials." }
+        Right Nothing -> do
+            logD $ "Invalid client credentials: " <> show auth
+            throwError denied
+        Right (Just cid) -> do
+            return cid
+    -- 2. Load token information.
+    token <- liftIO . try $ storeLoadToken serverPGConnPool token'
+    case token of
+        Left e -> do
+            logE $ "Error verifying token: " <> show (e :: OAuth2Error)
+            throwError denied
+        Right Nothing -> do
+            logD $ "Cannot verify token: failed to lookup " <> show token'
+            throwError denied
+        Right (Just details) -> do
+            -- 3. Check client authorization.
+            when (Just client_id /= tokenDetailsClientID details) $ do
+                logD $ "Client " <> show client_id <> " attempted to verify someone elses token: " <> show token'
+                throwError denied
+            -- 4. Send the access response.
+            now <- liftIO getCurrentTime
+            return . addHeader NoCache $ grantResponse now details (Just token')
+  where
+    denied = err404 { errBody = "This is not a valid token for you." }
+    logD = liftIO . debugM (logName <> ".verifyEndpoint")
+    logE = liftIO . errorM (logName <> ".verifyEndpoint")
 
 serverDisplayToken
     :: ( MonadIO m
@@ -237,9 +298,9 @@ serverDisplayToken
     -> TokenID
     -> m Html
 serverDisplayToken pool u s t = do
-    res <- runReaderT (displayToken u t) pool
+    res <- liftIO $ storeDisplayToken pool u t
     case res of
-        Nothing -> throwError err404
+        Nothing -> throwError err404{errBody = "There's nothing here! =("}
         Just x -> return $ renderTokensPage s 1 (Page 1) ([x], 1)
 
 serverListTokens
@@ -255,7 +316,7 @@ serverListTokens
     -> m Html
 serverListTokens pool size u s p = do
     let p' = fromMaybe (Page 1) p
-    res <- runReaderT (listTokens size u p') pool
+    res <- liftIO $ storeListTokens pool size u p'
     return $ renderTokensPage s size p' res
 
 serverPostToken
@@ -270,7 +331,7 @@ serverPostToken
     -> Maybe TokenID
     -> m Html
 serverPostToken pool u s DeleteRequest      (Just t) = handleShib (serverRevokeToken pool) u s t
-serverPostToken pool u s DeleteRequest      Nothing  = throwError err400
+serverPostToken pool u s DeleteRequest      Nothing  = throwError err400{errBody = "Malformed delete request"}
 serverPostToken pool u s (CreateRequest rs) _        = handleShib (serverCreateToken pool) u s rs
 
 serverRevokeToken
@@ -284,7 +345,7 @@ serverRevokeToken
     -> TokenID
     -> m Html
 serverRevokeToken pool u _ t = do
-    runReaderT (revokeToken u t) pool
+    liftIO $ storeRevokeToken pool u t
     throwError err302{errHeaders = [(hLocation, "/tokens")]}     --Redirect to tokens page
 
 serverCreateToken
@@ -299,9 +360,9 @@ serverCreateToken
     -> m Html
 serverCreateToken pool user_id userScope reqScope = do
     if compatibleScope reqScope userScope then do
-        TokenID t <- runReaderT (createToken user_id reqScope) pool
+        TokenID t <- liftIO $ storeCreateToken pool user_id reqScope
         throwError err302{errHeaders = [(hLocation, "/tokens?token_id=" <> T.encodeUtf8 t)]} --Redirect to tokens page
-    else throwError err403
+    else throwError err403{errBody = "Invalid requested token scope"}
 
 
 -- * OAuth2 Server
@@ -318,7 +379,7 @@ anchorOAuth2Server
     -> Output a
     -> OAuth2Server m
 anchorOAuth2Server pool out =
-    let oauth2StoreSave grant = runReaderT (saveToken grant) pool
-        oauth2StoreLoad tok = runReaderT (loadToken tok) pool
-        oauth2CheckCredentials auth req = runReaderT (checkCredentials auth req) pool
+    let oauth2StoreSave grant = liftIO $ storeSaveToken pool grant
+        oauth2StoreLoad tok = liftIO $ storeLoadToken pool tok
+        oauth2CheckCredentials auth req = liftIO $ storeCheckCredentials pool auth req
     in OAuth2Server{..}
