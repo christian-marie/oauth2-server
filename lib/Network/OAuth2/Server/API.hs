@@ -126,13 +126,17 @@ processTokenRequest OAuth2Server{..} t client_auth req = do
 type OAuthUserHeader = "Identity-OAuthUser"
 type OAuthUserScopeHeader = "Identity-OAuthUserScopes"
 
-data TokenRequest = DeleteRequest
+data TokenRequest = DeleteRequest TokenID
                   | CreateRequest Scope
 
 instance FromFormUrlEncoded TokenRequest where
     fromFormUrlEncoded o = case lookup "method" o of
         Nothing -> Left "method field missing"
-        Just "delete" -> Right DeleteRequest
+        Just "delete" -> case lookup "token_id" o of
+            Nothing   -> Left "token_id field missing"
+            Just t_id -> case fromText t_id of
+                Nothing    -> Left "Invalid Token ID"
+                Just t_id' -> Right $ DeleteRequest t_id'
         Just "create" -> do
             let processScope x = case (T.encodeUtf8 x) ^? scopeToken of
                     Nothing -> Left $ T.unpack x
@@ -213,7 +217,6 @@ type PostToken
     :> Header OAuthUserHeader UserID
     :> Header OAuthUserScopeHeader Scope
     :> ReqBody '[FormUrlEncoded] TokenRequest
-    :> QueryParam "token_id" TokenID
     :> Post '[HTML] Html
 
 -- | Anchor Token Server HTTP endpoints.
@@ -240,7 +243,7 @@ server state@ServerState{..}
     :<|> handleShib (authorizePost serverPGConnPool)
     :<|> handleShib (serverListTokens serverPGConnPool (optUIPageSize serverOpts))
     :<|> handleShib (serverDisplayToken serverPGConnPool)
-    :<|> serverPostToken serverPGConnPool
+    :<|> handleShib (serverPostToken serverPGConnPool)
 
 -- Any shibboleth authed endpoint must have all relevant headers defined,
 -- and any other case is an internal error. handleShib consolidates
@@ -388,14 +391,12 @@ serverPostToken
        , MonadError ServantErr m
        )
     => Pool Connection
-    -> Maybe UserID
-    -> Maybe Scope
+    -> UserID
+    -> Scope
     -> TokenRequest
-    -> Maybe TokenID
     -> m Html
-serverPostToken pool u s DeleteRequest      (Just t) = handleShib (serverRevokeToken pool) u s t
-serverPostToken _    _ _ DeleteRequest      Nothing  = throwError err400{errBody = "Malformed delete request"}
-serverPostToken pool u s (CreateRequest rs) _        = handleShib (serverCreateToken pool) u s rs
+serverPostToken pool u s (DeleteRequest t)  = serverRevokeToken pool u s t
+serverPostToken pool u s (CreateRequest rs) = serverCreateToken pool u s rs
 
 serverRevokeToken
     :: ( MonadIO m
