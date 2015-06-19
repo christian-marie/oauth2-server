@@ -32,8 +32,24 @@ main = do
 tests :: String -> Spec
 tests base_uri = do
     describe "token endpoint" $ do
-        it "uses the same details when refreshing a token"
-            pending
+        it "uses the same details when refreshing a token" $ do
+            -- Verify a good token.
+            t1' <- verifyToken base_uri client1 (fst tokenVV)
+            t1 <- either (\_ -> fail "Valid token is invalid, so can't test!")
+                         (return) t1'
+
+            -- Refresh it.
+            t2_id' <- refreshToken base_uri client1 (snd tokenVV)
+            t2_id <- either (\_ -> fail "Couldn't refresh")
+                            (return) t2_id'
+
+            -- Verify that token.
+            t2' <- verifyToken base_uri client1 t2_id
+            t2 <- either (\_ -> fail "Couldn't verify new token.")
+                         (return) t2'
+
+            -- Compare them.
+            t2 `shouldBe` t1
 
         it "revokes the existing token when it is refreshed"
             pending
