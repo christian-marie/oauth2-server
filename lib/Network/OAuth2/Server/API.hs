@@ -309,22 +309,22 @@ verifyEndpoint
     -> Maybe AuthHeader
     -> Token
     -> m (Headers '[Header "Cache-Control" NoCache] AccessResponse)
-verifyEndpoint ServerState{..} Nothing _token = throwError
-    err401 { errHeaders = toHeaders challenge
-           , errBody = "You must login to validate a token."
-           }
+verifyEndpoint ServerState{..} Nothing _token =
+    throwError login
   where
-    challenge = BasicAuth $ Realm (optVerifyRealm serverOpts)
+    login = err401 { errHeaders = toHeaders $ BasicAuth (Realm $ optVerifyRealm serverOpts)
+                   , errBody = "Login to validate a token."
+                   }
 verifyEndpoint ServerState{..} (Just auth) token' = do
     -- 1. Check client authentication.
     client_id' <- liftIO . try $ storeCheckClientAuth serverPGConnPool auth
     client_id <- case client_id' of
         Left e -> do
             logE $ "Error verifying token: " <> show (e :: OAuth2Error)
-            throwError err500 { errBody = "Error checking client credentials." }
+            throwError login -- err500 { errBody = "Error checking client credentials." }
         Right Nothing -> do
             logD $ "Invalid client credentials: " <> show auth
-            throwError denied
+            throwError login
         Right (Just cid) -> do
             return cid
     -- 2. Load token information.
@@ -345,7 +345,10 @@ verifyEndpoint ServerState{..} (Just auth) token' = do
             now <- liftIO getCurrentTime
             return . addHeader NoCache $ grantResponse now details (Just token')
   where
-    denied = err404 { errBody = "This is not a valid token for you." }
+    denied = err404 { errBody = "This is not a valid token." }
+    login = err401 { errHeaders = toHeaders $ BasicAuth (Realm $ optVerifyRealm serverOpts)
+                   , errBody = "Login to validate a token."
+                   }
     logD = liftIO . debugM (logName <> ".verifyEndpoint")
     logE = liftIO . errorM (logName <> ".verifyEndpoint")
 

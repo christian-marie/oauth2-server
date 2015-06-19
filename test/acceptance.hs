@@ -6,10 +6,13 @@ import           Control.Applicative
 import           Control.Exception
 import           Control.Lens
 import           Data.Aeson.Lens
+import qualified Data.ByteString.Char8 as BC
 import           Data.Either
+import           Data.Maybe
 import           Data.Monoid
 import qualified Data.Text.Encoding    as T
-import           Network.HTTP.Client   (HttpException)
+import           Network.HTTP.Client   (HttpException (..))
+import           Network.HTTP.Types    (Status (..))
 import           Network.Wreq
 import           System.Environment
 import           Test.Hspec
@@ -46,19 +49,19 @@ tests base_uri = do
 
         it "returns an error when given valid credentials and a token from another client" $ do
             resp <- verifyToken base_uri client2 (fst tokenVV)
-            resp `shouldSatisfy` isLeft
+            resp `shouldBe` Left "404 Not Found - This is not a valid token."
 
         it "returns an error when given invalid client credentials" $ do
             resp <- verifyToken base_uri client3 (fst tokenVV)
-            resp `shouldSatisfy` isLeft
+            resp `shouldBe` Left "401 Unauthorized - Login to validate a token."
 
         it "returns an error when given a token which has been revoked" $ do
             resp <- verifyToken base_uri client1 (fst tokenRV)
-            resp `shouldSatisfy` isLeft
+            resp `shouldBe` Left "404 Not Found - This is not a valid token."
 
         it "returns an error when given a token which is not valid" $ do
             resp <- verifyToken base_uri client1 (fst tokenDERP)
-            resp `shouldSatisfy` isLeft
+            resp `shouldBe` Left "404 Not Found - This is not a valid token."
 
     describe "authorize endpoint" $ do
         it "returns an error when Shibboleth authentication headers are missing"
@@ -106,10 +109,12 @@ verifyToken base_uri (client,secret) tok = do
                         & header "Content-Type" .~ ["application/octet-stream"]
                         & auth ?~ basicAuth user pass
 
-    putStrLn $ "Contacting " <> endpoint <> " to validate " <> show tok <> " for " <> show client
     r <- try (postWith opts endpoint body)
     case r of
-        Left e  -> return . Left . show $ (e :: HttpException)
+        Left (StatusCodeException (Status c m) h _) -> do
+            let b = BC.unpack <$> lookup "X-Response-Body-Start" h
+            return (Left $ show c <> " " <> BC.unpack m <> " - " <> fromMaybe "" b)
+        Left e -> return (Left $ show e)
         Right v ->
             return $ case v ^? responseBody . _JSON of
                 Nothing -> Left "Could not decode response."
