@@ -4,7 +4,7 @@ CREATE EXTENSION "uuid-ossp";
 -- verify APIs.
 CREATE TABLE clients (
     -- We'll use these to authenticate client requests.
-    client_id     UUID         NOT NULL DEFAULT uuid_generate_v4(),
+    client_id     VARCHAR(37)  NOT NULL DEFAULT uuid_generate_v4(),
     client_secret VARCHAR(512) NOT NULL,
 
     -- These are required for clients (but not services).
@@ -28,29 +28,30 @@ CREATE TABLE request_codes (
     expires TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW() + '10 minutes',
 
     user_id      VARCHAR(256)   NOT NULL,
-    client_id    INTEGER        NOT NULL,
+    client_id    VARCHAR(37)    NOT NULL,
     redirect_url VARCHAR(256)       NULL,
     scope        VARCHAR(512)[]     NULL,
     state        TEXT               NULL,
 
-    PRIMARY KEY (code)
+    PRIMARY KEY (code),
+    FOREIGN KEY (client_id) REFERENCES clients (client_id)
 );
 
 -- Store tokens.
 CREATE TABLE tokens (
     token_id      UUID           NOT NULL DEFAULT uuid_generate_v4(),
     token         VARCHAR(256)   NOT NULL,
-    token_type    VARCHAR(32)    NOT NULL,  -- access | refresh
+    token_type    VARCHAR(32)    NOT NULL,  -- refresh | bearer
 
     scope         VARCHAR(512)[] NOT NULL,
 
     -- Token valid only at times created <= t <= min(expires,revoked).
-    created TIMESTAMP WITH TIME ZONE NOT NULL,
-    expires TIMESTAMP WITH TIME ZONE     NULL DEFAULT NULL,
-    revoked TIMESTAMP WITH TIME ZONE     NULL DEFAULT NULL,
+    created       TIMESTAMP WITH TIME ZONE NOT NULL,
+    expires       TIMESTAMP WITH TIME ZONE     NULL DEFAULT NULL,
+    revoked       TIMESTAMP WITH TIME ZONE     NULL DEFAULT NULL,
 
     -- Token is usable only by this client.
-    client_id UUID NULL,
+    client_id     VARCHAR(37)                  NULL,
 
     -- Token identifies this user.
     user_id   VARCHAR(256)   NOT NULL,

@@ -31,5 +31,4 @@ cabal run tokenserver "$TESTCONF"
 # Clean up our mess
 echo "Cleaning up!"
 dropdb $DBNAME
-dropuser $DBUSER
 rm $TESTCONF
