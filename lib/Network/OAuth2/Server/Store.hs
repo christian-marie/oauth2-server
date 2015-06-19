@@ -14,7 +14,7 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- | Description: OAuth2 token storage using PostgreSQL.
-module Anchor.Tokens.Server.Store where
+module Network.OAuth2.Server.Store where
 
 import           Blaze.ByteString.Builder                   (toByteString)
 import           Control.Applicative
@@ -49,9 +49,7 @@ import qualified Database.PostgreSQL.Simple.TypeInfo.Static as TI
 import           System.Log.Logger
 import           URI.ByteString
 
-import           Network.OAuth2.Server
-
-import           Anchor.Tokens.Server.Types
+import           Network.OAuth2.Server.Types
 
 logName :: String
 logName = "Anchor.Tokens.Server.Store"
@@ -167,6 +165,7 @@ instance TokenStore (Pool Connection) IO where
                 liftIO $ query conn "INSERT INTO request_codes (client_id, user_id, redirect_url, scope, state) VALUES (?,?,?,?) RETURNING code, expires" (client_id, user_id, requestCodeRedirectURI, sc, requestCodeState)
             let requestCodeClientID = client_id
                 requestCodeScope = Just sc
+                requestCodeAuthorized = False
             return RequestCode{..}
 
     storeActivateCode pool code' user_id = do
@@ -528,6 +527,7 @@ instance ToField Code where
 
 instance FromRow RequestCode where
     fromRow = RequestCode <$> field
+                          <*> field
                           <*> field
                           <*> field
                           <*> field

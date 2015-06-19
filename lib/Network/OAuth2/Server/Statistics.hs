@@ -2,7 +2,7 @@
 {-# LANGUAGE RecordWildCards   #-}
 
 -- | Description: Monitoring and reporting statistics.
-module Anchor.Tokens.Server.Statistics where
+module Network.OAuth2.Server.Statistics where
 
 import           Control.Applicative
 import           Control.Monad
@@ -18,7 +18,7 @@ import           System.Log.Logger
 import           System.Metrics
 import qualified System.Metrics.Counter     as C
 
-import           Anchor.Tokens.Server.Types
+import           Network.OAuth2.Server.Types
 
 -- | Name of server component for logging.
 statsLogName :: String
