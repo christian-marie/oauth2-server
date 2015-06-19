@@ -14,9 +14,9 @@ import qualified Data.Set                    as S
 import qualified Data.Text.Encoding          as T
 import           Prelude                     hiding (head)
 import           Prelude                     hiding (head)
-import           Text.Blaze.Html5            hiding (code, div, map)
+import           Text.Blaze.Html5            hiding (code, div, map, p)
 import           Text.Blaze.Html5.Attributes hiding (form, scope, style,
-                                              title)
+                                              title, size)
 
 import           Network.OAuth2.Server.Types
 
@@ -89,14 +89,14 @@ htmlTokens ts = do
         th ""
 
 htmlToken :: (Maybe ClientID, Scope, Token, TokenID) -> Html
-htmlToken (cid, scope, t, tid) = tr $ do
+htmlToken (cid, token_scope, t, tid) = tr $ do
     td htmlCid
     td htmlScope
     td htmlToken'
     td htmlRevokeButton
   where
     htmlCid    = toHtml $ T.decodeUtf8 $ maybe "None" (review clientID) cid
-    htmlScope  = toHtml $ T.decodeUtf8 $ scopeToBs scope
+    htmlScope  = toHtml $ T.decodeUtf8 $ scopeToBs token_scope
     htmlToken' = toHtml $ T.decodeUtf8 $ token # t
     htmlRevokeButton =
         form ! method "POST" ! action ("/tokens?token_id=" <> toValue tid) $ do

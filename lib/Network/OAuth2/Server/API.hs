@@ -49,7 +49,7 @@ import           Servant.HTML.Blaze
 import           Servant.Server                      (ServantErr (errBody, errHeaders),
                                                       Server, err302, err400, err401, err500, err404, err403)
 import           System.Log.Logger
-import           Text.Blaze.Html5                    hiding (code, map, rt)
+import           Text.Blaze.Html5                    (Html)
 
 import           Network.OAuth2.Server.Store         hiding (logName)
 import           Network.OAuth2.Server.UI
@@ -328,8 +328,8 @@ verifyEndpoint ServerState{..} (Just auth) token' = do
         Right (Just cid) -> do
             return cid
     -- 2. Load token information.
-    token <- liftIO . try $ storeLoadToken serverPGConnPool token'
-    case token of
+    tok <- liftIO . try $ storeLoadToken serverPGConnPool token'
+    case tok of
         Left e -> do
             logE $ "Error verifying token: " <> show (e :: OAuth2Error)
             throwError denied
@@ -393,7 +393,7 @@ serverPostToken
     -> Maybe TokenID
     -> m Html
 serverPostToken pool u s DeleteRequest      (Just t) = handleShib (serverRevokeToken pool) u s t
-serverPostToken pool u s DeleteRequest      Nothing  = throwError err400{errBody = "Malformed delete request"}
+serverPostToken _    _ _ DeleteRequest      Nothing  = throwError err400{errBody = "Malformed delete request"}
 serverPostToken pool u s (CreateRequest rs) _        = handleShib (serverCreateToken pool) u s rs
 
 serverRevokeToken
