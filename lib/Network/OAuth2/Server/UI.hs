@@ -2,7 +2,7 @@
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE TemplateHaskell   #-}
 
-module Anchor.Tokens.Server.UI where
+module Network.OAuth2.Server.UI where
 
 import           Control.Lens
 import           Control.Monad
@@ -19,8 +19,6 @@ import           Text.Blaze.Html5.Attributes hiding (form, scope, style,
                                               title)
 
 import           Network.OAuth2.Server.Types
-
-import           Anchor.Tokens.Server.Types
 
 stylesheet :: String
 stylesheet = BS.unpack $(embedFile "style.css")

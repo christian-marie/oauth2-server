@@ -1,27 +1,41 @@
--- | Description: OAuth2 server configuration.
---
--- An OAuth2 server implementation has a range of options open to it
--- including:
---
--- - Which features to support;
--- - How to verify credentials;
--- - How to store and retrieve tokens;
---
--- This module contains types and combinators to express these various
--- configuration options.
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards   #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
+-- | Description: Configuration parsing.
 module Network.OAuth2.Server.Configuration where
 
-import           Network.OAuth2.Server.Types (AccessRequest, AuthHeader,
-                                              ClientID, Scope, Token,
-                                              TokenDetails, TokenGrant)
+import           Control.Applicative
+import           Data.Configurator
+import           Data.Configurator.Types
+import           Data.String
+import           Network.Wai.Handler.Warp
 
--- | The configuration for an OAuth2 server.
-data OAuth2Server m = OAuth2Server
-    { oauth2StoreSave        :: TokenGrant -> m TokenDetails
-    -- ^ Save a [new] token to the OAuth2 server database.
-    , oauth2StoreLoad        :: Token -> m (Maybe TokenDetails)
-    -- ^ Load a token from the OAuth2 server database.
-    , oauth2CheckCredentials :: Maybe AuthHeader -> AccessRequest -> m (Maybe ClientID, Scope)
-    -- ^ Check the credentials provided by the resource owner.
-    }
+import           Network.OAuth2.Server.Types
+
+defaultServerOptions :: ServerOptions
+defaultServerOptions =
+    let optDBString = ""
+        optStatsHost = "localhost"
+        optStatsPort = 8888
+        optServiceHost = "*"
+        optServicePort = 8080
+        optUIPageSize = 10
+        optVerifyRealm = "verify-token"
+    in ServerOptions{..}
+
+instance Configured HostPreference where
+    convert v = fromString <$> convert v
+
+loadOptions :: Config -> IO ServerOptions
+loadOptions conf = do
+    optDBString <- ldef optDBString "database"
+    optStatsHost <- ldef optStatsHost "stats.host"
+    optStatsPort <- ldef optStatsPort "stats.port"
+    optServiceHost <- ldef optServiceHost "api.host"
+    optServicePort <- ldef optServicePort "api.port"
+    optUIPageSize <- ldef optUIPageSize "ui.page_size"
+    optVerifyRealm <- ldef optVerifyRealm "api.verify_realm"
+    return ServerOptions{..}
+  where
+    ldef f k = lookupDefault (f defaultServerOptions) conf k
