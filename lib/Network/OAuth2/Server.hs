@@ -3,8 +3,9 @@
 module Network.OAuth2.Server (
     P.version,
     startServer,
-    ServerState(..),
-    module X,
+    module Network.OAuth2.Server.API,
+    module Network.OAuth2.Server.Configuration,
+    module Network.OAuth2.Server.Statistics,
     ) where
 
 import           Control.Concurrent
@@ -19,10 +20,9 @@ import           Servant.Server
 import           System.Log.Logger
 import qualified System.Remote.Monitoring            as EKG
 
-import           Network.OAuth2.Server.API           as X hiding (logName)
-import           Network.OAuth2.Server.Configuration as X
-import           Network.OAuth2.Server.Statistics    as X
-import           Network.OAuth2.Server.Types         as X
+import           Network.OAuth2.Server.API
+import           Network.OAuth2.Server.Configuration
+import           Network.OAuth2.Server.Statistics
 
 import           Paths_oauth2_server                 as P
 
