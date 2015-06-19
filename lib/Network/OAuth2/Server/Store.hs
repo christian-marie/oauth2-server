@@ -172,7 +172,7 @@ instance TokenStore (Pool Connection) IO where
     storeLoadToken pool tok = do
         liftIO . debugM logName $ "Loading token: " <> show tok
         tokens :: [TokenDetails] <- withResource pool $ \conn -> do
-            liftIO $ query conn "SELECT token_type, token, expires, user_id, client_id, scope FROM tokens WHERE (token = ?)" (Only tok)
+            liftIO $ query conn "SELECT token_type, token, expires, user_id, client_id, scope FROM tokens WHERE (token = ?) AND (revoked IS NULL)" (Only tok)
         case tokens of
             [t] -> return $ Just t
             []  -> do
@@ -342,8 +342,8 @@ instance TokenStore (Pool Connection) IO where
                 xs  -> let msg = "Should only be able to retrieve at most one token, retrieved: " <> show xs
                     in liftIO (errorM logName msg) >> fail msg
 
-    storeCreateToken pool user_id request_scope = do
-        withResource pool $ \conn ->
+    storeCreateToken pool _user_id _request_scope = do
+        withResource pool $ \_conn ->
             --liftIO $ execute conn "INSERT INTO tokens VALUES ..."
             error "wat"
 
