@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE FunctionalDependencies     #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE MultiWayIf                 #-}
@@ -41,7 +42,7 @@ logName = "Anchor.Tokens.Server.Store"
 --
 -- It is parametrised by a underlying monad and includes a natural
 -- transformation to any MonadIO m'
-class TokenStore ref m where
+class TokenStore ref m | ref -> m where
     -- | TODO: Document the part of the RFC this is from
     storeCreateCode
         :: ref
@@ -123,7 +124,7 @@ class TokenStore ref m where
     -- Lift a store action into any MonadIO, used for injecting any store
     -- action into IO whilst keeping any underlying actions in the underlying
     -- monad.
-    storeLift :: MonadIO m' => m a -> m' a
+    storeLift :: MonadIO m' => ref -> m a -> m' a
 
 instance TokenStore (Pool Connection) IO where
     storeCreateCode pool user_id client_id redirect sc requestCodeState = do
@@ -356,7 +357,7 @@ instance TokenStore (Pool Connection) IO where
                 0 -> fail $ "Failed to revoke token " <> show token_id <> " for user " <> show user_id
                 _ -> liftIO . errorM logName $ "Consistency error: revoked multiple tokens " <> show token_id <> " for user " <> show user_id
 
-    storeLift = liftIO
+    storeLift _ = liftIO
 
 authDetails :: Prism' AuthHeader (ClientID, Password)
 authDetails =
