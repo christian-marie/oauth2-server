@@ -5,6 +5,8 @@
 {-# LANGUAGE MultiWayIf                 #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE RecordWildCards            #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE ViewPatterns               #-}
 
 -- | Description: Data types for OAuth2 server.
@@ -14,8 +16,10 @@ module Network.OAuth2.Server.Types (
   addQueryParameters,
   AuthHeader(..),
   bsToScope,
+  ClientDetails(..),
   ClientID,
   clientID,
+  ClientSecret(..),
   ClientState,
   clientState,
   Code,
@@ -25,10 +29,15 @@ module Network.OAuth2.Server.Types (
   errorCode,
   ErrorDescription,
   errorDescription,
+  GrantEvent(..),
   grantResponse,
+  HTTPAuthRealm(..),
+  HTTPAuthChallenge(..),
   nqchar,
   nqschar,
   OAuth2Error(..),
+  OAuth2Server(..),
+  Page(..),
   Password,
   password,
   RequestCode(..),
@@ -39,59 +48,220 @@ module Network.OAuth2.Server.Types (
   scopeToBs,
   ScopeToken,
   scopeToken,
+  ServerOptions(..),
+  ServerState(..),
+  ToHTTPHeaders(..),
   Token,
   token,
+  TokenID(..),
   TokenDetails(..),
   TokenGrant(..),
   TokenType(..),
   tokenDetails,
   unicodecharnocrlf,
+  UserID,
   Username,
   username,
   vschar,
 ) where
 
-import           Blaze.ByteString.Builder   (toByteString)
-import           Control.Applicative        (Applicative ((<*), (<*>), pure),
-                                             (<$>))
-import           Control.Exception          (Exception)
-import           Control.Lens.Fold          (preview, (^?))
-import           Control.Lens.Operators     ((%~), (&), (^.))
-import           Control.Lens.Prism         (Prism', prism')
-import           Control.Lens.Review        (re, review)
-import           Control.Monad              (guard)
-import           Data.Aeson                 (FromJSON (..), ToJSON (..),
-                                             Value (String), object,
-                                             withObject, withText, (.:),
-                                             (.:?), (.=))
-import qualified Data.Aeson.Types           as Aeson (Parser)
-import           Data.Attoparsec.ByteString (Parser, endOfInput, parseOnly,
-                                             sepBy1, takeWhile1, word8)
-import           Data.ByteString            (ByteString)
-import qualified Data.ByteString            as B (all, intercalate, null)
-import qualified Data.ByteString.Lazy       as BSL (fromStrict, toStrict)
-import           Data.CaseInsensitive       (mk)
-import           Data.Char                  (ord)
-import           Data.Monoid                ((<>))
-import           Data.Set                   (Set)
-import qualified Data.Set                   as S (difference, fromList, null,
-                                                  toList)
-import           Data.Text                  (Text)
-import qualified Data.Text                  as T (all, unpack)
-import qualified Data.Text.Encoding         as T (decodeUtf8, encodeUtf8)
-import           Data.Time.Clock            (UTCTime, diffUTCTime)
-import           Data.Typeable              (Typeable)
-import           Data.Word                  (Word8)
-import           Servant.API                (FromFormUrlEncoded (..),
-                                             FromText (..), MimeRender (..),
-                                             MimeUnrender (..), OctetStream,
-                                             ToFormUrlEncoded (..),
-                                             ToText (..))
-import           URI.ByteString             (URI, parseURI, queryPairsL,
-                                             serializeURI,
-                                             strictURIParserOptions,
-                                             uriFragmentL, uriQueryL)
+import           Blaze.ByteString.Builder                   (toByteString)
+import           Control.Applicative                        (Applicative ((<*), (<*>), pure),
+                                                             (<$>))
+import           Control.Exception                          (Exception)
+import           Control.Lens.Fold                          (preview, (^?))
+import           Control.Lens.Operators                     ((%~), (&), (^.))
+import           Control.Lens.Prism                         (Prism', prism')
+import           Control.Lens.Review                        (re, review)
+import           Control.Monad                              (guard, mzero)
+import           Control.Monad.Trans.Except
+import           Data.Aeson                                 (FromJSON (..),
+                                                             ToJSON (..),
+                                                             Value (String),
+                                                             object,
+                                                             withObject,
+                                                             withText, (.:),
+                                                             (.:?), (.=))
+import qualified Data.Aeson.Types                           as Aeson (Parser)
+import           Data.Attoparsec.ByteString                 (Parser,
+                                                             endOfInput,
+                                                             parseOnly,
+                                                             sepBy1,
+                                                             takeWhile1,
+                                                             word8)
+import           Data.ByteString                            (ByteString)
+import qualified Data.ByteString                            as B (all,
+                                                                  intercalate,
+                                                                  null)
+import qualified Data.ByteString.Char8                      as BC
+import qualified Data.ByteString.Lazy                       as BSL (fromStrict,
+                                                                    toStrict)
+import           Data.CaseInsensitive                       (mk)
+import           Data.Char                                  (ord)
+import           Data.Monoid                                ((<>))
+import           Data.Pool
+import           Data.Set                                   (Set)
+import qualified Data.Set                                   as S (difference,
+                                                                  fromList,
+                                                                  null,
+                                                                  toList)
+import           Data.String
+import           Data.Text                                  (Text)
+import qualified Data.Text                                  as T (all, unpack)
+import qualified Data.Text.Encoding                         as T (decodeUtf8,
+                                                                  encodeUtf8)
+import           Data.Time.Clock                            (UTCTime,
+                                                             diffUTCTime)
+import           Data.Typeable                              (Typeable)
+import qualified Data.Vector                                as V
+import           Data.Word                                  (Word8)
+import           Database.PostgreSQL.Simple
+import           Database.PostgreSQL.Simple.FromField
+import           Database.PostgreSQL.Simple.FromRow
+import           Database.PostgreSQL.Simple.ToField
+import           Database.PostgreSQL.Simple.ToRow
+import           Database.PostgreSQL.Simple.TypeInfo.Macro
+import qualified Database.PostgreSQL.Simple.TypeInfo.Static as TI
+import           Network.HTTP.Types.Header                  as HTTP
+import           Network.Wai.Handler.Warp                   hiding
+                                                             (Connection)
+import           Pipes.Concurrent
+import           Servant.API                                (FromFormUrlEncoded (..),
+                                                             FromText (..),
+                                                             MimeRender (..), MimeUnrender (..),
+                                                             OctetStream, ToFormUrlEncoded (..),
+                                                             ToText (..))
+import           Text.Blaze.Html5                           (ToValue)
+import           URI.ByteString                             (URI, parseURI,
+                                                             queryPairsL,
+                                                             serializeURI, strictURIParserOptions,
+                                                             uriFragmentL,
+                                                             uriQueryL)
 
+
+
+-- | The configuration for an OAuth2 server.
+data OAuth2Server m = OAuth2Server
+    { oauth2StoreSave        :: TokenGrant -> m TokenDetails
+    -- ^ Save a [new] token to the OAuth2 server database.
+    , oauth2StoreLoad        :: Token -> m (Maybe TokenDetails)
+    -- ^ Load a token from the OAuth2 server database.
+    , oauth2CheckCredentials :: Maybe AuthHeader -> AccessRequest -> m (Maybe ClientID, Scope)
+    -- ^ Check the credentials provided by the resource owner.
+    }
+
+-- | Unique identifier for a user.
+newtype UserID = UserID
+    { unpackUserID :: Text }
+  deriving (Eq, Show, Ord, FromText)
+
+instance ToField UserID where
+    toField = toField . unpackUserID
+
+newtype TokenID = TokenID { unTokenID :: Text }
+    deriving (Eq, Show, Ord, ToValue, FromText)
+
+instance ToField TokenID where
+    toField = toField . unTokenID
+
+instance FromField TokenID where
+    fromField f bs = TokenID <$> fromField f bs
+
+instance FromField Token where
+    fromField f bs = do
+        rawToken <- fromField f bs
+        maybe mzero return (rawToken ^? token)
+
+-- | Page number for paginated user interfaces.
+--
+-- Pages are things that are counted, so 'Page' starts at 1.
+newtype Page = Page { unpackPage :: Int }
+  deriving (Eq, Ord, Show, FromText)
+
+-- | Configuration options for the server.
+data ServerOptions = ServerOptions
+    { optDBString    :: ByteString
+    , optStatsHost   :: ByteString
+    , optStatsPort   :: Int
+    , optServiceHost :: HostPreference
+    , optServicePort :: Int
+    , optUIPageSize  :: Int
+    , optVerifyRealm :: ByteString
+    }
+  deriving (Eq, Show)
+
+-- | State of the running server, including database connectioned, etc.
+data ServerState = ServerState
+    { serverPGConnPool   :: Pool Connection
+    , serverEventSink    :: Output GrantEvent
+    , serverOpts         :: ServerOptions
+    , serverOAuth2Server :: OAuth2Server (ExceptT OAuth2Error IO)
+    }
+
+-- | Describes events which should be tracked by the monitoring statistics
+-- system.
+data GrantEvent
+    = CodeGranted  -- ^ Issued token from code request
+    | ImplicitGranted -- ^ Issued token from implicit request.
+    | OwnerCredentialsGranted -- ^ Issued token from owner password request.
+    | ClientCredentialsGranted -- ^ Issued token from client password request.
+    | ExtensionGranted -- ^ Issued token from extension grant request.
+
+newtype ClientSecret = ClientSecret
+    { unClientSecret :: ByteString }
+  deriving (Eq, Show, Ord)
+
+instance FromField ClientSecret where
+    fromField f bs = ClientSecret <$> fromField f bs
+
+data ClientDetails = ClientDetails
+    { clientClientId     :: ClientID
+    , clientSecret       :: ClientSecret
+    , clientConfidential :: Bool
+    , clientRedirectURI  :: RedirectURI
+    , clientName         :: Text
+    , clientDescription  :: Text
+    , clientAppUrl       :: URI
+    }
+  deriving (Eq, Show)
+
+instance FromFormUrlEncoded Code where
+    fromFormUrlEncoded xs = case lookup "code" xs of
+        Nothing -> Left "No code"
+        Just x -> case T.encodeUtf8 x ^? code of
+            Nothing -> Left "Invalid Code Syntax"
+            Just c -> Right c
+
+-- * Just HTTPy Things - justhttpythings.tumblr.com
+--
+-- $ Here are some things to support various HTTP functionality in the
+--   application. Tumblr pictures with embedded captions to follow.
+
+-- | Quote a string, as described in the RFC2616 HTTP/1.1
+--
+--   Assumes that the string contains only legitimate characters (i.e. no
+--   controls).
+quotedString :: ByteString -> ByteString
+quotedString s = "\"" <> escape s <> "\""
+  where
+    escape = BC.intercalate "\\\"" . BC.split '"'
+
+-- | Produce headers to be included in a request.
+class ToHTTPHeaders a where
+    -- | Generate headers to be included in a HTTP request/response.
+    toHeaders :: a -> [HTTP.Header]
+
+-- | Realm for HTTP authentication.
+newtype HTTPAuthRealm = Realm { unpackRealm :: ByteString }
+  deriving (Eq, IsString)
+
+-- | HTTP authentication challenge to send to a client.
+data HTTPAuthChallenge
+    = BasicAuth { authRealm :: HTTPAuthRealm }
+
+instance ToHTTPHeaders HTTPAuthChallenge where
+    toHeaders (BasicAuth (Realm realm)) =
+        [ ("WWW-Authenticate", "Basic realm=" <> quotedString realm) ]
 
 vschar :: Word8 -> Bool
 vschar c = c>=0x20 && c<=0x7E
@@ -299,6 +469,7 @@ instance FromText ClientState where
 
 data RequestCode = RequestCode
     { requestCodeCode        :: Code
+    , requestCodeAuthorized  :: Bool
     , requestCodeExpires     :: UTCTime
     , requestCodeClientID    :: ClientID
     , requestCodeRedirectURI :: RedirectURI
@@ -706,3 +877,147 @@ instance FromJSON OAuth2Error where
 
 instance FromText Scope where
     fromText = bsToScope . T.encodeUtf8
+
+-- * Database Instances
+
+-- $ Here we implement support for, e.g., sorting oauth2-server types in
+-- PostgreSQL databases.
+--
+instance FromField ClientID where
+    fromField f bs = do
+        c <- fromField f bs
+        case c ^? clientID of
+            Just c_id -> pure c_id
+            Nothing   -> returnError ConversionFailed f $
+                            "Failed to convert with clientID: " <> show c
+
+instance ToField ClientID where
+    toField c_id = toField $ c_id ^.re clientID
+
+instance ToRow ClientID where
+    toRow client_id = toRow (Only (review clientID client_id))
+
+instance FromField ScopeToken where
+    fromField f bs = do
+        x <- fromField f bs
+        case x ^? scopeToken of
+            Just s  -> pure s
+            Nothing -> returnError ConversionFailed f $
+                           "Failed to convert with scopeToken: " <> show x
+
+instance FromField Scope where
+    fromField f bs = do
+        (v :: V.Vector ScopeToken) <- fromField f bs
+        case S.fromList (V.toList v) ^? scope of
+            Just s  -> pure s
+            Nothing -> returnError ConversionFailed f $
+                            "Failed to convert with scope."
+
+instance ToField Token where
+    toField tok = toField $ review token tok
+
+instance ToField Scope where
+    toField s = toField $ V.fromList $ fmap (review scopeToken) $ S.toList $ s ^.re scope
+
+instance ToField TokenType where
+    toField Bearer = toField ("bearer" :: Text)
+    toField Refresh = toField ("refresh" :: Text)
+
+instance FromField TokenType where
+    fromField f bs
+        | typeOid f /= $(inlineTypoid TI.varchar) = returnError Incompatible f ""
+        | bs == bearer  = pure Bearer
+        | bs == refresh = pure Refresh
+        | bs == Nothing = returnError UnexpectedNull f $
+                              "Token type cannot be NULL."
+        | otherwise     = returnError ConversionFailed f $
+                              "Unknown token type: " <> show bs
+      where
+        bearer = Just "bearer"
+        refresh = Just "refresh"
+
+instance ToRow TokenGrant where
+    toRow (TokenGrant ty ex uid cid sc) = toRow
+        ( ty
+        , ex
+        , review username <$> uid
+        , review clientID <$> cid
+        , scopeToBs sc
+        )
+
+instance FromRow TokenDetails where
+    fromRow = TokenDetails <$> field
+                           <*> mebbeField (preview token)
+                           <*> field
+                           <*> (preview username <$> field)
+                           <*> (preview clientID <$> field)
+                           <*> field
+
+instance FromField RedirectURI where
+    fromField f bs = do
+        x <- fromField f bs
+        case x ^? redirectURI of
+            Nothing -> returnError ConversionFailed f ""
+            Just uri -> return uri
+
+instance ToField RedirectURI where
+    toField = toField . review redirectURI
+
+fromFieldURI :: FieldParser URI
+fromFieldURI f bs = do
+    x <- fromField f bs
+    case parseURI strictURIParserOptions x of
+        Left e -> returnError ConversionFailed f (show e)
+        Right uri -> return uri
+
+instance FromRow ClientDetails where
+    fromRow = ClientDetails <$> field
+                            <*> field
+                            <*> field
+                            <*> field
+                            <*> field
+                            <*> field
+                            <*> fieldWith fromFieldURI
+
+instance FromField ClientState where
+    fromField f bs = do
+        s <- fromField f bs
+        case preview clientState s of
+            Nothing -> returnError ConversionFailed f "Unable to parse ClientState"
+            Just state -> return state
+
+instance ToField ClientState where
+    toField x = toField $ x ^.re clientState
+
+instance FromField Code where
+    fromField f bs = do
+        x <- fromField f bs
+        case x ^? code of
+            Just c  -> pure c
+            Nothing -> returnError ConversionFailed f $
+                           "Failed to convert with code: " <> show x
+
+instance ToField Code where
+    toField x = toField $ x ^.re code
+
+instance FromRow RequestCode where
+    fromRow = RequestCode <$> field
+                          <*> field
+                          <*> field
+                          <*> field
+                          <*> field
+                          <*> field
+                          <*> field
+
+-- | Get a PostgreSQL field using a parsing function.
+--
+-- Fails when given a NULL or if the parsing function fails.
+mebbeField
+    :: forall a b. (Typeable a, FromField b)
+    => (b -> Maybe a)
+    -> RowParser a
+mebbeField parse = fieldWith fld
+  where
+    fld :: Field -> Maybe ByteString -> Conversion a
+    fld f mbs = (parse <$> fromField f mbs) >>=
+        maybe (returnError ConversionFailed f "") return

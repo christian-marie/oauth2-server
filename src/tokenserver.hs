@@ -11,7 +11,7 @@ import           Data.Configurator        as C
 import           System.Environment
 import           System.Log.Logger
 
-import           Anchor.Tokens.Server
+import           Network.OAuth2.Server
 
 logName :: String
 logName = "Anchor.Tokens.Server.Store"

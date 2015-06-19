@@ -5,46 +5,122 @@
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE TypeOperators     #-}
 
--- | Description: HTTP API implementation.
-module Anchor.Tokens.Server.API where
+module Network.OAuth2.Server.API (
+    module X,
+    anchorOAuth2Server,
+    server,
+    anchorOAuth2API,
+    processTokenRequest,
+    tokenEndpoint,
+    TokenEndpoint,
+) where
 
-import           Blaze.ByteString.Builder    (toByteString)
-import           Control.Exception           (try)
+import           Control.Exception                   (try)
 import           Control.Lens
 import           Control.Monad
-import           Control.Monad.Error.Class
-import           Control.Monad.IO.Class
+import           Control.Monad.Error.Class           (MonadError (throwError))
+import           Control.Monad.IO.Class              (MonadIO (liftIO))
 import           Control.Monad.Trans.Control
-import           Control.Monad.Trans.Reader
-import           Data.Time.Clock
+import           Control.Monad.Trans.Except          (ExceptT, runExceptT)
+import           Data.Aeson                          (encode)
+import           Data.ByteString.Conversion          (ToByteString (..))
 import           Data.Either
 import           Data.Maybe
 import           Data.Monoid
 import           Data.Pool
 import           Data.Proxy
-import qualified Data.Set                    as S
-import qualified Data.Text                   as T
-import qualified Data.Text.Encoding          as T
+import qualified Data.Set                            as S
+import qualified Data.Text                           as T
+import qualified Data.Text.Encoding                  as T
+import           Data.Time.Clock                     (UTCTime, addUTCTime,
+                                                      getCurrentTime)
 import           Database.PostgreSQL.Simple
-import           Network.HTTP.Types          hiding (Header)
+import           Network.HTTP.Types                  hiding (Header)
+import           Network.OAuth2.Server.Configuration as X
+import           Network.OAuth2.Server.Types         as X
 import           Pipes.Concurrent
-import           Servant.API                 hiding (URI)
+import           Servant.API                         ((:>), (:<|>)(..),
+                                                      AddHeader (addHeader),
+                                                      FormUrlEncoded, Header,
+                                                      Headers, JSON, Post, Get,
+                                                      ReqBody, FromFormUrlEncoded(..),
+                                                      FromText(..), QueryParam, OctetStream, Capture)
 import           Servant.HTML.Blaze
-import           Servant.Server
+import           Servant.Server                      (ServantErr (errBody, errHeaders),
+                                                      Server, err302, err400, err401, err500, err404, err403)
 import           System.Log.Logger
-import           URI.ByteString
-import           Text.Blaze.Html5            hiding (map, code,rt)
+import           Text.Blaze.Html5                    (Html)
 
-import           Network.OAuth2.Server
-
-import           Anchor.Tokens.Server.Store hiding (logName)
-import           Anchor.Tokens.Server.Types
-import           Anchor.Tokens.Server.UI
-
-import Debug.Trace
+import           Network.OAuth2.Server.Store         hiding (logName)
+import           Network.OAuth2.Server.UI
 
 logName :: String
 logName = "Anchor.Tokens.Server.API"
+
+data NoStore = NoStore
+instance ToByteString NoStore where
+    builder _ = "no-store"
+
+data NoCache = NoCache
+instance ToByteString NoCache where
+    builder _ = "no-cache"
+
+type TokenEndpoint
+    = "token"
+    :> Header "Authorization" AuthHeader
+    :> ReqBody '[FormUrlEncoded] (Either OAuth2Error AccessRequest)
+    :> Post '[JSON] (Headers '[Header "Cache-Control" NoStore, Header "Pragma" NoCache] AccessResponse)
+
+throwOAuth2Error :: (MonadError ServantErr m) => OAuth2Error -> m a
+throwOAuth2Error e =
+    throwError err400 { errBody = encode e
+                      , errHeaders = [("Content-Type", "application/json")]
+                      }
+
+tokenEndpoint :: OAuth2Server (ExceptT OAuth2Error IO) -> Server TokenEndpoint
+tokenEndpoint _ _ (Left e) = throwOAuth2Error e
+tokenEndpoint conf auth (Right req) = do
+    t <- liftIO getCurrentTime
+    res <- liftIO $ runExceptT $ processTokenRequest conf t auth req
+    case res of
+        Left e -> throwOAuth2Error e
+        Right response -> do
+            return $ addHeader NoStore $ addHeader NoCache $ response
+
+processTokenRequest
+    :: (Monad m)
+    => OAuth2Server m
+    -> UTCTime
+    -> Maybe AuthHeader
+    -> AccessRequest
+    -> m AccessResponse
+processTokenRequest OAuth2Server{..} t client_auth req = do
+    (client_id, modified_scope) <- oauth2CheckCredentials client_auth req
+    user <- case req of
+        RequestAuthorizationCode{} -> return Nothing
+        RequestPassword{..} -> return $ Just requestUsername
+        RequestClientCredentials{} -> return Nothing
+        RequestRefreshToken{..} -> do
+                -- Decode previous token so we can copy details across.
+                previous <- oauth2StoreLoad requestRefreshToken
+                return $ tokenDetailsUsername =<< previous
+    let expires = addUTCTime 1800 t
+        access_grant = TokenGrant
+            { grantTokenType = Bearer
+            , grantExpires = expires
+            , grantUsername = user
+            , grantClientID = client_id
+            , grantScope = modified_scope
+            }
+        -- Create a refresh token with these details.
+        refresh_expires = addUTCTime (3600 * 24 * 7) t
+        refresh_grant = access_grant
+            { grantTokenType = Refresh
+            , grantExpires = refresh_expires
+            }
+    access_details <- oauth2StoreSave access_grant
+    refresh_details <- oauth2StoreSave refresh_grant
+    return $ grantResponse t access_details (Just $ tokenDetailsToken refresh_details)
 
 type OAuthUserHeader = "Identity-OAuthUser"
 type OAuthUserScopeHeader = "Identity-OAuthUserScopes"
@@ -53,7 +129,7 @@ data TokenRequest = DeleteRequest
                   | CreateRequest Scope
 
 instance FromFormUrlEncoded TokenRequest where
-    fromFormUrlEncoded o = trace (show o) $ case lookup "method" o of
+    fromFormUrlEncoded o = case lookup "method" o of
         Nothing -> Left "method field missing"
         Just "delete" -> Right DeleteRequest
         Just "create" -> do
@@ -252,8 +328,8 @@ verifyEndpoint ServerState{..} (Just auth) token' = do
         Right (Just cid) -> do
             return cid
     -- 2. Load token information.
-    token <- liftIO . try $ storeLoadToken serverPGConnPool token'
-    case token of
+    tok <- liftIO . try $ storeLoadToken serverPGConnPool token'
+    case tok of
         Left e -> do
             logE $ "Error verifying token: " <> show (e :: OAuth2Error)
             throwError denied
@@ -317,7 +393,7 @@ serverPostToken
     -> Maybe TokenID
     -> m Html
 serverPostToken pool u s DeleteRequest      (Just t) = handleShib (serverRevokeToken pool) u s t
-serverPostToken pool u s DeleteRequest      Nothing  = throwError err400{errBody = "Malformed delete request"}
+serverPostToken _    _ _ DeleteRequest      Nothing  = throwError err400{errBody = "Malformed delete request"}
 serverPostToken pool u s (CreateRequest rs) _        = handleShib (serverCreateToken pool) u s rs
 
 serverRevokeToken

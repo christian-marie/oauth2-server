@@ -11,47 +11,27 @@
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TypeFamilies               #-}
 
-{-# OPTIONS_GHC -fno-warn-orphans #-}
-
 -- | Description: OAuth2 token storage using PostgreSQL.
-module Anchor.Tokens.Server.Store where
+module Network.OAuth2.Server.Store where
 
-import           Blaze.ByteString.Builder                   (toByteString)
 import           Control.Applicative
 import           Control.Exception
-import           Control.Lens                               (preview)
-import           Control.Lens.Operators
+import           Control.Lens                (preview)
 import           Control.Lens.Prism
 import           Control.Lens.Review
 import           Control.Monad.IO.Class
 import           Control.Monad.Reader
 import           Crypto.Scrypt
-import           Data.ByteString                            (ByteString)
-import qualified Data.ByteString                            as BS
-import qualified Data.ByteString.Base64                     as B64
-import qualified Data.ByteString.Char8                      as BC
+import qualified Data.ByteString             as BS
+import qualified Data.ByteString.Base64      as B64
 import           Data.Char
-import           Data.Maybe
 import           Data.Monoid
 import           Data.Pool
-import qualified Data.Set                                   as S
-import           Data.Text                                  (Text)
 import           Data.Text.Encoding
-import           Data.Typeable
-import qualified Data.Vector                                as V
 import           Database.PostgreSQL.Simple
-import           Database.PostgreSQL.Simple.FromField
-import           Database.PostgreSQL.Simple.FromRow
-import           Database.PostgreSQL.Simple.ToField
-import           Database.PostgreSQL.Simple.ToRow
-import           Database.PostgreSQL.Simple.TypeInfo.Macro
-import qualified Database.PostgreSQL.Simple.TypeInfo.Static as TI
 import           System.Log.Logger
-import           URI.ByteString
 
-import           Network.OAuth2.Server
-
-import           Anchor.Tokens.Server.Types
+import           Network.OAuth2.Server.Types
 
 logName :: String
 logName = "Anchor.Tokens.Server.Store"
@@ -167,6 +147,7 @@ instance TokenStore (Pool Connection) IO where
                 liftIO $ query conn "INSERT INTO request_codes (client_id, user_id, redirect_url, scope, state) VALUES (?,?,?,?) RETURNING code, expires" (client_id, user_id, requestCodeRedirectURI, sc, requestCodeState)
             let requestCodeClientID = client_id
                 requestCodeScope = Just sc
+                requestCodeAuthorized = False
             return RequestCode{..}
 
     storeActivateCode pool code' user_id = do
@@ -185,7 +166,7 @@ instance TokenStore (Pool Connection) IO where
             liftIO $ query conn "INSERT INTO tokens (token_type, expires, user_id, client_id, scope) VALUES (?,?,?,?,?) RETURNING (token_type, token, expires, user_id, client_id, scope)" (grant)
         case res of
             [] -> fail $ "Failed to save new token: " <> show grant
-            [token] -> return token
+            [tok] -> return tok
             _       -> fail "Impossible: multiple tokens returned from single insert"
 
     storeLoadToken pool tok = do
@@ -215,17 +196,17 @@ instance TokenStore (Pool Connection) IO where
                                              Nothing
             Just client_id' -> case req of
                 -- https://tools.ietf.org/html/rfc6749#section-4.1.3
-                RequestAuthorizationCode code uri client ->
-                    checkClientAuthCode client_id' code uri client
+                RequestAuthorizationCode auth_code uri client ->
+                    checkClientAuthCode client_id' auth_code uri client
                 -- https://tools.ietf.org/html/rfc6749#section-4.3.2
-                RequestPassword username password scope ->
-                    checkPassword client_id' username password scope
+                RequestPassword request_username request_password request_scope ->
+                    checkPassword client_id' request_username request_password request_scope
                 -- http://tools.ietf.org/html/rfc6749#section-4.4.2
-                RequestClientCredentials scope ->
-                    checkClientCredentials client_id' scope
+                RequestClientCredentials request_scope ->
+                    checkClientCredentials client_id' request_scope
                 -- http://tools.ietf.org/html/rfc6749#section-6
-                RequestRefreshToken tok scope ->
-                    checkRefreshToken client_id' tok scope
+                RequestRefreshToken tok request_scope ->
+                    checkRefreshToken client_id' tok request_scope
       where
         --
         -- Verify client, scope and request code.
@@ -236,14 +217,14 @@ instance TokenStore (Pool Connection) IO where
         checkClientAuthCode _ _ _ Nothing = throwIO $ OAuth2Error InvalidRequest
                                                                   (preview errorDescription "No client ID supplied.")
                                                                   Nothing
-        checkClientAuthCode client_id code (Just uri) (Just purported_client) = do
+        checkClientAuthCode client_id request_code (Just uri) (Just purported_client) = do
              do
                     when (client_id /= purported_client) $ throwIO $
                         OAuth2Error UnauthorizedClient
                                     (preview errorDescription "Invalid client credentials")
                                     Nothing
                     codes :: [RequestCode] <- withResource pool $ \conn ->
-                        liftIO $ query conn "SELECT code, expires, client_id, redirect_url, scope, state FROM request_codes WHERE (code = ?)" (Only code)
+                        liftIO $ query conn "SELECT code, expires, client_id, redirect_url, scope, state FROM request_codes WHERE (code = ?)" (Only request_code)
                     case codes of
                         [] -> throwIO $ OAuth2Error InvalidGrant
                                                     (preview errorDescription "Request code not found")
@@ -260,14 +241,14 @@ instance TokenStore (Pool Connection) IO where
                                                        Nothing
                              case requestCodeScope rc of
                                  Nothing -> do
-                                     liftIO . debugM logName $ "No scope found for code " <> show code
+                                     liftIO . debugM logName $ "No scope found for code " <> show request_code
                                      throwIO $ OAuth2Error InvalidScope
                                                            (preview errorDescription "No scope found")
                                                            Nothing
-                                 Just scope -> return (Just client_id, scope)
+                                 Just code_scope -> return (Just client_id, code_scope)
                         _ -> do
-                            liftIO . errorM logName $ "Consistency error: duplicate code " <> show code
-                            fail $ "Consistency error: duplicate code " <> show code
+                            liftIO . errorM logName $ "Consistency error: duplicate code " <> show request_code
+                            fail $ "Consistency error: duplicate code " <> show request_code
 
         --
         -- Check nothing and fail; we don't support password grants.
@@ -285,7 +266,7 @@ instance TokenStore (Pool Connection) IO where
         checkClientCredentials _ Nothing = throwIO $ OAuth2Error InvalidRequest
                                                                    (preview errorDescription "No scope supplied.")
                                                                    Nothing
-        checkClientCredentials client_id (Just scope) = return (Just client_id, scope)
+        checkClientCredentials client_id (Just request_scope) = return (Just client_id, request_scope)
 
         --
         -- Verify scope and request token.
@@ -294,7 +275,7 @@ instance TokenStore (Pool Connection) IO where
         checkRefreshToken _ _ Nothing     = throwIO $ OAuth2Error InvalidRequest
                                                                   (preview errorDescription "No scope supplied.")
                                                                   Nothing
-        checkRefreshToken client_id tok (Just scope) = do
+        checkRefreshToken client_id tok (Just request_scope) = do
             details <- liftIO $ storeLoadToken pool tok
             case details of
                 Nothing -> do
@@ -303,17 +284,17 @@ instance TokenStore (Pool Connection) IO where
                                           (preview errorDescription "Invalid token")
                                           Nothing
                 Just details' -> do
-                    unless (compatibleScope scope (tokenDetailsScope details')) $ do
+                    unless (compatibleScope request_scope (tokenDetailsScope details')) $ do
                         liftIO . debugM logName $
                             "Incompatible scopes " <>
-                            show scope <>
+                            show request_scope <>
                             " and " <>
                             show (tokenDetailsScope details') <>
                             ", refusing to verify"
                         throwIO $ OAuth2Error InvalidScope
                                               (preview errorDescription "Invalid scope")
                                               Nothing
-                    return (Just client_id, scope)
+                    return (Just client_id, request_scope)
 
     storeCheckClientAuth pool auth = do
         case preview authDetails auth of
@@ -323,8 +304,9 @@ instance TokenStore (Pool Connection) IO where
                                         (preview errorDescription "Invalid auth header provided.")
                                         Nothing
             Just (client_id, secret) -> do
-                hashes :: [EncryptedPass] <- withResource pool $ \conn ->
-                    liftIO $ query conn "SELECT client_secret FROM clients WHERE (client_id = ?)" (client_id)
+                hashes :: [EncryptedPass] <- withResource pool $ \conn -> do
+                    res <- liftIO $ query conn "SELECT client_secret FROM clients WHERE (client_id = ?)" (client_id)
+                    return $ map (EncryptedPass . fromOnly) res
                 case hashes of
                     [hash]   -> return $ verifyClientSecret client_id secret hash
                     []       -> do
@@ -360,7 +342,7 @@ instance TokenStore (Pool Connection) IO where
                 xs  -> let msg = "Should only be able to retrieve at most one token, retrieved: " <> show xs
                     in liftIO (errorM logName msg) >> fail msg
 
-    storeCreateToken pool user_id scope = do
+    storeCreateToken pool user_id request_scope = do
         withResource pool $ \conn ->
             --liftIO $ execute conn "INSERT INTO tokens VALUES ..."
             error "wat"
@@ -392,157 +374,3 @@ authDetails =
 
     fromPair (client_id, secret) =
         AuthHeader "Basic" $ (review clientID client_id) <> " " <> encodeUtf8 (review password secret)
-
--- * Support Code
-
-instance FromField EncryptedPass where
-    fromField f bs = do
-        p <- fromField f bs
-        return $ EncryptedPass p
-
-instance FromRow EncryptedPass where
-    fromRow = field
-
--- $ Here we implement support for, e.g., sorting oauth2-server types in
--- PostgreSQL databases.
---
-instance FromField ClientID where
-    fromField f bs = do
-        c <- fromField f bs
-        case c ^? clientID of
-            Just c_id -> pure c_id
-            Nothing   -> returnError ConversionFailed f $
-                            "Failed to convert with clientID: " <> show c
-
-instance ToField ClientID where
-    toField c_id = toField $ c_id ^.re clientID
-
-instance ToRow ClientID where
-    toRow client_id = toRow (Only (review clientID client_id))
-
-instance FromField ScopeToken where
-    fromField f bs = do
-        x <- fromField f bs
-        case x ^? scopeToken of
-            Just s  -> pure s
-            Nothing -> returnError ConversionFailed f $
-                           "Failed to convert with scopeToken: " <> show x
-
-instance FromField Scope where
-    fromField f bs = do
-        (v :: V.Vector ScopeToken) <- fromField f bs
-        case S.fromList (V.toList v) ^? scope of
-            Just s  -> pure s
-            Nothing -> returnError ConversionFailed f $
-                            "Failed to convert with scope."
-
-instance ToField Token where
-    toField tok = toField $ review token tok
-
-instance ToField Scope where
-    toField s = toField $ V.fromList $ fmap (review scopeToken) $ S.toList $ s ^.re scope
-
-instance ToField TokenType where
-    toField Bearer = toField ("bearer" :: Text)
-    toField Refresh = toField ("refresh" :: Text)
-
-instance FromField TokenType where
-    fromField f bs
-        | typeOid f /= $(inlineTypoid TI.varchar) = returnError Incompatible f ""
-        | bs == bearer  = pure Bearer
-        | bs == refresh = pure Refresh
-        | bs == Nothing = returnError UnexpectedNull f $
-                              "Token type cannot be NULL."
-        | otherwise     = returnError ConversionFailed f $
-                              "Unknown token type: " <> show bs
-      where
-        bearer = Just "bearer"
-        refresh = Just "refresh"
-
-instance ToRow TokenGrant where
-    toRow (TokenGrant ty ex uid cid sc) = toRow
-        ( ty
-        , ex
-        , review username <$> uid
-        , review clientID <$> cid
-        , scopeToBs sc
-        )
-
-instance FromRow TokenDetails where
-    fromRow = TokenDetails <$> field
-                           <*> mebbeField (preview token)
-                           <*> field
-                           <*> (preview username <$> field)
-                           <*> (preview clientID <$> field)
-                           <*> field
-
-instance FromField URI where
-    fromField f bs = do
-        x <- fromField f bs
-        case parseURI strictURIParserOptions x of
-            Left e -> returnError ConversionFailed f (show e)
-            Right uri -> return uri
-
-instance ToField URI where
-    toField x = toField $ toByteString $ serializeURI x
-
-instance FromField RedirectURI where
-    fromField f bs = do
-        x <- fromField f bs
-        case x ^? redirectURI of
-            Nothing -> returnError ConversionFailed f ""
-            Just uri -> return uri
-
-instance ToField RedirectURI where
-    toField = toField . review redirectURI
-
-instance FromRow ClientDetails where
-    fromRow = ClientDetails <$> field
-                            <*> field
-                            <*> field
-                            <*> field
-                            <*> field
-                            <*> field
-                            <*> field
-
-instance FromField ClientState where
-    fromField f bs = do
-        s <- fromField f bs
-        case preview clientState s of
-            Nothing -> returnError ConversionFailed f "Unable to parse ClientState"
-            Just state -> return state
-
-instance ToField ClientState where
-    toField x = toField $ x ^.re clientState
-
-instance FromField Code where
-    fromField f bs = do
-        x <- fromField f bs
-        case x ^? code of
-            Just c  -> pure c
-            Nothing -> returnError ConversionFailed f $
-                           "Failed to convert with code: " <> show x
-
-instance ToField Code where
-    toField x = toField $ x ^.re code
-
-instance FromRow RequestCode where
-    fromRow = RequestCode <$> field
-                          <*> field
-                          <*> field
-                          <*> field
-                          <*> field
-                          <*> field
-
--- | Get a PostgreSQL field using a parsing function.
---
--- Fails when given a NULL or if the parsing function fails.
-mebbeField
-    :: forall a b. (Typeable a, FromField b)
-    => (b -> Maybe a)
-    -> RowParser a
-mebbeField parse = fieldWith fld
-  where
-    fld :: Field -> Maybe ByteString -> Conversion a
-    fld f mbs = (parse <$> fromField f mbs) >>=
-        maybe (returnError ConversionFailed f "") return

@@ -1,101 +1,83 @@
-{-# LANGUAGE DataKinds         #-}
-{-# LANGUAGE FlexibleContexts  #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RankNTypes        #-}
-{-# LANGUAGE RecordWildCards   #-}
-{-# LANGUAGE TypeOperators     #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Network.OAuth2.Server (
-    module X,
-    processTokenRequest,
-    tokenEndpoint,
-    TokenEndpoint,
-    NoStore(NoStore),
-    NoCache(NoCache),
-) where
+    P.version,
+    startServer,
+    module Network.OAuth2.Server.API,
+    module Network.OAuth2.Server.Configuration,
+    module Network.OAuth2.Server.Statistics,
+    ) where
 
-import Control.Monad.Error.Class ( MonadError(throwError) )
-import Control.Monad.IO.Class ( MonadIO(liftIO) )
-import Control.Monad.Trans.Except ( ExceptT, runExceptT )
-import Data.Aeson ( encode )
-import Data.ByteString.Conversion ( ToByteString(..) )
-import Data.Time.Clock ( UTCTime, addUTCTime, getCurrentTime )
-import Servant.API
-    ( type (:>),
-      Headers,
-      AddHeader(addHeader),
-      ReqBody,
-      Post,
-      Header,
-      JSON,
-      FormUrlEncoded )
-import Servant.Server
-    ( ServantErr(errBody, errHeaders), Server, err400 )
+import           Control.Concurrent
+import           Control.Concurrent.Async
+import           Data.Pool
+import qualified Data.Streaming.Network              as N
+import           Database.PostgreSQL.Simple
+import qualified Network.Socket                      as S
+import           Network.Wai.Handler.Warp            hiding (Connection)
+import           Pipes.Concurrent
+import           Servant.Server
+import           System.Log.Logger
+import qualified System.Remote.Monitoring            as EKG
 
-import Network.OAuth2.Server.Configuration as X
-import Network.OAuth2.Server.Types as X
+import           Network.OAuth2.Server.API
+import           Network.OAuth2.Server.Configuration
+import           Network.OAuth2.Server.Statistics
 
-data NoStore = NoStore
-instance ToByteString NoStore where
-    builder _ = "no-store"
+import           Paths_oauth2_server                 as P
 
-data NoCache = NoCache
-instance ToByteString NoCache where
-    builder _ = "no-cache"
 
-type TokenEndpoint
-    = "token"
-    :> Header "Authorization" AuthHeader
-    :> ReqBody '[FormUrlEncoded] (Either OAuth2Error AccessRequest)
-    :> Post '[JSON] (Headers '[Header "Cache-Control" NoStore, Header "Pragma" NoCache] AccessResponse)
+-- * Server
 
-throwOAuth2Error :: (MonadError ServantErr m) => OAuth2Error -> m a
-throwOAuth2Error e =
-    throwError err400 { errBody = encode e
-                      , errHeaders = [("Content-Type", "application/json")]
-                      }
+logName :: String
+logName = "Anchor.Tokens.Server"
 
-tokenEndpoint :: OAuth2Server (ExceptT OAuth2Error IO) -> Server TokenEndpoint
-tokenEndpoint _ _ (Left e) = throwOAuth2Error e
-tokenEndpoint conf auth (Right req) = do
-    t <- liftIO getCurrentTime
-    res <- liftIO $ runExceptT $ processTokenRequest conf t auth req
-    case res of
-        Left e -> throwOAuth2Error e
-        Right response -> do
-            return $ addHeader NoStore $ addHeader NoCache $ response
+-- | Start the statistics-reporting thread.
+startStatistics
+    :: ServerOptions
+    -> Pool Connection
+    -> GrantCounters
+    -> IO (Output GrantEvent, IO ())
+startStatistics ServerOptions{..} connPool counters = do
+    debugM logName $ "Starting EKG"
+    srv <- EKG.forkServer optStatsHost optStatsPort
+    (output, input, seal) <- spawn' (bounded 50)
+    registerOAuth2Metrics (EKG.serverMetricStore srv) connPool input counters
+    let stop = do
+            debugM logName $ "Stopping EKG"
+            atomically seal
+            killThread (EKG.serverThreadId srv)
+            threadDelay 10000
+            debugM logName $ "Stopped EKG"
+    return (output, stop)
 
-processTokenRequest
-    :: (Monad m)
-    => OAuth2Server m
-    -> UTCTime
-    -> Maybe AuthHeader
-    -> AccessRequest
-    -> m AccessResponse
-processTokenRequest OAuth2Server{..} t client_auth req = do
-    (client_id, modified_scope) <- oauth2CheckCredentials client_auth req
-    user <- case req of
-        RequestAuthorizationCode{} -> return Nothing
-        RequestPassword{..} -> return $ Just requestUsername
-        RequestClientCredentials{} -> return Nothing
-        RequestRefreshToken{..} -> do
-                -- Decode previous token so we can copy details across.
-                previous <- oauth2StoreLoad requestRefreshToken
-                return $ tokenDetailsUsername =<< previous
-    let expires = addUTCTime 1800 t
-        access_grant = TokenGrant
-            { grantTokenType = Bearer
-            , grantExpires = expires
-            , grantUsername = user
-            , grantClientID = client_id
-            , grantScope = modified_scope
-            }
-        -- Create a refresh token with these details.
-        refresh_expires = addUTCTime (3600 * 24 * 7) t
-        refresh_grant = access_grant
-            { grantTokenType = Refresh
-            , grantExpires = refresh_expires
-            }
-    access_details <- oauth2StoreSave access_grant
-    refresh_details <- oauth2StoreSave refresh_grant
-    return $ grantResponse t access_details (Just $ tokenDetailsToken refresh_details)
+startServer
+    :: ServerOptions
+    -> IO (IO (Async ()))
+startServer serverOpts@ServerOptions{..} = do
+    debugM logName $ "Opening API Socket"
+    sock <- N.bindPortTCP optServicePort optServiceHost
+    let createConn = connectPostgreSQL optDBString
+        destroyConn conn = close conn
+        stripes = 1
+        keep_alive = 10
+        num_conns = 20
+    serverPGConnPool <-
+        createPool createConn destroyConn stripes keep_alive num_conns
+    counters <- mkGrantCounters
+    (serverEventSink, serverEventStop) <- startStatistics serverOpts serverPGConnPool counters
+    let settings = setPort optServicePort $ setHost optServiceHost $ defaultSettings
+        serverOAuth2Server = anchorOAuth2Server serverPGConnPool serverEventSink
+    apiSrv <- async $ do
+        debugM logName $ "Starting API Server"
+        runSettingsSocket settings sock $ serve anchorOAuth2API (server ServerState{..})
+    let serverServiceStop = do
+            debugM logName $ "Closing API Socket"
+            S.close sock
+            async $ do
+                wait apiSrv
+                debugM logName $ "Stopped API Server"
+    return $ do
+        serverEventStop
+        destroyAllResources serverPGConnPool
+        serverServiceStop

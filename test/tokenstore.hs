@@ -10,7 +10,6 @@
 module Main where
 
 import           Control.Applicative
-import           Control.Error.Util
 import           Control.Lens.Operators
 import           Control.Monad
 import           Control.Monad.Error
@@ -23,16 +22,14 @@ import           Data.Time.Calendar
 import           Data.Time.Clock
 import           Database.PostgreSQL.Simple
 import           Network.OAuth2.Server
-import           Pipes.Concurrent
 import           System.Process
 import           Test.Hspec
 import           Test.Hspec.QuickCheck
 import           Test.QuickCheck
 import           Test.QuickCheck.Monadic
 
-import           Anchor.Tokens.Server.Configuration
-import           Anchor.Tokens.Server.Store
-import           Anchor.Tokens.Server.Types
+import           Network.OAuth2.Server.Store
+import           Network.OAuth2.Server.Types
 
 alphabet :: Gen Char
 alphabet = elements ['a'..'z']
