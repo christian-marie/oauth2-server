@@ -1,15 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- | Description: Configuration parsing.
 module Network.OAuth2.Server.Configuration where
 
 import           Control.Applicative
-import           Data.Configurator
+import           Data.Configurator           as C
 import           Data.Configurator.Types
 import           Data.String
-import           Network.Wai.Handler.Warp
 
 import           Network.OAuth2.Server.Types
 
@@ -24,15 +22,12 @@ defaultServerOptions =
         optVerifyRealm = "verify-token"
     in ServerOptions{..}
 
-instance Configured HostPreference where
-    convert v = fromString <$> convert v
-
 loadOptions :: Config -> IO ServerOptions
 loadOptions conf = do
     optDBString <- ldef optDBString "database"
     optStatsHost <- ldef optStatsHost "stats.host"
     optStatsPort <- ldef optStatsPort "stats.port"
-    optServiceHost <- ldef optServiceHost "api.host"
+    optServiceHost <- maybe (optServiceHost defaultServerOptions) fromString <$> C.lookup conf "api.host"
     optServicePort <- ldef optServicePort "api.port"
     optUIPageSize <- ldef optUIPageSize "ui.page_size"
     optVerifyRealm <- ldef optVerifyRealm "api.verify_realm"
