@@ -66,6 +66,8 @@ class TokenStore ref m where
         -> m TokenDetails
 
     -- | Retrieve the details of a previously issued token from the database.
+    --
+    --   Returns only tokens which are currently valid.
     storeLoadToken
         :: ref
         -> Token
@@ -172,7 +174,7 @@ instance TokenStore (Pool Connection) IO where
     storeLoadToken pool tok = do
         liftIO . debugM logName $ "Loading token: " <> show tok
         tokens :: [TokenDetails] <- withResource pool $ \conn -> do
-            liftIO $ query conn "SELECT token_type, token, expires, user_id, client_id, scope FROM tokens WHERE (token = ?) AND (revoked IS NULL)" (Only tok)
+            liftIO $ query conn "SELECT token_type, token, expires, user_id, client_id, scope FROM tokens WHERE (token = ?) AND (created <= NOW()) AND (NOW() < expires) AND (revoked IS NULL)" (Only tok)
         case tokens of
             [t] -> return $ Just t
             []  -> do
