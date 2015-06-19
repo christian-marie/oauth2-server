@@ -7,7 +7,6 @@
 
 module Network.OAuth2.Server.API (
     module X,
-    anchorOAuth2Server,
     server,
     anchorOAuth2API,
     processTokenRequest,
@@ -38,7 +37,6 @@ import           Database.PostgreSQL.Simple
 import           Network.HTTP.Types                  hiding (Header)
 import           Network.OAuth2.Server.Configuration as X
 import           Network.OAuth2.Server.Types         as X
-import           Pipes.Concurrent
 import           Servant.API                         ((:>), (:<|>)(..),
                                                       AddHeader (addHeader),
                                                       FormUrlEncoded, Header,
@@ -77,7 +75,7 @@ throwOAuth2Error e =
                       , errHeaders = [("Content-Type", "application/json")]
                       }
 
-tokenEndpoint :: OAuth2Server (ExceptT OAuth2Error IO) -> Server TokenEndpoint
+tokenEndpoint :: Pool Connection -> Server TokenEndpoint
 tokenEndpoint _ _ (Left e) = throwOAuth2Error e
 tokenEndpoint conf auth (Right req) = do
     t <- liftIO getCurrentTime
@@ -87,22 +85,29 @@ tokenEndpoint conf auth (Right req) = do
         Right response -> do
             return $ addHeader NoStore $ addHeader NoCache $ response
 
+test :: MonadBaseControl IO m => m ()
+test = do
+    res <- runExceptT (return ())
+    case res of
+        (Left x) -> return ()
+        (Right x) -> return ()
+
 processTokenRequest
-    :: (Monad m)
-    => OAuth2Server m
+    :: (TokenStore ref m, MonadError OAuth2Error m)
+    => ref
     -> UTCTime
     -> Maybe AuthHeader
     -> AccessRequest
     -> m AccessResponse
-processTokenRequest OAuth2Server{..} t client_auth req = do
-    (client_id, modified_scope) <- oauth2CheckCredentials client_auth req
+processTokenRequest ref t client_auth req = do
+    (client_id, modified_scope) <- storeCheckCredentials ref client_auth req
     user <- case req of
         RequestAuthorizationCode{} -> return Nothing
         RequestPassword{..} -> return $ Just requestUsername
         RequestClientCredentials{} -> return Nothing
         RequestRefreshToken{..} -> do
                 -- Decode previous token so we can copy details across.
-                previous <- oauth2StoreLoad requestRefreshToken
+                previous <- storeLoadToken ref requestRefreshToken
                 return $ tokenDetailsUsername =<< previous
     let expires = addUTCTime 1800 t
         access_grant = TokenGrant
@@ -118,8 +123,8 @@ processTokenRequest OAuth2Server{..} t client_auth req = do
             { grantTokenType = Refresh
             , grantExpires = refresh_expires
             }
-    access_details <- oauth2StoreSave access_grant
-    refresh_details <- oauth2StoreSave refresh_grant
+    access_details <- storeSaveToken ref access_grant
+    refresh_details <- storeSaveToken ref refresh_grant
     return $ grantResponse t access_details (Just $ tokenDetailsToken refresh_details)
 
 type OAuthUserHeader = "Identity-OAuthUser"
@@ -233,7 +238,7 @@ anchorOAuth2API = Proxy
 
 server :: ServerState -> Server AnchorOAuth2API
 server state@ServerState{..}
-       = tokenEndpoint serverOAuth2Server
+       = tokenEndpoint serverPGConnPool
     :<|> verifyEndpoint state
     :<|> handleShib (authorizeEndpoint serverPGConnPool)
     :<|> handleShib (authorizePost serverPGConnPool)
@@ -425,23 +430,3 @@ serverCreateToken pool user_id userScope reqScope = do
         TokenID t <- liftIO $ storeCreateToken pool user_id reqScope
         throwError err302{errHeaders = [(hLocation, "/tokens?token_id=" <> T.encodeUtf8 t)]} --Redirect to tokens page
     else throwError err403{errBody = "Invalid requested token scope"}
-
-
--- * OAuth2 Server
---
--- $ This defines the 'OAuth2Server' implementation we use to store, load, and
--- validate tokens and credentials.
-
-anchorOAuth2Server
-    :: ( MonadIO m
-       , MonadBaseControl IO m
-       , MonadError OAuth2Error m
-       )
-    => Pool Connection
-    -> Output a
-    -> OAuth2Server m
-anchorOAuth2Server pool out =
-    let oauth2StoreSave grant = liftIO $ storeSaveToken pool grant
-        oauth2StoreLoad tok = liftIO $ storeLoadToken pool tok
-        oauth2CheckCredentials auth req = liftIO $ storeCheckCredentials pool auth req
-    in OAuth2Server{..}

@@ -36,7 +36,6 @@ module Network.OAuth2.Server.Types (
   nqchar,
   nqschar,
   OAuth2Error(..),
-  OAuth2Server(..),
   Page(..),
   Password,
   password,
@@ -74,7 +73,6 @@ import           Control.Lens.Operators                     ((%~), (&), (^.))
 import           Control.Lens.Prism                         (Prism', prism')
 import           Control.Lens.Review                        (re, review)
 import           Control.Monad                              (guard, mzero)
-import           Control.Monad.Trans.Except
 import           Data.Aeson                                 (FromJSON (..),
                                                              ToJSON (..),
                                                              Value (String),
@@ -138,18 +136,6 @@ import           URI.ByteString                             (URI, parseURI,
                                                              uriFragmentL,
                                                              uriQueryL)
 
-
-
--- | The configuration for an OAuth2 server.
-data OAuth2Server m = OAuth2Server
-    { oauth2StoreSave        :: TokenGrant -> m TokenDetails
-    -- ^ Save a [new] token to the OAuth2 server database.
-    , oauth2StoreLoad        :: Token -> m (Maybe TokenDetails)
-    -- ^ Load a token from the OAuth2 server database.
-    , oauth2CheckCredentials :: Maybe AuthHeader -> AccessRequest -> m (Maybe ClientID, Scope)
-    -- ^ Check the credentials provided by the resource owner.
-    }
-
 -- | Unique identifier for a user.
 newtype UserID = UserID
     { unpackUserID :: Text }
@@ -192,10 +178,9 @@ data ServerOptions = ServerOptions
 
 -- | State of the running server, including database connectioned, etc.
 data ServerState = ServerState
-    { serverPGConnPool   :: Pool Connection
-    , serverEventSink    :: Output GrantEvent
-    , serverOpts         :: ServerOptions
-    , serverOAuth2Server :: OAuth2Server (ExceptT OAuth2Error IO)
+    { serverPGConnPool :: Pool Connection
+    , serverEventSink  :: Output GrantEvent
+    , serverOpts       :: ServerOptions
     }
 
 -- | Describes events which should be tracked by the monitoring statistics

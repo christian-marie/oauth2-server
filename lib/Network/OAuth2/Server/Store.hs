@@ -15,12 +15,13 @@
 module Network.OAuth2.Server.Store where
 
 import           Control.Applicative
-import           Control.Exception
+import           Control.Exception.Lifted
 import           Control.Lens                (preview)
 import           Control.Lens.Prism
 import           Control.Lens.Review
 import           Control.Monad.IO.Class
 import           Control.Monad.Reader
+import           Control.Monad.Trans.Control
 import           Crypto.Scrypt
 import qualified Data.ByteString             as BS
 import qualified Data.ByteString.Base64      as B64
@@ -122,12 +123,7 @@ class TokenStore ref m where
         -> TokenID
         -> m ()
 
-    -- Lift a store action into any MonadIO, used for injecting any store
-    -- action into IO whilst keeping any underlying actions in the underlying
-    -- monad.
-    storeLift :: MonadIO m' => m a -> m' a
-
-instance TokenStore (Pool Connection) IO where
+instance (MonadIO m, MonadBaseControl IO m) => TokenStore (Pool Connection) m where
     storeCreateCode pool user_id client_id redirect sc requestCodeState = do
         withResource pool $ \conn -> do
             res <- liftIO $
@@ -163,7 +159,7 @@ instance TokenStore (Pool Connection) IO where
                     error "Consistency error: multiple redirect URLs found"
 
     storeSaveToken pool grant = do
-        debugM logName $ "Saving new token: " <> show grant
+        liftIO $ debugM logName $ "Saving new token: " <> show grant
         res :: [TokenDetails] <- withResource pool $ \conn -> do
             liftIO $ query conn "INSERT INTO tokens (token_type, expires, user_id, client_id, scope) VALUES (?,?,?,?,?) RETURNING (token_type, token, expires, user_id, client_id, scope)" (grant)
         case res of
@@ -357,8 +353,6 @@ instance TokenStore (Pool Connection) IO where
                 1 -> liftIO . debugM logName $ "Revoked token with id " <> show token_id <> " for user " <> show user_id
                 0 -> fail $ "Failed to revoke token " <> show token_id <> " for user " <> show user_id
                 _ -> liftIO . errorM logName $ "Consistency error: revoked multiple tokens " <> show token_id <> " for user " <> show user_id
-
-    storeLift = liftIO
 
 authDetails :: Prism' AuthHeader (ClientID, Password)
 authDetails =

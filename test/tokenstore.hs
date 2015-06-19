@@ -13,11 +13,11 @@ import           Control.Applicative
 import           Control.Lens.Operators
 import           Control.Monad
 import           Control.Monad.Error
-import           Data.ByteString                    (ByteString)
-import qualified Data.ByteString.Char8              as B
+import           Data.ByteString             (ByteString)
+import qualified Data.ByteString.Char8       as B
 import           Data.Maybe
 import           Data.Pool
-import qualified Data.Text                          as T
+import qualified Data.Text                   as T
 import           Data.Time.Calendar
 import           Data.Time.Clock
 import           Database.PostgreSQL.Simple
