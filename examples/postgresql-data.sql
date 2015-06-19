@@ -25,7 +25,7 @@ VALUES ( '5641ea27-2222-2222-2222-8fc06b502be0'
        , 'http://app2.example.com/'
        );
 
--- Valid access, valid refresh.
+-- Valid bearer, valid refresh.
 INSERT INTO tokens (token, token_type, scope, created, expires, client_id, user_id)
 VALUES ( 'Xnl4W3J3ReJYN9qH1YfR4mjxaZs70lVX/Edwbh42KPpmlqhp500c4UKnQ6XKmyjbnqoRW1NFWl7h'
        , 'bearer'
@@ -45,7 +45,7 @@ VALUES ( 'hBC86fa6py9nDYMNNZAOfkseAJlN5WvnEmelbCuAUOqOYhYan8N7EgZh6b6k7DpWF6j9Do
        , 'user1@example.com'
        );
 
--- Expired access & valid refresh.
+-- Expired bearer & valid refresh.
 INSERT INTO tokens (token, token_type, scope, created, expires, client_id, user_id)
 VALUES ( '4Bb+zZV3cizc4kIiWwxxKxj4nRxBdyvB3aWgfqsq8u9h+Y9uqP6NJTtcLWLZaxmjl+oqn+bHObJU'
        , 'bearer'
@@ -65,7 +65,7 @@ VALUES ( 'l5lXecbLVcUvE25fPHbMpJnK0IY6wta9nKId60Q06HY4fYkx5b3djFwU2xtA9+NDK3aPda
        , 'user1@example.com'
        );
 
--- Expired access & expired refresh.
+-- Expired bearer & expired refresh.
 INSERT INTO tokens (token, token_type, scope, created, expires, client_id, user_id)
 VALUES ( 'cRIhk3UyxiABoafo4h100kZcjGQQJ/UDEVjM4qv/Htcn2LNApJkhIc6hzDPvujgCmRV3CRY1Up4a'
        , 'bearer'
@@ -85,7 +85,7 @@ VALUES ( 'QVuRV4RxA2lO8B6y8vOIi03pZMSj8S8F/LsMxCyfA3OBtgmB1IFh51aMSeh4qjBid9nNmk
        , 'user1@example.com'
        );
 
--- Revoked access, valid refresh.
+-- Revoked bearer, valid refresh.
 INSERT INTO tokens (token, token_type, scope, created, expires, revoked, client_id, user_id)
 VALUES ( 'AjMuHxnw5TIrO9C2BQStlXUv6luAWmg7pt1GhVjYctvD8w3eZE9eEjbyGsVjrJT8S11egXsOi7e4'
        , 'bearer'
@@ -106,7 +106,7 @@ VALUES ( 'E4VkzDDDm8till5xSYIeOO8GbnSYtBHiIIClwdd46+J9K/dH/l5YVBFXLHmHZno5YAVtIp
        , 'user1@example.com'
        );
 
--- Revoked access, revoked refresh.
+-- Revoked bearer, revoked refresh.
 INSERT INTO tokens (token, token_type, scope, created, expires, revoked, client_id, user_id)
 VALUES ( '/D6TJwBSK18sB0cLyVWdt38Pca5keFb/sHeblGNScQI35qhUZwnMZh1Gz9RSIjFfxmBDdHeBWeLM'
        , 'bearer'
