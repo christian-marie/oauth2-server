@@ -49,7 +49,7 @@ instance Arbitrary Username where
 
 instance Arbitrary Scope where
   arbitrary = do
-    s <- liftM unwords $ listOf $ listOf alphabet
+    s <- liftM unwords $ listOf1 $ listOf1 alphabet
     return $ fromJust $ bsToScope $ B.pack s -- trust me
 
 instance Arbitrary ClientID where
