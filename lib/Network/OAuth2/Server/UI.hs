@@ -15,8 +15,8 @@ import qualified Data.Text.Encoding          as T
 import           Prelude                     hiding (head)
 import           Prelude                     hiding (head)
 import           Text.Blaze.Html5            hiding (code, div, map, p)
-import           Text.Blaze.Html5.Attributes hiding (form, scope, style,
-                                              title, size)
+import           Text.Blaze.Html5.Attributes hiding (form, scope, size, style,
+                                              title)
 
 import           Network.OAuth2.Server.Types
 

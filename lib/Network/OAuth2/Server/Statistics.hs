@@ -7,16 +7,16 @@ module Network.OAuth2.Server.Statistics where
 import           Control.Applicative
 import           Control.Monad
 import           Control.Monad.STM
-import qualified Data.HashMap.Strict        as HM
+import qualified Data.HashMap.Strict         as HM
 import           Data.Int
 import           Data.Monoid
 import           Data.Pool
-import           Data.Text                  ()
+import           Data.Text                   ()
 import           Database.PostgreSQL.Simple
 import           Pipes.Concurrent
 import           System.Log.Logger
 import           System.Metrics
-import qualified System.Metrics.Counter     as C
+import qualified System.Metrics.Counter      as C
 
 import           Network.OAuth2.Server.Types
 
