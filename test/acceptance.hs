@@ -16,6 +16,8 @@ import           Test.Hspec
 
 import           Network.OAuth2.Server
 
+type URI = String
+
 main :: IO ()
 main = do
     args <- getArgs
@@ -95,18 +97,6 @@ tests base_uri = do
 
         it "allows the user to revoke a token"
             pending
-
--- | Check that a known-good client can validate a known-good token.
-{-
-curl --include -X POST
-    -H 'Accept: application/json'
-    -H 'Content-Type: application/octet-stream' \
-     --data "Xnl4W3J3ReJYN9qH1YfR4mjxaZs70lVX/Edwbh42KPpmlqhp500c4UKnQ6XKmyjbnqoRW1NFWl7h" \
-     --user 5641ea27-1111-1111-1111-8fc06b502be0:clientpassword1 \
-     http://localhost:8080/oauth2/verify
--}
-
-type URI = String
 
 -- | Use the verify endpoint of a token server to verify a token.
 verifyToken :: URI -> (ClientID, Password) -> Token -> IO (Either String AccessResponse)
