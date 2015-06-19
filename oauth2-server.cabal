@@ -149,5 +149,10 @@ test-suite             test-acceptance
   hs-source-dirs:      test
   main-is:             acceptance.hs
   build-depends:       base
-                     , oauth2-server
+                     , hspec
+                     , http-client
                      , lens
+                     , lens-aeson
+                     , oauth2-server
+                     , text
+                     , wreq

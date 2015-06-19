@@ -2,11 +2,133 @@
 
 module Main where
 
+import           Control.Applicative
+import           Control.Exception
 import           Control.Lens
+import           Data.Aeson.Lens
+import           Data.Either
+import           Data.Monoid
+import qualified Data.Text.Encoding    as T
+import           Network.HTTP.Client   (HttpException)
+import           Network.Wreq
+import           System.Environment
+import           Test.Hspec
+
 import           Network.OAuth2.Server
 
 main :: IO ()
-main = return ()
+main = do
+    args <- getArgs
+    case args of
+        ('h':'t':'t':'p':'s':':':'/':'/':uri):rest -> withArgs rest $ hspec (tests $ "https://"<>uri)
+        ('h':'t':'t':'p':':':'/':'/':uri):rest -> withArgs rest $ hspec (tests $ "http://"<>uri)
+        _ -> putStrLn "First argument must be a server URI."
+
+tests :: String -> Spec
+tests base_uri = do
+    describe "token endpoint" $ do
+        it "uses the same details when refreshing a token"
+            pending
+
+        it "revokes the existing token when it is refreshed"
+            pending
+
+        it "restricts new tokens to the client which granted them"
+            pending
+
+    describe "verify endpoint" $ do
+
+        it "returns a response when given valid credentials and a matching token" $ do
+            resp <- verifyToken base_uri client1 (fst tokenVV)
+            resp `shouldSatisfy` isRight
+
+        it "returns an error when given valid credentials and a token from another client" $ do
+            resp <- verifyToken base_uri client2 (fst tokenVV)
+            resp `shouldSatisfy` isLeft
+
+        it "returns an error when given invalid client credentials" $ do
+            resp <- verifyToken base_uri client3 (fst tokenVV)
+            resp `shouldSatisfy` isLeft
+
+        it "returns an error when given a token which has been revoked" $ do
+            resp <- verifyToken base_uri client1 (fst tokenRV)
+            resp `shouldSatisfy` isLeft
+
+        it "returns an error when given a token which is not valid" $ do
+            resp <- verifyToken base_uri client1 (fst tokenDERP)
+            resp `shouldSatisfy` isLeft
+
+    describe "authorize endpoint" $ do
+        it "returns an error when Shibboleth authentication headers are missing"
+            pending
+
+        it "displays the details of the token to be approved"
+            pending
+
+        it "includes an identifier for the code request"
+            pending
+
+        it "the POST returns an error when Shibboleth authentication headers are missing"
+            pending
+
+        it "the POST returns an error when the request ID is missing"
+            pending
+
+        it "the POST returns an error when the Shibboleth authentication headers identify a mismatched user"
+            pending
+
+        it "the POST returns a redirect when approved"
+            pending
+
+        it "the redirect contains a code which can be used to request a token"
+            pending
+
+    describe "user interface" $ do
+        it "returns an error when Shibboleth authentication headers are missing"
+            pending
+
+        it "displays a list of the users tokens"
+            pending
+
+        it "includes a revoke link for each token"
+            pending
+
+        it "allows the user to revoke a token"
+            pending
+
+-- | Check that a known-good client can validate a known-good token.
+{-
+curl --include -X POST
+    -H 'Accept: application/json'
+    -H 'Content-Type: application/octet-stream' \
+     --data "Xnl4W3J3ReJYN9qH1YfR4mjxaZs70lVX/Edwbh42KPpmlqhp500c4UKnQ6XKmyjbnqoRW1NFWl7h" \
+     --user 5641ea27-1111-1111-1111-8fc06b502be0:clientpassword1 \
+     http://localhost:8080/oauth2/verify
+-}
+
+type URI = String
+
+-- | Use the verify endpoint of a token server to verify a token.
+verifyToken :: URI -> (ClientID, Password) -> Token -> IO (Either String AccessResponse)
+verifyToken base_uri (client,secret) tok = do
+
+    let opts = defaults & header "Accept" .~ ["application/json"]
+                        & header "Content-Type" .~ ["application/octet-stream"]
+                        & auth ?~ basicAuth user pass
+
+    putStrLn $ "Contacting " <> endpoint <> " to validate " <> show tok <> " for " <> show client
+    r <- try (postWith opts endpoint body)
+    case r of
+        Left e  -> return . Left . show $ (e :: HttpException)
+        Right v ->
+            return $ case v ^? responseBody . _JSON of
+                Nothing -> Left "Could not decode response."
+                Just tr  -> Right tr
+  where
+    user = review clientID client
+    pass = T.encodeUtf8 $ review password secret
+    body = review token tok
+    endpoint = base_uri <> "/oauth2/verify"
 
 -- * Fixtures
 --
@@ -22,10 +144,29 @@ client1 =
         Just p = preview password "clientpassword1"
     in (i,p)
 
+-- | 'client1' with an incorrect password.
+client1bad :: (ClientID, Password)
+client1bad =
+    let Just p = preview password "clientpassword1bad"
+    in const p <$> client1
+
 client2 :: (ClientID, Password)
 client2 =
     let Just i = preview clientID "5641ea27-2222-2222-2222-8fc06b502be0"
         Just p = preview password "clientpassword2"
+    in (i,p)
+
+-- | 'client2' with an incorrect password.
+client2bad :: (ClientID, Password)
+client2bad =
+    let Just p = preview password "clientpassword2bad"
+    in const p <$> client2
+
+-- | A non-existant client.
+client3 :: (ClientID, Password)
+client3 =
+    let Just i = preview clientID "5641ea27-3333-3333-3333-8fc06b502be0"
+        Just p = preview password "clientpassword3"
     in (i,p)
 
 -- ** Tokens
@@ -66,10 +207,9 @@ tokenRR =
         Just r = preview token "++1ZuShqJ0BQ7uesZGus2G+IGsETS7jn1ZhfjohBx1SzrJbviQ1MkemmGWtZOxbcbtJS+gANj+Es"
     in (b,r)
 
--- | Check that a known-good client can validate a known-good token.
-{-
-curl --include -X POST -H 'Accept: application/json' -H 'Content-Type: application/octet-stream' \
-     --data "Xnl4W3J3ReJYN9qH1YfR4mjxaZs70lVX/Edwbh42KPpmlqhp500c4UKnQ6XKmyjbnqoRW1NFWl7h" \
-     --user 5641ea27-1111-1111-1111-8fc06b502be0:clientpassword1 \
-     http://localhost:8080/oauth2/verify
--}
+-- | This isn't even a token, just some made up words.
+tokenDERP :: (Token, Token)
+tokenDERP =
+    let Just b = preview token "lemmeinlemmeinlemmeinlemmeinlemmeinlemmeinlemmeinlemmeinlemmeinlemmeinlemmein"
+        Just r = preview token "pleasepleasepleasepleasepleasepleasepleasepleasepleasepleasepleasepleaseplease"
+    in (b,r)
