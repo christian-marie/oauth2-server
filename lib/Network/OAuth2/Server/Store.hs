@@ -29,9 +29,7 @@ import           Crypto.Scrypt
 import           Data.ByteString                            (ByteString)
 import qualified Data.ByteString                            as BS
 import qualified Data.ByteString.Base64                     as B64
-import qualified Data.ByteString.Char8                      as BC
 import           Data.Char
-import           Data.Maybe
 import           Data.Monoid
 import           Data.Pool
 import qualified Data.Set                                   as S
@@ -184,7 +182,7 @@ instance TokenStore (Pool Connection) IO where
             liftIO $ query conn "INSERT INTO tokens (token_type, expires, user_id, client_id, scope) VALUES (?,?,?,?,?) RETURNING (token_type, token, expires, user_id, client_id, scope)" (grant)
         case res of
             [] -> fail $ "Failed to save new token: " <> show grant
-            [token] -> return token
+            [tok] -> return tok
             _       -> fail "Impossible: multiple tokens returned from single insert"
 
     storeLoadToken pool tok = do
@@ -214,17 +212,17 @@ instance TokenStore (Pool Connection) IO where
                                              Nothing
             Just client_id' -> case req of
                 -- https://tools.ietf.org/html/rfc6749#section-4.1.3
-                RequestAuthorizationCode code uri client ->
-                    checkClientAuthCode client_id' code uri client
+                RequestAuthorizationCode auth_code uri client ->
+                    checkClientAuthCode client_id' auth_code uri client
                 -- https://tools.ietf.org/html/rfc6749#section-4.3.2
-                RequestPassword username password scope ->
-                    checkPassword client_id' username password scope
+                RequestPassword request_username request_password request_scope ->
+                    checkPassword client_id' request_username request_password request_scope
                 -- http://tools.ietf.org/html/rfc6749#section-4.4.2
-                RequestClientCredentials scope ->
-                    checkClientCredentials client_id' scope
+                RequestClientCredentials request_scope ->
+                    checkClientCredentials client_id' request_scope
                 -- http://tools.ietf.org/html/rfc6749#section-6
-                RequestRefreshToken tok scope ->
-                    checkRefreshToken client_id' tok scope
+                RequestRefreshToken tok request_scope ->
+                    checkRefreshToken client_id' tok request_scope
       where
         --
         -- Verify client, scope and request code.
@@ -235,14 +233,14 @@ instance TokenStore (Pool Connection) IO where
         checkClientAuthCode _ _ _ Nothing = throwIO $ OAuth2Error InvalidRequest
                                                                   (preview errorDescription "No client ID supplied.")
                                                                   Nothing
-        checkClientAuthCode client_id code (Just uri) (Just purported_client) = do
+        checkClientAuthCode client_id request_code (Just uri) (Just purported_client) = do
              do
                     when (client_id /= purported_client) $ throwIO $
                         OAuth2Error UnauthorizedClient
                                     (preview errorDescription "Invalid client credentials")
                                     Nothing
                     codes :: [RequestCode] <- withResource pool $ \conn ->
-                        liftIO $ query conn "SELECT code, expires, client_id, redirect_url, scope, state FROM request_codes WHERE (code = ?)" (Only code)
+                        liftIO $ query conn "SELECT code, expires, client_id, redirect_url, scope, state FROM request_codes WHERE (code = ?)" (Only request_code)
                     case codes of
                         [] -> throwIO $ OAuth2Error InvalidGrant
                                                     (preview errorDescription "Request code not found")
@@ -259,14 +257,14 @@ instance TokenStore (Pool Connection) IO where
                                                        Nothing
                              case requestCodeScope rc of
                                  Nothing -> do
-                                     liftIO . debugM logName $ "No scope found for code " <> show code
+                                     liftIO . debugM logName $ "No scope found for code " <> show request_code
                                      throwIO $ OAuth2Error InvalidScope
                                                            (preview errorDescription "No scope found")
                                                            Nothing
-                                 Just scope -> return (Just client_id, scope)
+                                 Just code_scope -> return (Just client_id, code_scope)
                         _ -> do
-                            liftIO . errorM logName $ "Consistency error: duplicate code " <> show code
-                            fail $ "Consistency error: duplicate code " <> show code
+                            liftIO . errorM logName $ "Consistency error: duplicate code " <> show request_code
+                            fail $ "Consistency error: duplicate code " <> show request_code
 
         --
         -- Check nothing and fail; we don't support password grants.
@@ -284,7 +282,7 @@ instance TokenStore (Pool Connection) IO where
         checkClientCredentials _ Nothing = throwIO $ OAuth2Error InvalidRequest
                                                                    (preview errorDescription "No scope supplied.")
                                                                    Nothing
-        checkClientCredentials client_id (Just scope) = return (Just client_id, scope)
+        checkClientCredentials client_id (Just request_scope) = return (Just client_id, request_scope)
 
         --
         -- Verify scope and request token.
@@ -293,7 +291,7 @@ instance TokenStore (Pool Connection) IO where
         checkRefreshToken _ _ Nothing     = throwIO $ OAuth2Error InvalidRequest
                                                                   (preview errorDescription "No scope supplied.")
                                                                   Nothing
-        checkRefreshToken client_id tok (Just scope) = do
+        checkRefreshToken client_id tok (Just request_scope) = do
             details <- liftIO $ storeLoadToken pool tok
             case details of
                 Nothing -> do
@@ -302,17 +300,17 @@ instance TokenStore (Pool Connection) IO where
                                           (preview errorDescription "Invalid token")
                                           Nothing
                 Just details' -> do
-                    unless (compatibleScope scope (tokenDetailsScope details')) $ do
+                    unless (compatibleScope request_scope (tokenDetailsScope details')) $ do
                         liftIO . debugM logName $
                             "Incompatible scopes " <>
-                            show scope <>
+                            show request_scope <>
                             " and " <>
                             show (tokenDetailsScope details') <>
                             ", refusing to verify"
                         throwIO $ OAuth2Error InvalidScope
                                               (preview errorDescription "Invalid scope")
                                               Nothing
-                    return (Just client_id, scope)
+                    return (Just client_id, request_scope)
 
     storeCheckClientAuth pool auth = do
         case preview authDetails auth of
@@ -359,7 +357,7 @@ instance TokenStore (Pool Connection) IO where
                 xs  -> let msg = "Should only be able to retrieve at most one token, retrieved: " <> show xs
                     in liftIO (errorM logName msg) >> fail msg
 
-    storeCreateToken pool user_id scope = do
+    storeCreateToken pool user_id request_scope = do
         withResource pool $ \conn ->
             --liftIO $ execute conn "INSERT INTO tokens VALUES ..."
             error "wat"
