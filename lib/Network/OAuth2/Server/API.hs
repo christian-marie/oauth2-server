@@ -34,6 +34,7 @@ import qualified Data.Text                           as T
 import qualified Data.Text.Encoding                  as T
 import           Data.Time.Clock                     (UTCTime, addUTCTime,
                                                       getCurrentTime)
+import qualified Data.UUID                           as U
 import           Database.PostgreSQL.Simple
 import           Network.HTTP.Types                  hiding (Header)
 import           Network.OAuth2.Server.Configuration as X
@@ -423,7 +424,7 @@ serverCreateToken
 serverCreateToken pool user_id userScope reqScope = do
     if compatibleScope reqScope userScope then do
         TokenID t <- liftIO $ storeCreateToken pool user_id reqScope
-        throwError err302{errHeaders = [(hLocation, "/tokens?token_id=" <> T.encodeUtf8 t)]} --Redirect to tokens page
+        throwError err302{errHeaders = [(hLocation, "/tokens?token_id=" <> U.toASCIIBytes t)]} --Redirect to tokens page
     else throwError err403{errBody = "Invalid requested token scope"}
 
 
