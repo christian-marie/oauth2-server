@@ -66,7 +66,7 @@ module Network.OAuth2.Server.Types (
 
 import           Blaze.ByteString.Builder                   (toByteString)
 import           Control.Applicative                        (Applicative ((<*), (<*>), pure),
-                                                             (<$>))
+                                                             (<$>), (<|>))
 import           Control.Lens.Fold                          (preview, (^?))
 import           Control.Lens.Operators                     ((%~), (&), (^.))
 import           Control.Lens.Prism                         (Prism', prism')
@@ -111,6 +111,8 @@ import qualified Data.Text.Encoding                         as T (decodeUtf8,
 import           Data.Time.Clock                            (UTCTime,
                                                              diffUTCTime)
 import           Data.Typeable                              (Typeable)
+import           Data.UUID                                  (UUID)
+import qualified Data.UUID                                  as U
 import qualified Data.Vector                                as V
 import           Data.Word                                  (Word8)
 import           Database.PostgreSQL.Simple
@@ -129,7 +131,7 @@ import           Servant.API                                (FromFormUrlEncoded 
                                                              MimeRender (..), MimeUnrender (..),
                                                              OctetStream, ToFormUrlEncoded (..),
                                                              ToText (..))
-import           Text.Blaze.Html5                           (ToValue)
+import           Text.Blaze.Html5                           (ToValue, toValue)
 import           URI.ByteString                             (URI, parseURI,
                                                              queryPairsL,
                                                              serializeURI, strictURIParserOptions,
@@ -147,8 +149,16 @@ instance ToField UserID where
 userid :: Prism' ByteString UserID
 userid = prism' (T.encodeUtf8 . unpackUserID) (Just . UserID . T.decodeUtf8)
 
-newtype TokenID = TokenID { unTokenID :: Text }
-    deriving (Eq, Show, Ord, ToValue, FromText)
+newtype TokenID = TokenID { unTokenID :: UUID }
+    deriving (Eq, Show, Ord)
+
+instance ToValue TokenID where
+    toValue = toValue . show . unTokenID
+
+instance FromText TokenID where
+    fromText t =  (fmap TokenID) $
+                  (U.fromASCIIBytes $ T.encodeUtf8 t)
+              <|> (U.fromString     $ T.unpack     t)
 
 instance ToField TokenID where
     toField = toField . unTokenID
