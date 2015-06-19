@@ -11,41 +11,25 @@
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TypeFamilies               #-}
 
-{-# OPTIONS_GHC -fno-warn-orphans #-}
-
 -- | Description: OAuth2 token storage using PostgreSQL.
 module Network.OAuth2.Server.Store where
 
-import           Blaze.ByteString.Builder                   (toByteString)
 import           Control.Applicative
 import           Control.Exception
-import           Control.Lens                               (preview)
-import           Control.Lens.Operators
+import           Control.Lens                (preview)
 import           Control.Lens.Prism
 import           Control.Lens.Review
 import           Control.Monad.IO.Class
 import           Control.Monad.Reader
 import           Crypto.Scrypt
-import           Data.ByteString                            (ByteString)
-import qualified Data.ByteString                            as BS
-import qualified Data.ByteString.Base64                     as B64
+import qualified Data.ByteString             as BS
+import qualified Data.ByteString.Base64      as B64
 import           Data.Char
 import           Data.Monoid
 import           Data.Pool
-import qualified Data.Set                                   as S
-import           Data.Text                                  (Text)
 import           Data.Text.Encoding
-import           Data.Typeable
-import qualified Data.Vector                                as V
 import           Database.PostgreSQL.Simple
-import           Database.PostgreSQL.Simple.FromField
-import           Database.PostgreSQL.Simple.FromRow
-import           Database.PostgreSQL.Simple.ToField
-import           Database.PostgreSQL.Simple.ToRow
-import           Database.PostgreSQL.Simple.TypeInfo.Macro
-import qualified Database.PostgreSQL.Simple.TypeInfo.Static as TI
 import           System.Log.Logger
-import           URI.ByteString
 
 import           Network.OAuth2.Server.Types
 
@@ -320,8 +304,9 @@ instance TokenStore (Pool Connection) IO where
                                         (preview errorDescription "Invalid auth header provided.")
                                         Nothing
             Just (client_id, secret) -> do
-                hashes :: [EncryptedPass] <- withResource pool $ \conn ->
-                    liftIO $ query conn "SELECT client_secret FROM clients WHERE (client_id = ?)" (client_id)
+                hashes :: [EncryptedPass] <- withResource pool $ \conn -> do
+                    res <- liftIO $ query conn "SELECT client_secret FROM clients WHERE (client_id = ?)" (client_id)
+                    return $ map (EncryptedPass . fromOnly) res
                 case hashes of
                     [hash]   -> return $ verifyClientSecret client_id secret hash
                     []       -> do
@@ -389,158 +374,3 @@ authDetails =
 
     fromPair (client_id, secret) =
         AuthHeader "Basic" $ (review clientID client_id) <> " " <> encodeUtf8 (review password secret)
-
--- * Support Code
-
-instance FromField EncryptedPass where
-    fromField f bs = do
-        p <- fromField f bs
-        return $ EncryptedPass p
-
-instance FromRow EncryptedPass where
-    fromRow = field
-
--- $ Here we implement support for, e.g., sorting oauth2-server types in
--- PostgreSQL databases.
---
-instance FromField ClientID where
-    fromField f bs = do
-        c <- fromField f bs
-        case c ^? clientID of
-            Just c_id -> pure c_id
-            Nothing   -> returnError ConversionFailed f $
-                            "Failed to convert with clientID: " <> show c
-
-instance ToField ClientID where
-    toField c_id = toField $ c_id ^.re clientID
-
-instance ToRow ClientID where
-    toRow client_id = toRow (Only (review clientID client_id))
-
-instance FromField ScopeToken where
-    fromField f bs = do
-        x <- fromField f bs
-        case x ^? scopeToken of
-            Just s  -> pure s
-            Nothing -> returnError ConversionFailed f $
-                           "Failed to convert with scopeToken: " <> show x
-
-instance FromField Scope where
-    fromField f bs = do
-        (v :: V.Vector ScopeToken) <- fromField f bs
-        case S.fromList (V.toList v) ^? scope of
-            Just s  -> pure s
-            Nothing -> returnError ConversionFailed f $
-                            "Failed to convert with scope."
-
-instance ToField Token where
-    toField tok = toField $ review token tok
-
-instance ToField Scope where
-    toField s = toField $ V.fromList $ fmap (review scopeToken) $ S.toList $ s ^.re scope
-
-instance ToField TokenType where
-    toField Bearer = toField ("bearer" :: Text)
-    toField Refresh = toField ("refresh" :: Text)
-
-instance FromField TokenType where
-    fromField f bs
-        | typeOid f /= $(inlineTypoid TI.varchar) = returnError Incompatible f ""
-        | bs == bearer  = pure Bearer
-        | bs == refresh = pure Refresh
-        | bs == Nothing = returnError UnexpectedNull f $
-                              "Token type cannot be NULL."
-        | otherwise     = returnError ConversionFailed f $
-                              "Unknown token type: " <> show bs
-      where
-        bearer = Just "bearer"
-        refresh = Just "refresh"
-
-instance ToRow TokenGrant where
-    toRow (TokenGrant ty ex uid cid sc) = toRow
-        ( ty
-        , ex
-        , review username <$> uid
-        , review clientID <$> cid
-        , scopeToBs sc
-        )
-
-instance FromRow TokenDetails where
-    fromRow = TokenDetails <$> field
-                           <*> mebbeField (preview token)
-                           <*> field
-                           <*> (preview username <$> field)
-                           <*> (preview clientID <$> field)
-                           <*> field
-
-instance FromField URI where
-    fromField f bs = do
-        x <- fromField f bs
-        case parseURI strictURIParserOptions x of
-            Left e -> returnError ConversionFailed f (show e)
-            Right uri -> return uri
-
-instance ToField URI where
-    toField x = toField $ toByteString $ serializeURI x
-
-instance FromField RedirectURI where
-    fromField f bs = do
-        x <- fromField f bs
-        case x ^? redirectURI of
-            Nothing -> returnError ConversionFailed f ""
-            Just uri -> return uri
-
-instance ToField RedirectURI where
-    toField = toField . review redirectURI
-
-instance FromRow ClientDetails where
-    fromRow = ClientDetails <$> field
-                            <*> field
-                            <*> field
-                            <*> field
-                            <*> field
-                            <*> field
-                            <*> field
-
-instance FromField ClientState where
-    fromField f bs = do
-        s <- fromField f bs
-        case preview clientState s of
-            Nothing -> returnError ConversionFailed f "Unable to parse ClientState"
-            Just state -> return state
-
-instance ToField ClientState where
-    toField x = toField $ x ^.re clientState
-
-instance FromField Code where
-    fromField f bs = do
-        x <- fromField f bs
-        case x ^? code of
-            Just c  -> pure c
-            Nothing -> returnError ConversionFailed f $
-                           "Failed to convert with code: " <> show x
-
-instance ToField Code where
-    toField x = toField $ x ^.re code
-
-instance FromRow RequestCode where
-    fromRow = RequestCode <$> field
-                          <*> field
-                          <*> field
-                          <*> field
-                          <*> field
-                          <*> field
-                          <*> field
-
--- | Get a PostgreSQL field using a parsing function.
---
--- Fails when given a NULL or if the parsing function fails.
-mebbeField
-    :: forall a b. (Typeable a, FromField b)
-    => (b -> Maybe a)
-    -> RowParser a
-mebbeField parse = fieldWith fld
-  where
-    fld :: Field -> Maybe ByteString -> Conversion a
-    fld f mbs = (parse <$> fromField f mbs) >>=
-        maybe (returnError ConversionFailed f "") return
