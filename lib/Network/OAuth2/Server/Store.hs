@@ -41,12 +41,17 @@ logName = "Anchor.Tokens.Server.Store"
 -- It is parametrised by a underlying monad and includes a natural
 -- transformation to any MonadIO m'
 class TokenStore ref where
+    -- | Load ClientDetails from the store
+    storeLookupClient
+        :: ref
+        -> ClientID
+        -> IO (Maybe ClientDetails)
+
     -- | TODO: Document the part of the RFC this is from
     storeCreateCode
         :: ref
         -> UserID
-        -> ClientID
-        -> Maybe RedirectURI
+        -> ClientDetails
         -> Scope
         -> Maybe ClientState
         -> IO RequestCode
@@ -122,27 +127,24 @@ class TokenStore ref where
         -> IO ()
 
 instance TokenStore (Pool Connection) where
-    storeCreateCode pool user_id client_id redirect sc requestCodeState = do
+    storeLookupClient pool client_id = do
         withResource pool $ \conn -> do
-            res <- query conn "SELECT redirect_url FROM clients WHERE (client_id = ?)" (Only client_id)
-            requestCodeRedirectURI <- case res of
-                [] -> do
-                    errorM logName $ "No redirect URL found for client " <> show client_id
-                    error "No redirect URL found for client"
-                [Only requestCodeRedirectURI] -> case redirect of
-                    Nothing -> return requestCodeRedirectURI
-                    Just redirect_url
-                        | redirect_url == requestCodeRedirectURI ->
-                            return requestCodeRedirectURI
-                        | otherwise -> error "NOOOO"
-                _ -> do
-                    errorM logName $ "Consistency error: multiple redirect URLs found for client " <> show client_id
-                    error "Multiple redirect URLs found for client"
+            res <- query conn "SELECT (client_id, client_secret, confidential, redirect_url, name, description, app_url) FROM clients WHERE (client_id = ?)" (Only client_id)
+            return $ case res of
+                [] -> Nothing
+                [client] -> Just client
+                _ -> error "Expected client_id PK to be unique"
+
+    storeCreateCode pool user_id ClientDetails{..} sc requestCodeState = do
+        withResource pool $ \conn -> do
             [(requestCodeCode, requestCodeExpires)] <-
-                query conn "INSERT INTO request_codes (client_id, user_id, redirect_url, scope, state) VALUES (?,?,?,?) RETURNING code, expires" (client_id, user_id, requestCodeRedirectURI, sc, requestCodeState)
-            let requestCodeClientID = client_id
+                query conn
+                      "INSERT INTO request_codes (client_id, user_id, redirect_url, scope, state) VALUES (?,?,?,?) RETURNING code, expires"
+                      (clientClientId, user_id, clientRedirectURI, sc, requestCodeState)
+            let requestCodeClientID = clientClientId
                 requestCodeScope = Just sc
                 requestCodeAuthorized = False
+                requestCodeRedirectURI = clientRedirectURI
             return RequestCode{..}
 
     storeActivateCode pool code' user_id = do

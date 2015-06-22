@@ -287,7 +287,19 @@ authorizeEndpoint pool user_id permissions rt c_id' redirect sc' st = do
     c_id <- case c_id' of
         Nothing -> error "NOOOO"
         Just c_id -> return c_id
-    request_code <- liftIO $ storeCreateCode pool user_id c_id redirect sc st
+    res <- liftIO $ storeLookupClient pool c_id
+    client <- case res of
+        Nothing -> error $ "no client found with id" <> show c_id
+        Just x -> return x
+
+    -- https://tools.ietf.org/html/rfc6749#section-3.1.2.3
+    case redirect of
+        Nothing -> return ()
+        Just redirect'
+            | redirect' == clientRedirectURI client -> return ()
+            | otherwise -> error $ show redirect' <> " /= " <> show (clientRedirectURI client)
+
+    request_code <- liftIO $ storeCreateCode pool user_id client sc st
     return $ renderAuthorizePage request_code
 
 authorizePost
