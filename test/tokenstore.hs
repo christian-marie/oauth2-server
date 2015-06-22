@@ -80,7 +80,9 @@ instance Arbitrary TokenDetails where
   arbitrary = tokenDetails <$> arbitrary <*> arbitrary
 
 main :: IO ()
-main = hspec suite
+main = do
+    pg_pool <- getPGPool
+    hspec (suite pg_pool)
 
 dbname :: String
 dbname = "test_tokenstore"
@@ -94,31 +96,23 @@ getPGPool = do
     let db = B.pack $ "dbname=" ++ dbname
     createPool (connectPostgreSQL db) close 1 1 1
 
-suite :: Spec
-suite =
+suite :: Pool Connection -> Spec
+suite pg_pool =
     describe "Postgres store" $ do
-        testStore getPGPool
+        testStore pg_pool
 
-testStore :: TokenStore ref m => m ref -> SpecM () ()
+testStore :: TokenStore ref => ref -> SpecM () ()
 testStore ref = do
     prop "empty database props" (emptyProps ref)
 
-asProxyTypeOf :: a -> proxy a -> a
-asProxyTypeOf = const
-
 -- | Group props that rely on an empty DB together because maybe it's expensive
 -- to create an empty DB.
-emptyProps :: TokenStore ref m => m ref -> Property
+emptyProps :: TokenStore ref => ref -> Property
 emptyProps ref =
     monadicIO $ do
         no_token <- run $ do
             -- Create a new empty db
-            r <- storeLift (undefined `asProxyTypeOf` ref) ref
-
             let Just tok = "hai" ^? token
+            storeLoadToken ref tok -- storeListTokens r "Woo" 10 (Page 0)
 
-            storeLift r $ storeLoadToken r tok -- storeListTokens r "Woo" 10 (Page 0)
         assert (no_token == Nothing)
-
-
-
