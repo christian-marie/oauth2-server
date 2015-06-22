@@ -19,7 +19,6 @@ import           Control.Exception
 import           Control.Lens                (preview)
 import           Control.Lens.Prism
 import           Control.Lens.Review
-import           Control.Monad.Reader
 import           Crypto.Scrypt
 import qualified Data.ByteString             as BS
 import qualified Data.ByteString.Base64      as B64
@@ -81,13 +80,6 @@ class TokenStore ref where
         :: ref
         -> Token
         -> IO (Maybe TokenDetails)
-
-    -- | Check the supplied credentials against the database.
-    storeCheckCredentials
-        :: ref
-        -> Maybe AuthHeader
-        -> AccessRequest
-        -> IO (Maybe ClientID, Scope)
 
     -- | Given an AuthHeader sent by a client, verify that it authenticates.
     --   If it does, return the authenticated ClientID; otherwise, Nothing.
@@ -192,116 +184,6 @@ instance TokenStore (Pool Connection) where
             _   -> do
                 errorM logName $ "Consistency error: multiple tokens found matching " <> show tok
                 return Nothing
-
-    storeCheckCredentials _ Nothing _ = do
-        debugM logName $ "Checking credentials but none provided."
-        throwIO $  OAuth2Error InvalidRequest
-                                (preview errorDescription "No credentials provided")
-                                Nothing
-    storeCheckCredentials ref (Just auth) req = do
-        debugM logName $ "Checking some credentials"
-        client_id <- storeCheckClientAuth ref auth
-        case client_id of
-            Nothing -> throwIO $ OAuth2Error UnauthorizedClient
-                                             (preview errorDescription "Invalid client credentials")
-                                             Nothing
-            Just client_id' -> case req of
-                -- https://tools.ietf.org/html/rfc6749#section-4.1.3
-                RequestAuthorizationCode auth_code uri client ->
-                    checkClientAuthCode client_id' auth_code uri client
-                -- https://tools.ietf.org/html/rfc6749#section-4.3.2
-                RequestPassword request_username request_password request_scope ->
-                    checkPassword client_id' request_username request_password request_scope
-                -- http://tools.ietf.org/html/rfc6749#section-4.4.2
-                RequestClientCredentials request_scope ->
-                    checkClientCredentials client_id' request_scope
-                -- http://tools.ietf.org/html/rfc6749#section-6
-                RequestRefreshToken tok request_scope ->
-                    checkRefreshToken client_id' tok request_scope
-      where
-        --
-        -- Verify client, scope and request code.
-        --
-        checkClientAuthCode _ _ Nothing _ = throwIO $ OAuth2Error InvalidRequest
-                                                                  (preview errorDescription "No redirect URI supplied.")
-                                                                  Nothing
-        checkClientAuthCode _ _ _ Nothing = throwIO $ OAuth2Error InvalidRequest
-                                                                  (preview errorDescription "No client ID supplied.")
-                                                                  Nothing
-        checkClientAuthCode client_id request_code (Just uri) (Just purported_client) = do
-             do
-                    when (client_id /= purported_client) $ throwIO $
-                        OAuth2Error UnauthorizedClient
-                                    (preview errorDescription "Invalid client credentials")
-                                    Nothing
-                    codes <- storeLoadCode ref request_code
-                    case codes of
-                        Nothing -> throwIO $ OAuth2Error InvalidGrant
-                                                         (preview errorDescription "Request code not found")
-                                                         Nothing
-                        Just rc -> do
-                             -- Fail if redirect_uri doesn't match what's in the database.
-                             when (uri /= (requestCodeRedirectURI rc)) $ do
-                                 debugM logName $    "Redirect URI mismatch verifying access token request: requested"
-                                                           <> show uri
-                                                           <> " but got "
-                                                           <> show (requestCodeRedirectURI rc)
-                                 throwIO $ OAuth2Error InvalidRequest
-                                                       (preview errorDescription "Invalid redirect URI")
-                                                       Nothing
-                             case requestCodeScope rc of
-                                 Nothing -> do
-                                     debugM logName $ "No scope found for code " <> show request_code
-                                     throwIO $ OAuth2Error InvalidScope
-                                                           (preview errorDescription "No scope found")
-                                                           Nothing
-                                 Just code_scope -> return (Just client_id, code_scope)
-
-        --
-        -- Check nothing and fail; we don't support password grants.
-        --
-
-        checkPassword _ _ _ _ = throwIO $ OAuth2Error UnsupportedGrantType
-                                                      (preview errorDescription "password grants not supported")
-                                                      Nothing
-
-        --
-        -- Client has been verified and there's nothing to verify for the
-        -- scope, so this will always succeed unless we get no scope at all.
-        --
-
-        checkClientCredentials _ Nothing = throwIO $ OAuth2Error InvalidRequest
-                                                                   (preview errorDescription "No scope supplied.")
-                                                                   Nothing
-        checkClientCredentials client_id (Just request_scope) = return (Just client_id, request_scope)
-
-        --
-        -- Verify scope and request token.
-        --
-
-        checkRefreshToken _ _ Nothing     = throwIO $ OAuth2Error InvalidRequest
-                                                                  (preview errorDescription "No scope supplied.")
-                                                                  Nothing
-        checkRefreshToken client_id tok (Just request_scope) = do
-            details <- storeLoadToken ref tok
-            case details of
-                Nothing -> do
-                    debugM logName $ "Got passed invalid token " <> show tok
-                    throwIO $ OAuth2Error InvalidRequest
-                                          (preview errorDescription "Invalid token")
-                                          Nothing
-                Just details' -> do
-                    unless (compatibleScope request_scope (tokenDetailsScope details')) $ do
-                        debugM logName $
-                            "Incompatible scopes " <>
-                            show request_scope <>
-                            " and " <>
-                            show (tokenDetailsScope details') <>
-                            ", refusing to verify"
-                        throwIO $ OAuth2Error InvalidScope
-                                              (preview errorDescription "Invalid scope")
-                                              Nothing
-                    return (Just client_id, request_scope)
 
     storeCheckClientAuth pool auth = do
         case preview authDetails auth of

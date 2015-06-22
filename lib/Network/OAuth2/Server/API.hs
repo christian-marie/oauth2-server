@@ -15,7 +15,7 @@ module Network.OAuth2.Server.API (
     TokenEndpoint,
 ) where
 
-import           Control.Exception                   (try)
+import           Control.Exception                   (try, throwIO)
 import           Control.Lens
 import           Control.Monad
 import           Control.Monad.Error.Class           (MonadError (throwError))
@@ -86,13 +86,6 @@ tokenEndpoint conf auth (Right req) = do
         Right response -> do
             return $ addHeader NoStore $ addHeader NoCache $ response
 
-test :: MonadBaseControl IO m => m ()
-test = do
-    res <- runExceptT (return ())
-    case res of
-        (Left x) -> return ()
-        (Right x) -> return ()
-
 processTokenRequest
     :: TokenStore ref
     => ref
@@ -102,7 +95,7 @@ processTokenRequest
     -> ExceptT OAuth2Error IO AccessResponse
 processTokenRequest ref t client_auth req = do
     -- TODO: Handle OAuth2Errors and not just liftIO here
-    (client_id, modified_scope) <- liftIO $ storeCheckCredentials ref client_auth req
+    (client_id, modified_scope) <- liftIO $ checkCredentials ref client_auth req
     user <- case req of
         RequestAuthorizationCode{} -> return Nothing
         RequestPassword{..} -> return $ Just requestUsername
@@ -451,3 +444,121 @@ serverCreateToken pool user_id userScope reqScope = do
         TokenID t <- liftIO $ storeCreateToken pool user_id reqScope
         throwError err302{errHeaders = [(hLocation, "/tokens?token_id=" <> T.encodeUtf8 t)]} --Redirect to tokens page
     else throwError err403{errBody = "Invalid requested token scope"}
+
+
+-- | Check the supplied credentials against the database.
+checkCredentials
+    :: TokenStore ref
+    => ref
+    -> Maybe AuthHeader
+    -> AccessRequest
+    -> IO (Maybe ClientID, Scope)
+checkCredentials _ Nothing _ = do
+    debugM logName $ "Checking credentials but none provided."
+    throwIO $ OAuth2Error InvalidRequest
+                          (preview errorDescription "No credentials provided")
+                          Nothing
+checkCredentials ref (Just auth) req = do
+    debugM logName $ "Checking some credentials"
+    client_id <- storeCheckClientAuth ref auth
+    case client_id of
+        Nothing -> throwIO $ OAuth2Error UnauthorizedClient
+                                         (preview errorDescription "Invalid client credentials")
+                                         Nothing
+        Just client_id' -> case req of
+            -- https://tools.ietf.org/html/rfc6749#section-4.1.3
+            RequestAuthorizationCode auth_code uri client ->
+                checkClientAuthCode client_id' auth_code uri client
+            -- https://tools.ietf.org/html/rfc6749#section-4.3.2
+            RequestPassword request_username request_password request_scope ->
+                checkPassword client_id' request_username request_password request_scope
+            -- http://tools.ietf.org/html/rfc6749#section-4.4.2
+            RequestClientCredentials request_scope ->
+                checkClientCredentials client_id' request_scope
+            -- http://tools.ietf.org/html/rfc6749#section-6
+            RequestRefreshToken tok request_scope ->
+                checkRefreshToken client_id' tok request_scope
+      where
+        --
+        -- Verify client, scope and request code.
+        --
+        checkClientAuthCode _ _ Nothing _ = throwIO $ OAuth2Error InvalidRequest
+                                                                  (preview errorDescription "No redirect URI supplied.")
+                                                                  Nothing
+        checkClientAuthCode _ _ _ Nothing = throwIO $ OAuth2Error InvalidRequest
+                                                                  (preview errorDescription "No client ID supplied.")
+                                                                  Nothing
+        checkClientAuthCode client_id request_code (Just uri) (Just purported_client) = do
+             do
+                    when (client_id /= purported_client) $ throwIO $
+                        OAuth2Error UnauthorizedClient
+                                    (preview errorDescription "Invalid client credentials")
+                                    Nothing
+                    codes <- storeLoadCode ref request_code
+                    case codes of
+                        Nothing -> throwIO $ OAuth2Error InvalidGrant
+                                                         (preview errorDescription "Request code not found")
+                                                         Nothing
+                        Just rc -> do
+                             -- Fail if redirect_uri doesn't match what's in the database.
+                             when (uri /= (requestCodeRedirectURI rc)) $ do
+                                 debugM logName $    "Redirect URI mismatch verifying access token request: requested"
+                                                           <> show uri
+                                                           <> " but got "
+                                                           <> show (requestCodeRedirectURI rc)
+                                 throwIO $ OAuth2Error InvalidRequest
+                                                       (preview errorDescription "Invalid redirect URI")
+                                                       Nothing
+                             case requestCodeScope rc of
+                                 Nothing -> do
+                                     debugM logName $ "No scope found for code " <> show request_code
+                                     throwIO $ OAuth2Error InvalidScope
+                                                           (preview errorDescription "No scope found")
+                                                           Nothing
+                                 Just code_scope -> return (Just client_id, code_scope)
+
+        --
+        -- Check nothing and fail; we don't support password grants.
+        --
+
+        checkPassword _ _ _ _ = throwIO $ OAuth2Error UnsupportedGrantType
+                                                      (preview errorDescription "password grants not supported")
+                                                      Nothing
+
+        --
+        -- Client has been verified and there's nothing to verify for the
+        -- scope, so this will always succeed unless we get no scope at all.
+        --
+
+        checkClientCredentials _ Nothing = throwIO $ OAuth2Error InvalidRequest
+                                                                   (preview errorDescription "No scope supplied.")
+                                                                   Nothing
+        checkClientCredentials client_id (Just request_scope) = return (Just client_id, request_scope)
+
+        --
+        -- Verify scope and request token.
+        --
+
+        checkRefreshToken _ _ Nothing     = throwIO $ OAuth2Error InvalidRequest
+                                                                  (preview errorDescription "No scope supplied.")
+                                                                  Nothing
+        checkRefreshToken client_id tok (Just request_scope) = do
+            details <- storeLoadToken ref tok
+            case details of
+                Nothing -> do
+                    debugM logName $ "Got passed invalid token " <> show tok
+                    throwIO $ OAuth2Error InvalidRequest
+                                          (preview errorDescription "Invalid token")
+                                          Nothing
+                Just details' -> do
+                    unless (compatibleScope request_scope (tokenDetailsScope details')) $ do
+                        debugM logName $
+                            "Incompatible scopes " <>
+                            show request_scope <>
+                            " and " <>
+                            show (tokenDetailsScope details') <>
+                            ", refusing to verify"
+                        throwIO $ OAuth2Error InvalidScope
+                                              (preview errorDescription "Invalid scope")
+                                              Nothing
+                    return (Just client_id, request_scope)
