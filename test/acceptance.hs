@@ -5,19 +5,26 @@ module Main where
 import           Control.Applicative
 import           Control.Exception
 import           Control.Lens
+import           Control.Monad.Error.Class
+import           Control.Monad.IO.Class
+import           Control.Monad.Trans.Except
 import           Data.Aeson.Lens
-import qualified Data.ByteString.Char8 as BC
+import           Data.ByteString.Char8       (ByteString)
+import qualified Data.ByteString.Char8       as BC
+import qualified Data.ByteString.Lazy        as BSL
 import           Data.Either
 import           Data.Maybe
 import           Data.Monoid
-import qualified Data.Text.Encoding    as T
-import           Network.HTTP.Client   (HttpException (..))
-import           Network.HTTP.Types    (Status (..))
+import qualified Data.Text.Encoding          as T
+import           Network.HTTP.Client         (HttpException (..))
+import           Network.HTTP.Types          (Status (..))
 import           Network.Wreq
+import           Servant.Common.Text
 import           System.Environment
 import           Test.Hspec
 
-import           Network.OAuth2.Server
+import           Network.OAuth2.Server       hiding (refreshToken)
+import           Network.OAuth2.Server.Types hiding (refreshToken)
 
 type URI = String
 
@@ -39,8 +46,8 @@ tests base_uri = do
                          (return) t1'
 
             -- Refresh it.
-            t2_id' <- refreshToken base_uri client1 (snd tokenVV)
-            t2_id <- either (\_ -> fail "Couldn't refresh")
+            t2_id' <- runExceptT $ refreshToken base_uri client1 (snd tokenVV)
+            t2_id <- either (\e -> fail $ "Couldn't refresh: " <> e)
                             (return) t2_id'
 
             -- Verify that token.
@@ -80,26 +87,73 @@ tests base_uri = do
             resp `shouldBe` Left "404 Not Found - This is not a valid token."
 
     describe "authorize endpoint" $ do
-        it "returns an error when Shibboleth authentication headers are missing"
-            pending
+        let Just a_scope = bsToScope "login missiles:launch"
 
-        it "displays the details of the token to be approved"
-            pending
+        it "returns an error when Shibboleth authentication headers are missing" $ do
+            resp <- runExceptT $ getAuthorizePage base_uri Nothing (const a_scope <$> client1)
+            resp `shouldBe` Left "500 Internal Server Error - Something went wrong"
 
-        it "includes an identifier for the code request"
-            pending
+        it "displays the details of the token to be approved" $ do
+            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) (const a_scope <$> client1)
+            resp `shouldSatisfy` isRight
 
-        it "the POST returns an error when Shibboleth authentication headers are missing"
-            pending
+            let Right page = resp
+            page `shouldSatisfy` ("Client Name" `BC.isInfixOf`)
+            page `shouldSatisfy` ("Client Description" `BC.isInfixOf`)
+            page `shouldSatisfy` ("missiles:launch" `BC.isInfixOf`)
+            page `shouldSatisfy` ("login" `BC.isInfixOf`)
 
-        it "the POST returns an error when the request ID is missing"
-            pending
+        it "includes an identifier for the code request" $ do
+            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) (const a_scope <$> client1)
+            resp `shouldSatisfy` isRight
+            let Right page = resp
 
-        it "the POST returns an error when the Shibboleth authentication headers identify a mismatched user"
-            pending
+            Right (uri, fields) <- runExceptT $ getAuthorizeFields base_uri page
+            fields `shouldSatisfy` (not . null)
 
-        it "the POST returns a redirect when approved"
-            pending
+        it "the POST returns an error when Shibboleth authentication headers are missing" $ do
+            -- 1. Get the page.
+            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) (const a_scope <$> client1)
+            resp `shouldSatisfy` isRight
+            -- 2. Extract the code.
+            let Right page = resp
+            let code = BC.take 10 page
+            -- 3. Send the response.
+            resp <- runExceptT $ sendAuthorization base_uri Nothing []
+            resp `shouldSatisfy` isRight
+
+        it "the POST returns an error when the request ID is missing" $ do
+            -- 1. Get the page.
+            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) (const a_scope <$> client1)
+            resp `shouldSatisfy` isRight
+            -- 2. Extract the code.
+            let Right page = resp
+            let code = BC.take 10 page
+            -- 3. Send the response.
+            resp <- runExceptT $ sendAuthorization base_uri (Just user1) []
+            resp `shouldSatisfy` isRight
+
+        it "the POST returns an error when the Shibboleth authentication headers identify a mismatched user" $ do
+            -- 1. Get the page.
+            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) (const a_scope <$> client1)
+            resp `shouldSatisfy` isRight
+            -- 2. Extract the code.
+            let Right page = resp
+            let code = BC.take 10 page
+            -- 3. Send the response.
+            resp <- runExceptT $ sendAuthorization base_uri (Just user2) []
+            resp `shouldBe` (Left "403 Unauthorized - You are not authorized to approve this request.")
+
+        it "the POST returns a redirect when approved" $ do
+            -- 1. Get the page.
+            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) (const a_scope <$> client1)
+            resp `shouldSatisfy` isRight
+            -- 2. Extract the code.
+            let Right page = resp
+            let code = BC.take 10 page
+            -- 3. Send the response.
+            resp <- runExceptT $ sendAuthorization base_uri Nothing []
+            resp `shouldSatisfy` isRight
 
         it "the redirect contains a code which can be used to request a token"
             pending
@@ -141,6 +195,106 @@ verifyToken base_uri (client,secret) tok = do
     body = review token tok
     endpoint = base_uri <> "/oauth2/verify"
 
+refreshToken
+    :: URI
+    -> (ClientID, Password)
+    -> Token
+    -> ExceptT String IO Token
+refreshToken base_uri (client, secret) tok = do
+    let opts = defaults & header "Accept" .~ ["application/json"]
+                        & header "Content-Type" .~ ["application/json"]
+                        & auth ?~ basicAuth user pass
+
+    r <- liftIO $ try (postWith opts endpoint body)
+    grant <- case r of
+        Left (StatusCodeException (Status c m) h _) -> do
+            let b = BC.unpack <$> lookup "X-Response-Body-Start" h
+            throwError $ show c <> " " <> BC.unpack m <> " - " <> fromMaybe "" b
+        Left e -> throwError (show e)
+        Right v ->
+            case v ^? responseBody . _JSON of
+                Nothing -> throwError $ "Could not decode response." <> show (v ^? responseBody)
+                Just tr -> return tr
+    return $ accessToken grant
+  where
+    body :: [(ByteString, ByteString)]
+    body = [ ("grant_type",  "refresh_token")
+           , ("refresh_token", review token tok)
+           -- , ("", "") -- Scope
+           ] -- RequestRefreshToken token Nothing
+    endpoint = base_uri <> "/oauth2/token"
+    pass = T.encodeUtf8 $ review password secret
+    user = review clientID client
+
+-- | Contact a server and request a 'Token' with the specified 'Scope'.
+requestToken
+    :: URI                  -- ^ Server base URI.
+    -> (ClientID, Password) -- ^ Client details.
+    -> (UserID, Scope)      -- ^ User details.
+    -> Scope                -- ^ Requested scope.
+    -> ExceptT String IO Token
+requestToken base_uri (client, secret) (uid, perms) scope = do
+    code <- authorizeRequest auth_endpoint (uid, perms) client scope
+    throwError "Not implemented"
+  where
+    auth_endpoint = base_uri <> "/oauth2/authorize"
+    token_endpoint = base_uri <> "/oauth2/token"
+
+-- | Conact a server and authorize a request.
+authorizeRequest
+    :: URI
+    -> (UserID, Scope)      -- ^ User details
+    -> ClientID             -- ^ Requesting client
+    -> Scope                -- ^ Requested scope
+    -> ExceptT String IO Code
+authorizeRequest auth_uri (uid, perms) client scope = do
+    -- 1. Fetch the page with appropriate headers.
+    -- 2. Extract the <form>.
+    -- 3. Post the response with appropriate headers.
+    -- 4. Extract the code.
+    throwError "Not implemented"
+
+getAuthorizePage
+    :: URI
+    -> Maybe (UserID, Scope)
+    -> (ClientID, Scope)
+    -> ExceptT String IO ByteString
+getAuthorizePage base_uri user_m (client, scope) = do
+    let opts = defaults & header "Accept" .~ ["text/html"]
+                        & auths user_m
+
+    r <- liftIO $ try (getWith opts endpoint)
+    case r of
+        Left (StatusCodeException (Status c m) h _) -> do
+            let b = BC.unpack <$> lookup "X-Response-Body-Start" h
+            throwError $ show c <> " " <> BC.unpack m <> " - " <> fromMaybe "" b
+        Left e -> throwError (show e)
+        Right v ->
+            case v ^? responseBody of
+                Nothing -> throwError "Could not decode response."
+                Just tr -> return $ BSL.toStrict tr
+  where
+    endpoint = base_uri <> "/oauth2/authorize"
+    auths Nothing = id
+    auths (Just (user, perms)) =
+          (header "Identity-OAuthUser" .~ [review userid user])
+        . (header "Identity-OAuthUserScopes" .~ [scopeToBs perms])
+
+getAuthorizeFields
+    :: URI
+    -> ByteString
+    -> ExceptT String IO (URI, [(ByteString, ByteString)])
+getAuthorizeFields uri page = do
+    throwError "Not implemented"
+
+sendAuthorization
+    :: URI
+    -> Maybe (UserID, Scope)
+    -> [(ByteString, ByteString)]
+    -> ExceptT String IO ByteString
+sendAuthorization uri user fields = do
+    throwError "Not implemented"
+
 -- * Fixtures
 --
 -- $ These values refer to clients and tokens defined in the database fixture.
@@ -179,6 +333,23 @@ client3 =
     let Just i = preview clientID "5641ea27-3333-3333-3333-8fc06b502be0"
         Just p = preview password "clientpassword3"
     in (i,p)
+
+-- * Users
+--
+-- $ These details can be anything (within the obvious limits) as far as the
+-- OAuth2 Server is concerned, but we'll use these values in the tests.
+
+user1 :: (UserID, Scope)
+user1 =
+    let Just i = fromText "jack.ripper@example.org"
+        Just s = bsToScope "login missiles:launch missiles:selfdestruct"
+    in (i,s)
+
+user2 :: (UserID, Scope)
+user2 =
+    let Just i = fromText "Jesminder.Bhamra@example.com"
+        Just s = bsToScope "login football:penalty:bend-it"
+    in (i,s)
 
 -- ** Tokens
 --

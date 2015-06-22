@@ -157,11 +157,11 @@ instance TokenStore (Pool Connection) where
     storeSaveToken pool grant = do
         debugM logName $ "Saving new token: " <> show grant
         res :: [TokenDetails] <- withResource pool $ \conn -> do
-            query conn "INSERT INTO tokens (token_type, expires, user_id, client_id, scope) VALUES (?,?,?,?,?) RETURNING (token_type, token, expires, user_id, client_id, scope)" (grant)
+            query conn "INSERT INTO tokens (token_type, expires, user_id, client_id, scope, token, created) VALUES (?,?,?,?,?,uuid_generate_v4(), NOW()) RETURNING token_type, token, expires, user_id, client_id, scope" grant
         case res of
-            [] -> fail $ "Failed to save new token: " <> show grant
             [tok] -> return tok
-            _       -> fail "Impossible: multiple tokens returned from single insert"
+            []    -> fail $ "Failed to save new token: " <> show grant
+            _     -> fail "Impossible: multiple tokens returned from single insert"
 
     storeLoadToken pool tok = do
         debugM logName $ "Loading token: " <> show tok
