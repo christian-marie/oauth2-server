@@ -63,6 +63,11 @@ class TokenStore ref where
         -> UserID
         -> IO (Maybe RedirectURI)
 
+    storeLoadCode
+        :: ref
+        -> Code
+        -> IO (Maybe RequestCode)
+
     -- | Record a new token grant in the database.
     storeSaveToken
         :: ref
@@ -157,6 +162,15 @@ instance TokenStore (Pool Connection) where
                     errorM logName $ "Consistency error: multiple redirect URLs found"
                     error "Consistency error: multiple redirect URLs found"
 
+    storeLoadCode ref request_code = do
+        codes :: [RequestCode] <- withResource ref $ \conn ->
+            query conn "SELECT code, expires, client_id, redirect_url, scope, state FROM request_codes WHERE (code = ?)"
+                       (Only request_code)
+        return $ case codes of
+            [] -> Nothing
+            [rc] -> return rc
+            _ -> error "Expected code PK to be unique"
+
     storeSaveToken pool grant = do
         debugM logName $ "Saving new token: " <> show grant
         res :: [TokenDetails] <- withResource pool $ \conn -> do
@@ -184,9 +198,9 @@ instance TokenStore (Pool Connection) where
         throwIO $  OAuth2Error InvalidRequest
                                 (preview errorDescription "No credentials provided")
                                 Nothing
-    storeCheckCredentials pool (Just auth) req = do
+    storeCheckCredentials ref (Just auth) req = do
         debugM logName $ "Checking some credentials"
-        client_id <- storeCheckClientAuth pool auth
+        client_id <- storeCheckClientAuth ref auth
         case client_id of
             Nothing -> throwIO $ OAuth2Error UnauthorizedClient
                                              (preview errorDescription "Invalid client credentials")
@@ -220,13 +234,12 @@ instance TokenStore (Pool Connection) where
                         OAuth2Error UnauthorizedClient
                                     (preview errorDescription "Invalid client credentials")
                                     Nothing
-                    codes :: [RequestCode] <- withResource pool $ \conn ->
-                        query conn "SELECT code, expires, client_id, redirect_url, scope, state FROM request_codes WHERE (code = ?)" (Only request_code)
+                    codes <- storeLoadCode ref request_code
                     case codes of
-                        [] -> throwIO $ OAuth2Error InvalidGrant
-                                                    (preview errorDescription "Request code not found")
-                                                    Nothing
-                        [rc] -> do
+                        Nothing -> throwIO $ OAuth2Error InvalidGrant
+                                                         (preview errorDescription "Request code not found")
+                                                         Nothing
+                        Just rc -> do
                              -- Fail if redirect_uri doesn't match what's in the database.
                              when (uri /= (requestCodeRedirectURI rc)) $ do
                                  debugM logName $    "Redirect URI mismatch verifying access token request: requested"
@@ -243,9 +256,6 @@ instance TokenStore (Pool Connection) where
                                                            (preview errorDescription "No scope found")
                                                            Nothing
                                  Just code_scope -> return (Just client_id, code_scope)
-                        _ -> do
-                            errorM logName $ "Consistency error: duplicate code " <> show request_code
-                            fail $ "Consistency error: duplicate code " <> show request_code
 
         --
         -- Check nothing and fail; we don't support password grants.
@@ -273,7 +283,7 @@ instance TokenStore (Pool Connection) where
                                                                   (preview errorDescription "No scope supplied.")
                                                                   Nothing
         checkRefreshToken client_id tok (Just request_scope) = do
-            details <- storeLoadToken pool tok
+            details <- storeLoadToken ref tok
             case details of
                 Nothing -> do
                     debugM logName $ "Got passed invalid token " <> show tok
