@@ -58,6 +58,7 @@ module Network.OAuth2.Server.Types (
   tokenDetails,
   unicodecharnocrlf,
   UserID,
+  userid,
   Username,
   username,
   vschar,
@@ -143,6 +144,9 @@ newtype UserID = UserID
 
 instance ToField UserID where
     toField = toField . unpackUserID
+
+userid :: Prism' ByteString UserID
+userid = prism' (T.encodeUtf8 . unpackUserID) (Just . UserID . T.decodeUtf8)
 
 newtype TokenID = TokenID { unTokenID :: Text }
     deriving (Eq, Show, Ord, ToValue, FromText)
@@ -920,7 +924,7 @@ instance ToRow TokenGrant where
         , ex
         , review username <$> uid
         , review clientID <$> cid
-        , scopeToBs sc
+        , sc
         )
 
 instance FromRow TokenDetails where
