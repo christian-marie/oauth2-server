@@ -16,12 +16,13 @@
 module Network.OAuth2.Server.Store where
 
 import           Control.Applicative
-import           Control.Exception
+import           Control.Exception.Lifted
 import           Control.Lens                (preview)
 import           Control.Lens.Prism
 import           Control.Lens.Review
 import           Control.Monad.IO.Class
 import           Control.Monad.Reader
+import           Control.Monad.Trans.Control
 import           Crypto.Scrypt
 import qualified Data.ByteString             as BS
 import qualified Data.ByteString.Base64      as B64
@@ -67,6 +68,8 @@ class TokenStore ref m | ref -> m where
         -> m TokenDetails
 
     -- | Retrieve the details of a previously issued token from the database.
+    --
+    --   Returns only tokens which are currently valid.
     storeLoadToken
         :: ref
         -> Token
@@ -162,7 +165,7 @@ instance TokenStore (Pool Connection) IO where
                     error "Consistency error: multiple redirect URLs found"
 
     storeSaveToken pool grant = do
-        debugM logName $ "Saving new token: " <> show grant
+        liftIO $ debugM logName $ "Saving new token: " <> show grant
         res :: [TokenDetails] <- withResource pool $ \conn -> do
             liftIO $ query conn "INSERT INTO tokens (token_type, expires, user_id, client_id, scope) VALUES (?,?,?,?,?) RETURNING (token_type, token, expires, user_id, client_id, scope)" (grant)
         case res of
@@ -173,7 +176,7 @@ instance TokenStore (Pool Connection) IO where
     storeLoadToken pool tok = do
         liftIO . debugM logName $ "Loading token: " <> show tok
         tokens :: [TokenDetails] <- withResource pool $ \conn -> do
-            liftIO $ query conn "SELECT token_type, token, expires, user_id, client_id, scope FROM tokens WHERE (token = ?)" (Only tok)
+            liftIO $ query conn "SELECT token_type, token, expires, user_id, client_id, scope FROM tokens WHERE (token = ?) AND (created <= NOW()) AND (NOW() < expires) AND (revoked IS NULL)" (Only tok)
         case tokens of
             [t] -> return $ Just t
             []  -> do
@@ -343,8 +346,8 @@ instance TokenStore (Pool Connection) IO where
                 xs  -> let msg = "Should only be able to retrieve at most one token, retrieved: " <> show xs
                     in liftIO (errorM logName msg) >> fail msg
 
-    storeCreateToken pool user_id request_scope = do
-        withResource pool $ \conn ->
+    storeCreateToken pool _user_id _request_scope = do
+        withResource pool $ \_conn ->
             --liftIO $ execute conn "INSERT INTO tokens VALUES ..."
             error "wat"
 

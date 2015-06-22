@@ -7,7 +7,7 @@
 DBNAME="token_server_test"
 DBDESC="Transient database for token server testing"
 
-TESTCONF="/tmp/anchor-token-server-$$.conf"
+TESTCONF="/tmp/token-server-$$.conf"
 
 cd $(dirname $0)
 
@@ -19,7 +19,7 @@ createdb $DBNAME "$DBDESC"
 psql $DBNAME < schema/postgresql.sql
 psql $DBNAME < examples/postgresql-data.sql
 
-cat examples/anchor-token-server.conf \
+cat examples/token-server.conf \
 | sed -e "s/DBNAME/$DBNAME/" \
 > $TESTCONF
 
