@@ -15,11 +15,9 @@
 module Network.OAuth2.Server.Store where
 
 import           Control.Applicative
-import           Control.Exception
 import           Control.Lens                (preview)
 import           Control.Lens.Prism
 import           Control.Lens.Review
-import           Crypto.Scrypt
 import qualified Data.ByteString             as BS
 import qualified Data.ByteString.Base64      as B64
 import           Data.Char
@@ -80,13 +78,6 @@ class TokenStore ref where
         :: ref
         -> Token
         -> IO (Maybe TokenDetails)
-
-    -- | Given an AuthHeader sent by a client, verify that it authenticates.
-    --   If it does, return the authenticated ClientID; otherwise, Nothing.
-    storeCheckClientAuth
-        :: ref
-        -> AuthHeader
-        -> IO (Maybe ClientID)
 
     -- * User Interface operations
 
@@ -184,35 +175,6 @@ instance TokenStore (Pool Connection) where
             _   -> do
                 errorM logName $ "Consistency error: multiple tokens found matching " <> show tok
                 return Nothing
-
-    storeCheckClientAuth pool auth = do
-        case preview authDetails auth of
-            Nothing -> do
-                debugM logName $ "Got an invalid auth header."
-                throwIO $ OAuth2Error InvalidRequest
-                                        (preview errorDescription "Invalid auth header provided.")
-                                        Nothing
-            Just (client_id, secret) -> do
-                hashes :: [EncryptedPass] <- withResource pool $ \conn -> do
-                    res <- query conn "SELECT client_secret FROM clients WHERE (client_id = ?)" (client_id)
-                    return $ map (EncryptedPass . fromOnly) res
-                case hashes of
-                    [hash]   -> return $ verifyClientSecret client_id secret hash
-                    []       -> do
-                        debugM logName $ "Got a request for invalid client_id " <> show client_id
-                        throwIO $ OAuth2Error InvalidClient
-                                                (preview errorDescription "No such client.")
-                                                Nothing
-                    _        -> do
-                        errorM logName $ "Consistency error: multiple clients with client_id " <> show client_id
-                        fail "Consistency error"
-      where
-        verifyClientSecret client_id secret hash =
-            let pass = Pass . encodeUtf8 $ review password secret in
-            -- Verify with default scrypt params.
-            if verifyPass' pass hash
-                then (Just client_id)
-                else Nothing
 
     storeListTokens pool size uid (Page p) = do
         withResource pool $ \conn -> do

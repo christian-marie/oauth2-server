@@ -22,6 +22,7 @@ import           Control.Monad.Error.Class           (MonadError (throwError))
 import           Control.Monad.IO.Class              (MonadIO (liftIO))
 import           Control.Monad.Trans.Control
 import           Control.Monad.Trans.Except          (ExceptT, runExceptT)
+import           Crypto.Scrypt
 import           Data.Aeson                          (encode)
 import           Data.ByteString.Conversion          (ToByteString (..))
 import           Data.Either
@@ -46,7 +47,7 @@ import           Servant.API                         ((:>), (:<|>)(..),
                                                       FromText(..), QueryParam, OctetStream, Capture)
 import           Servant.HTML.Blaze
 import           Servant.Server                      (ServantErr (errBody, errHeaders),
-                                                      Server, err302, err400, err401, err500, err404, err403)
+                                                      Server, err302, err400, err401, err404, err403)
 import           System.Log.Logger
 import           Text.Blaze.Html5                    (Html)
 
@@ -333,7 +334,7 @@ verifyEndpoint ServerState{..} Nothing _token =
                    }
 verifyEndpoint ServerState{..} (Just auth) token' = do
     -- 1. Check client authentication.
-    client_id' <- liftIO . try $ storeCheckClientAuth serverPGConnPool auth
+    client_id' <- liftIO . try $ checkClientAuth serverPGConnPool auth
     client_id <- case client_id' of
         Left e -> do
             logE $ "Error verifying token: " <> show (e :: OAuth2Error)
@@ -460,7 +461,7 @@ checkCredentials _ Nothing _ = do
                           Nothing
 checkCredentials ref (Just auth) req = do
     debugM logName $ "Checking some credentials"
-    client_id <- storeCheckClientAuth ref auth
+    client_id <- checkClientAuth ref auth
     case client_id of
         Nothing -> throwIO $ OAuth2Error UnauthorizedClient
                                          (preview errorDescription "Invalid client credentials")
@@ -562,3 +563,34 @@ checkCredentials ref (Just auth) req = do
                                               (preview errorDescription "Invalid scope")
                                               Nothing
                     return (Just client_id, request_scope)
+
+-- | Given an AuthHeader sent by a client, verify that it authenticates.
+--   If it does, return the authenticated ClientID; otherwise, Nothing.
+checkClientAuth
+    :: TokenStore ref
+    => ref
+    -> AuthHeader
+    -> IO (Maybe ClientID)
+checkClientAuth ref auth = do
+    case preview authDetails auth of
+        Nothing -> do
+            debugM logName $ "Got an invalid auth header."
+            throwIO $ OAuth2Error InvalidRequest
+                                  (preview errorDescription "Invalid auth header provided.")
+                                  Nothing
+        Just (client_id, secret) -> do
+            client <- storeLookupClient ref client_id
+            case client of
+                Just ClientDetails{..} -> return $ verifyClientSecret client_id secret clientSecret
+                Nothing -> do
+                    debugM logName $ "Got a request for invalid client_id " <> show client_id
+                    throwIO $ OAuth2Error InvalidClient
+                                          (preview errorDescription "No such client.")
+                                          Nothing
+  where
+    verifyClientSecret client_id secret hash =
+        let pass = Pass . T.encodeUtf8 $ review password secret in
+        -- Verify with default scrypt params.
+        if verifyPass' pass hash
+            then (Just client_id)
+            else Nothing

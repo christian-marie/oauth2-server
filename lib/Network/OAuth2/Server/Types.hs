@@ -19,7 +19,6 @@ module Network.OAuth2.Server.Types (
   ClientDetails(..),
   ClientID,
   clientID,
-  ClientSecret(..),
   ClientState,
   clientState,
   Code,
@@ -73,6 +72,7 @@ import           Control.Lens.Operators                     ((%~), (&), (^.))
 import           Control.Lens.Prism                         (Prism', prism')
 import           Control.Lens.Review                        (re, review)
 import           Control.Monad                              (guard, mzero)
+import           Crypto.Scrypt
 import           Data.Aeson                                 (FromJSON (..),
                                                              ToJSON (..),
                                                              Value (String),
@@ -192,16 +192,9 @@ data GrantEvent
     | ClientCredentialsGranted -- ^ Issued token from client password request.
     | ExtensionGranted -- ^ Issued token from extension grant request.
 
-newtype ClientSecret = ClientSecret
-    { unClientSecret :: ByteString }
-  deriving (Eq, Show, Ord)
-
-instance FromField ClientSecret where
-    fromField f bs = ClientSecret <$> fromField f bs
-
 data ClientDetails = ClientDetails
     { clientClientId     :: ClientID
-    , clientSecret       :: ClientSecret
+    , clientSecret       :: EncryptedPass
     , clientConfidential :: Bool
     , clientRedirectURI  :: RedirectURI
     , clientName         :: Text
@@ -957,7 +950,7 @@ fromFieldURI f bs = do
 
 instance FromRow ClientDetails where
     fromRow = ClientDetails <$> field
-                            <*> field
+                            <*> (EncryptedPass <$> field)
                             <*> field
                             <*> field
                             <*> field
