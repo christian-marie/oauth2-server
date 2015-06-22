@@ -15,12 +15,9 @@
 module Network.OAuth2.Server.Store where
 
 import           Control.Applicative
-import           Control.Exception
 import           Control.Lens                (preview)
 import           Control.Lens.Prism
 import           Control.Lens.Review
-import           Control.Monad.Reader
-import           Crypto.Scrypt
 import qualified Data.ByteString             as BS
 import qualified Data.ByteString.Base64      as B64
 import           Data.Char
@@ -41,12 +38,17 @@ logName = "Anchor.Tokens.Server.Store"
 -- It is parametrised by a underlying monad and includes a natural
 -- transformation to any MonadIO m'
 class TokenStore ref where
+    -- | Load ClientDetails from the store
+    storeLookupClient
+        :: ref
+        -> ClientID
+        -> IO (Maybe ClientDetails)
+
     -- | TODO: Document the part of the RFC this is from
     storeCreateCode
         :: ref
         -> UserID
-        -> ClientID
-        -> Maybe RedirectURI
+        -> ClientDetails
         -> Scope
         -> Maybe ClientState
         -> IO RequestCode
@@ -57,6 +59,11 @@ class TokenStore ref where
         -> Code
         -> UserID
         -> IO (Maybe RedirectURI)
+
+    storeLoadCode
+        :: ref
+        -> Code
+        -> IO (Maybe RequestCode)
 
     -- | Record a new token grant in the database.
     storeSaveToken
@@ -71,20 +78,6 @@ class TokenStore ref where
         :: ref
         -> Token
         -> IO (Maybe TokenDetails)
-
-    -- | Check the supplied credentials against the database.
-    storeCheckCredentials
-        :: ref
-        -> Maybe AuthHeader
-        -> AccessRequest
-        -> IO (Maybe ClientID, Scope)
-
-    -- | Given an AuthHeader sent by a client, verify that it authenticates.
-    --   If it does, return the authenticated ClientID; otherwise, Nothing.
-    storeCheckClientAuth
-        :: ref
-        -> AuthHeader
-        -> IO (Maybe ClientID)
 
     -- * User Interface operations
 
@@ -122,27 +115,24 @@ class TokenStore ref where
         -> IO ()
 
 instance TokenStore (Pool Connection) where
-    storeCreateCode pool user_id client_id redirect sc requestCodeState = do
+    storeLookupClient pool client_id = do
         withResource pool $ \conn -> do
-            res <- query conn "SELECT redirect_url FROM clients WHERE (client_id = ?)" (Only client_id)
-            requestCodeRedirectURI <- case res of
-                [] -> do
-                    errorM logName $ "No redirect URL found for client " <> show client_id
-                    error "No redirect URL found for client"
-                [Only requestCodeRedirectURI] -> case redirect of
-                    Nothing -> return requestCodeRedirectURI
-                    Just redirect_url
-                        | redirect_url == requestCodeRedirectURI ->
-                            return requestCodeRedirectURI
-                        | otherwise -> error "NOOOO"
-                _ -> do
-                    errorM logName $ "Consistency error: multiple redirect URLs found for client " <> show client_id
-                    error "Multiple redirect URLs found for client"
+            res <- query conn "SELECT (client_id, client_secret, confidential, redirect_url, name, description, app_url) FROM clients WHERE (client_id = ?)" (Only client_id)
+            return $ case res of
+                [] -> Nothing
+                [client] -> Just client
+                _ -> error "Expected client_id PK to be unique"
+
+    storeCreateCode pool user_id ClientDetails{..} sc requestCodeState = do
+        withResource pool $ \conn -> do
             [(requestCodeCode, requestCodeExpires)] <-
-                query conn "INSERT INTO request_codes (client_id, user_id, redirect_url, scope, state) VALUES (?,?,?,?) RETURNING code, expires" (client_id, user_id, requestCodeRedirectURI, sc, requestCodeState)
-            let requestCodeClientID = client_id
+                query conn
+                      "INSERT INTO request_codes (client_id, user_id, redirect_url, scope, state) VALUES (?,?,?,?) RETURNING code, expires"
+                      (clientClientId, user_id, clientRedirectURI, sc, requestCodeState)
+            let requestCodeClientID = clientClientId
                 requestCodeScope = Just sc
                 requestCodeAuthorized = False
+                requestCodeRedirectURI = clientRedirectURI
             return RequestCode{..}
 
     storeActivateCode pool code' user_id = do
@@ -154,6 +144,15 @@ instance TokenStore (Pool Connection) where
                 _ -> do
                     errorM logName $ "Consistency error: multiple redirect URLs found"
                     error "Consistency error: multiple redirect URLs found"
+
+    storeLoadCode ref request_code = do
+        codes :: [RequestCode] <- withResource ref $ \conn ->
+            query conn "SELECT code, expires, client_id, redirect_url, scope, state FROM request_codes WHERE (code = ?)"
+                       (Only request_code)
+        return $ case codes of
+            [] -> Nothing
+            [rc] -> return rc
+            _ -> error "Expected code PK to be unique"
 
     storeSaveToken pool grant = do
         debugM logName $ "Saving new token: " <> show grant
@@ -176,149 +175,6 @@ instance TokenStore (Pool Connection) where
             _   -> do
                 errorM logName $ "Consistency error: multiple tokens found matching " <> show tok
                 return Nothing
-
-    storeCheckCredentials _ Nothing _ = do
-        debugM logName $ "Checking credentials but none provided."
-        throwIO $  OAuth2Error InvalidRequest
-                                (preview errorDescription "No credentials provided")
-                                Nothing
-    storeCheckCredentials pool (Just auth) req = do
-        debugM logName $ "Checking some credentials"
-        client_id <- storeCheckClientAuth pool auth
-        case client_id of
-            Nothing -> throwIO $ OAuth2Error UnauthorizedClient
-                                             (preview errorDescription "Invalid client credentials")
-                                             Nothing
-            Just client_id' -> case req of
-                -- https://tools.ietf.org/html/rfc6749#section-4.1.3
-                RequestAuthorizationCode auth_code uri client ->
-                    checkClientAuthCode client_id' auth_code uri client
-                -- https://tools.ietf.org/html/rfc6749#section-4.3.2
-                RequestPassword request_username request_password request_scope ->
-                    checkPassword client_id' request_username request_password request_scope
-                -- http://tools.ietf.org/html/rfc6749#section-4.4.2
-                RequestClientCredentials request_scope ->
-                    checkClientCredentials client_id' request_scope
-                -- http://tools.ietf.org/html/rfc6749#section-6
-                RequestRefreshToken tok request_scope ->
-                    checkRefreshToken client_id' tok request_scope
-      where
-        --
-        -- Verify client, scope and request code.
-        --
-        checkClientAuthCode _ _ Nothing _ = throwIO $ OAuth2Error InvalidRequest
-                                                                  (preview errorDescription "No redirect URI supplied.")
-                                                                  Nothing
-        checkClientAuthCode _ _ _ Nothing = throwIO $ OAuth2Error InvalidRequest
-                                                                  (preview errorDescription "No client ID supplied.")
-                                                                  Nothing
-        checkClientAuthCode client_id request_code (Just uri) (Just purported_client) = do
-             do
-                    when (client_id /= purported_client) $ throwIO $
-                        OAuth2Error UnauthorizedClient
-                                    (preview errorDescription "Invalid client credentials")
-                                    Nothing
-                    codes :: [RequestCode] <- withResource pool $ \conn ->
-                        query conn "SELECT code, expires, client_id, redirect_url, scope, state FROM request_codes WHERE (code = ?)" (Only request_code)
-                    case codes of
-                        [] -> throwIO $ OAuth2Error InvalidGrant
-                                                    (preview errorDescription "Request code not found")
-                                                    Nothing
-                        [rc] -> do
-                             -- Fail if redirect_uri doesn't match what's in the database.
-                             when (uri /= (requestCodeRedirectURI rc)) $ do
-                                 debugM logName $    "Redirect URI mismatch verifying access token request: requested"
-                                                           <> show uri
-                                                           <> " but got "
-                                                           <> show (requestCodeRedirectURI rc)
-                                 throwIO $ OAuth2Error InvalidRequest
-                                                       (preview errorDescription "Invalid redirect URI")
-                                                       Nothing
-                             case requestCodeScope rc of
-                                 Nothing -> do
-                                     debugM logName $ "No scope found for code " <> show request_code
-                                     throwIO $ OAuth2Error InvalidScope
-                                                           (preview errorDescription "No scope found")
-                                                           Nothing
-                                 Just code_scope -> return (Just client_id, code_scope)
-                        _ -> do
-                            errorM logName $ "Consistency error: duplicate code " <> show request_code
-                            fail $ "Consistency error: duplicate code " <> show request_code
-
-        --
-        -- Check nothing and fail; we don't support password grants.
-        --
-
-        checkPassword _ _ _ _ = throwIO $ OAuth2Error UnsupportedGrantType
-                                                      (preview errorDescription "password grants not supported")
-                                                      Nothing
-
-        --
-        -- Client has been verified and there's nothing to verify for the
-        -- scope, so this will always succeed unless we get no scope at all.
-        --
-
-        checkClientCredentials _ Nothing = throwIO $ OAuth2Error InvalidRequest
-                                                                   (preview errorDescription "No scope supplied.")
-                                                                   Nothing
-        checkClientCredentials client_id (Just request_scope) = return (Just client_id, request_scope)
-
-        --
-        -- Verify scope and request token.
-        --
-
-        checkRefreshToken _ _ Nothing     = throwIO $ OAuth2Error InvalidRequest
-                                                                  (preview errorDescription "No scope supplied.")
-                                                                  Nothing
-        checkRefreshToken client_id tok (Just request_scope) = do
-            details <- storeLoadToken pool tok
-            case details of
-                Nothing -> do
-                    debugM logName $ "Got passed invalid token " <> show tok
-                    throwIO $ OAuth2Error InvalidRequest
-                                          (preview errorDescription "Invalid token")
-                                          Nothing
-                Just details' -> do
-                    unless (compatibleScope request_scope (tokenDetailsScope details')) $ do
-                        debugM logName $
-                            "Incompatible scopes " <>
-                            show request_scope <>
-                            " and " <>
-                            show (tokenDetailsScope details') <>
-                            ", refusing to verify"
-                        throwIO $ OAuth2Error InvalidScope
-                                              (preview errorDescription "Invalid scope")
-                                              Nothing
-                    return (Just client_id, request_scope)
-
-    storeCheckClientAuth pool auth = do
-        case preview authDetails auth of
-            Nothing -> do
-                debugM logName $ "Got an invalid auth header."
-                throwIO $ OAuth2Error InvalidRequest
-                                        (preview errorDescription "Invalid auth header provided.")
-                                        Nothing
-            Just (client_id, secret) -> do
-                hashes :: [EncryptedPass] <- withResource pool $ \conn -> do
-                    res <- query conn "SELECT client_secret FROM clients WHERE (client_id = ?)" (client_id)
-                    return $ map (EncryptedPass . fromOnly) res
-                case hashes of
-                    [hash]   -> return $ verifyClientSecret client_id secret hash
-                    []       -> do
-                        debugM logName $ "Got a request for invalid client_id " <> show client_id
-                        throwIO $ OAuth2Error InvalidClient
-                                                (preview errorDescription "No such client.")
-                                                Nothing
-                    _        -> do
-                        errorM logName $ "Consistency error: multiple clients with client_id " <> show client_id
-                        fail "Consistency error"
-      where
-        verifyClientSecret client_id secret hash =
-            let pass = Pass . encodeUtf8 $ review password secret in
-            -- Verify with default scrypt params.
-            if verifyPass' pass hash
-                then (Just client_id)
-                else Nothing
 
     storeListTokens pool size uid (Page p) = do
         withResource pool $ \conn -> do
