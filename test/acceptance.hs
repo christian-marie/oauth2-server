@@ -6,10 +6,13 @@ import           Control.Applicative
 import           Control.Exception
 import           Control.Lens
 import           Data.Aeson.Lens
+import qualified Data.ByteString.Char8 as BC
 import           Data.Either
+import           Data.Maybe
 import           Data.Monoid
 import qualified Data.Text.Encoding    as T
-import           Network.HTTP.Client   (HttpException)
+import           Network.HTTP.Client   (HttpException (..))
+import           Network.HTTP.Types    (Status (..))
 import           Network.Wreq
 import           System.Environment
 import           Test.Hspec
@@ -29,8 +32,24 @@ main = do
 tests :: String -> Spec
 tests base_uri = do
     describe "token endpoint" $ do
-        it "uses the same details when refreshing a token"
-            pending
+        it "uses the same details when refreshing a token" $ do
+            -- Verify a good token.
+            t1' <- verifyToken base_uri client1 (fst tokenVV)
+            t1 <- either (\_ -> fail "Valid token is invalid, so can't test!")
+                         (return) t1'
+
+            -- Refresh it.
+            t2_id' <- refreshToken base_uri client1 (snd tokenVV)
+            t2_id <- either (\_ -> fail "Couldn't refresh")
+                            (return) t2_id'
+
+            -- Verify that token.
+            t2' <- verifyToken base_uri client1 t2_id
+            t2 <- either (\_ -> fail "Couldn't verify new token.")
+                         (return) t2'
+
+            -- Compare them.
+            t2 `shouldBe` t1
 
         it "revokes the existing token when it is refreshed"
             pending
@@ -46,19 +65,19 @@ tests base_uri = do
 
         it "returns an error when given valid credentials and a token from another client" $ do
             resp <- verifyToken base_uri client2 (fst tokenVV)
-            resp `shouldSatisfy` isLeft
+            resp `shouldBe` Left "404 Not Found - This is not a valid token."
 
         it "returns an error when given invalid client credentials" $ do
             resp <- verifyToken base_uri client3 (fst tokenVV)
-            resp `shouldSatisfy` isLeft
+            resp `shouldBe` Left "401 Unauthorized - Login to validate a token."
 
         it "returns an error when given a token which has been revoked" $ do
             resp <- verifyToken base_uri client1 (fst tokenRV)
-            resp `shouldSatisfy` isLeft
+            resp `shouldBe` Left "404 Not Found - This is not a valid token."
 
         it "returns an error when given a token which is not valid" $ do
             resp <- verifyToken base_uri client1 (fst tokenDERP)
-            resp `shouldSatisfy` isLeft
+            resp `shouldBe` Left "404 Not Found - This is not a valid token."
 
     describe "authorize endpoint" $ do
         it "returns an error when Shibboleth authentication headers are missing"
@@ -106,10 +125,12 @@ verifyToken base_uri (client,secret) tok = do
                         & header "Content-Type" .~ ["application/octet-stream"]
                         & auth ?~ basicAuth user pass
 
-    putStrLn $ "Contacting " <> endpoint <> " to validate " <> show tok <> " for " <> show client
     r <- try (postWith opts endpoint body)
     case r of
-        Left e  -> return . Left . show $ (e :: HttpException)
+        Left (StatusCodeException (Status c m) h _) -> do
+            let b = BC.unpack <$> lookup "X-Response-Body-Start" h
+            return (Left $ show c <> " " <> BC.unpack m <> " - " <> fromMaybe "" b)
+        Left e -> return (Left $ show e)
         Right v ->
             return $ case v ^? responseBody . _JSON of
                 Nothing -> Left "Could not decode response."
