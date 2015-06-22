@@ -44,7 +44,6 @@ Library
                      , hslogger
                      , http-types
                      , lens
-                     , lifted-base
                      , monad-control
                      , mtl
                      , network

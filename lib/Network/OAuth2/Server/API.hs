@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes        #-}
+{-# LANGUAGE TypeFamilies      #-}
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE TypeOperators     #-}
 
@@ -79,7 +80,7 @@ tokenEndpoint :: Pool Connection -> Server TokenEndpoint
 tokenEndpoint _ _ (Left e) = throwOAuth2Error e
 tokenEndpoint conf auth (Right req) = do
     t <- liftIO getCurrentTime
-    res <- liftIO $ runExceptT $ processTokenRequest conf t auth req
+    res <- liftIO . runExceptT $ processTokenRequest conf t auth req
     case res of
         Left e -> throwOAuth2Error e
         Right response -> do
@@ -93,21 +94,24 @@ test = do
         (Right x) -> return ()
 
 processTokenRequest
-    :: (TokenStore ref m, MonadError OAuth2Error m)
+    :: TokenStore ref
     => ref
     -> UTCTime
     -> Maybe AuthHeader
     -> AccessRequest
-    -> m AccessResponse
+    -> ExceptT OAuth2Error IO AccessResponse
 processTokenRequest ref t client_auth req = do
-    (client_id, modified_scope) <- storeCheckCredentials ref client_auth req
+    -- TODO: Handle OAuth2Errors and not just liftIO here
+    (client_id, modified_scope) <- liftIO $ storeCheckCredentials ref client_auth req
     user <- case req of
         RequestAuthorizationCode{} -> return Nothing
         RequestPassword{..} -> return $ Just requestUsername
         RequestClientCredentials{} -> return Nothing
         RequestRefreshToken{..} -> do
                 -- Decode previous token so we can copy details across.
-                previous <- storeLoadToken ref requestRefreshToken
+                --
+                -- TODO: Handle OAuth2Errors and not just liftIO here
+                previous <- liftIO $ storeLoadToken ref requestRefreshToken
                 return $ tokenDetailsUsername =<< previous
     let expires = addUTCTime 1800 t
         access_grant = TokenGrant
@@ -123,8 +127,10 @@ processTokenRequest ref t client_auth req = do
             { grantTokenType = Refresh
             , grantExpires = refresh_expires
             }
-    access_details <- storeSaveToken ref access_grant
-    refresh_details <- storeSaveToken ref refresh_grant
+
+    -- TODO: Handle OAuth2Errors and not just liftIO here
+    access_details <- liftIO $ storeSaveToken ref access_grant
+    refresh_details <- liftIO $ storeSaveToken ref refresh_grant
     return $ grantResponse t access_details (Just $ tokenDetailsToken refresh_details)
 
 type OAuthUserHeader = "Identity-OAuthUser"

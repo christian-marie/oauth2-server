@@ -1,5 +1,7 @@
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE RankNTypes            #-}
 {-# LANGUAGE StandaloneDeriving    #-}
 {-# LANGUAGE TupleSections         #-}
 {-# LANGUAGE TypeFamilies          #-}
@@ -24,6 +26,7 @@ import           Database.PostgreSQL.Simple
 import           Network.OAuth2.Server
 import           System.Process
 import           Test.Hspec
+import           Test.Hspec.Core             (SpecM)
 import           Test.Hspec.QuickCheck
 import           Test.QuickCheck
 import           Test.QuickCheck.Monadic
@@ -76,37 +79,40 @@ instance Arbitrary TokenGrant where
 instance Arbitrary TokenDetails where
   arbitrary = tokenDetails <$> arbitrary <*> arbitrary
 
---------------------------------------------------------------------------------
+main :: IO ()
+main = do
+    pg_pool <- getPGPool
+    hspec (suite pg_pool)
 
 dbname :: String
 dbname = "test_tokenstore"
 
--- | Start a server that only has the local store, no UI, no EKG.
---
-startStore :: ByteString -> IO (Pool Connection)
-startStore dbstr = createPool (connectPostgreSQL dbstr) close 1 1 1
+getPGPool :: IO (Pool Connection)
+getPGPool = do
+    callCommand $ concat
+        [ " dropdb --if-exists ", dbname, " || true"
+        , " && createdb ", dbname
+        , " && psql --quiet --file=schema/postgresql.sql ", dbname ]
+    let db = B.pack $ "dbname=" ++ dbname
+    createPool (connectPostgreSQL db) close 1 1 1
 
-testStore :: MonadIO m => m (Pool Connection)
-testStore = liftIO $ do
-  callCommand $ concat
-    [ " dropdb --if-exists ", dbname, " || true"
-    , " && createdb ", dbname
-    , " && psql --quiet --file=schema/postgresql.sql ", dbname ]
-  startStore . B.pack $ "dbname=" ++ dbname
+suite :: Pool Connection -> Spec
+suite pg_pool =
+    describe "Postgres store" $ do
+        testStore pg_pool
 
-suite :: Spec
-suite = describe "Token Store" $ do
-  it "can save then load a token" $ monadicIO $ do
-    state   <- testStore
-    grant   <- pick arbitrary
-    d1 <- liftIO $ storeSaveToken state grant
-    Just d2 <- liftIO $ storeLoadToken state $ tokenDetailsToken d1
-    return $ d1 == d2
+testStore :: TokenStore ref => ref -> SpecM () ()
+testStore ref = do
+    prop "empty database props" (emptyProps ref)
 
-  prop "can list existing tokens" pending
-  prop "can revoke existing tokens" pending
-  prop "does nothing if token does not exist" pending
+-- | Group props that rely on an empty DB together because maybe it's expensive
+-- to create an empty DB.
+emptyProps :: TokenStore ref => ref -> Property
+emptyProps ref =
+    monadicIO $ do
+        no_token <- run $ do
+            -- Create a new empty db
+            let Just tok = "hai" ^? token
+            storeLoadToken ref tok -- storeListTokens r "Woo" 10 (Page 0)
 
-main :: IO ()
-main = hspec suite
-
+        assert (no_token == Nothing)
