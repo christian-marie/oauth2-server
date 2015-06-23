@@ -149,10 +149,6 @@ instance FromFormUrlEncoded TokenRequest where
                 es -> Left $ "invalid scopes: " <> show es
         Just x        -> Left . T.unpack $ "Invalid method field value, got: " <> x
 
-data ResponseTypeCode = ResponseTypeCode
-instance FromText ResponseTypeCode where
-    fromText "code" = Just ResponseTypeCode
-    fromText _ = Nothing
 
 -- | OAuth2 Authorization Endpoint
 --
@@ -273,13 +269,13 @@ authorizeEndpoint
     -> m Html
 authorizeEndpoint pool user_id permissions rt c_id' redirect sc' st = do
     case rt of
-        Nothing -> error "NOOOO"
+        Nothing -> error "Response type code is missing"
         Just ResponseTypeCode -> return ()
     sc <- case sc' of
-        Nothing -> error "NOOOO"
+        Nothing -> error "Scope is missing"
         Just sc -> if sc `compatibleScope` permissions then return sc else error "NOOOOO"
     c_id <- case c_id' of
-        Nothing -> error "NOOOO"
+        Nothing -> error "ClientID is missing"
         Just c_id -> return c_id
     res <- liftIO $ storeLookupClient pool c_id
     ClientDetails{..} <- case res of
