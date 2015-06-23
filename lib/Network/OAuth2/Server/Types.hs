@@ -654,7 +654,7 @@ data TokenType
   deriving (Eq, Show, Typeable)
 
 instance ToJSON TokenType where
-    toJSON t = String . T.decodeUtf8 $ case t of
+    toJSON t = String $ case t of
         Bearer -> "bearer"
         Refresh -> "refresh"
 
