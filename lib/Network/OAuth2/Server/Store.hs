@@ -153,7 +153,7 @@ instance TokenStore (Pool Connection) where
             [(requestCodeCode, requestCodeExpires)] <- do
                 debugM logName $ "Attempting storeCreateCode with " <> show sc
                 query conn
-                      "INSERT INTO request_codes (client_id, user_id, redirect_url, scope, state) VALUES (?,?,?,?) RETURNING code, expires"
+                      "INSERT INTO request_codes (client_id, user_id, redirect_url, scope, state) VALUES (?,?,?,?,?) RETURNING code, expires"
                       (requestCodeClientID, user_id, requestCodeRedirectURI, sc, requestCodeState)
             let requestCodeScope = Just sc
                 requestCodeAuthorized = False
