@@ -53,16 +53,24 @@ class TokenStore ref where
         -> ClientID
         -> IO (Maybe ClientDetails)
 
-    -- | Create a 'RequestCode'.
+    -- | Create a `RequestCode` used in the Authorization Code Grant.
+    -- The code created here is stored, but is not authorized yet.
+    -- To authorize, call `storeActivateCode`.
+    --
+    -- https://tools.ietf.org/html/rfc6749#section-4.1
     storeCreateCode
         :: ref
         -> UserID
-        -> ClientDetails
+        -> ClientID
+        -> RedirectURI
         -> Scope
         -> Maybe ClientState
         -> IO RequestCode
 
-    -- | TODO: Document
+    -- | Authorize a `Code` used in the Authorization Code Grant.
+    -- This was created before using `storeCreateCode`.
+    --
+    -- https://tools.ietf.org/html/rfc6749#section-4.1
     storeActivateCode
         :: ref
         -> Code
@@ -133,19 +141,15 @@ instance TokenStore (Pool Connection) where
                 [client] -> Just client
                 _ -> error "Expected client_id PK to be unique"
 
-    storeCreateCode pool user_id ClientDetails{..} sc requestCodeState = do
+    storeCreateCode pool user_id requestCodeClientID requestCodeRedirectURI sc requestCodeState = do
         withResource pool $ \conn -> do
             [(requestCodeCode, requestCodeExpires)] <- do
                 debugM logName $ "Attempting storeCreateCode with " <> show sc
                 query conn
                       "INSERT INTO request_codes (client_id, user_id, redirect_url, scope, state) VALUES (?,?,?,?) RETURNING code, expires"
-                      -- @TODO(thsutton): Note the head, we should really pass in completed objects. :-(
-                      (clientClientId, user_id, head clientRedirectURI, sc, requestCodeState)
-            let requestCodeClientID = clientClientId
-                requestCodeScope = Just sc
+                      (requestCodeClientID, user_id, requestCodeRedirectURI, sc, requestCodeState)
+            let requestCodeScope = Just sc
                 requestCodeAuthorized = False
-                -- @TODO(thsutton): this is a lie; this is another concern that should be factored out of the store.
-                requestCodeRedirectURI = head clientRedirectURI
             return RequestCode{..}
 
     storeActivateCode pool code' user_id = do

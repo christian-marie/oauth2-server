@@ -147,7 +147,6 @@ processTokenRequest _ _ Nothing _ = do
                              (preview errorDescription "No credentials provided")
                              Nothing
 processTokenRequest ref t (Just client_auth) req = do
-    -- TODO: Handle OAuth2Errors and not just liftIO here
     (client_id, modified_scope) <- checkCredentials ref client_auth req
     user <- case req of
         RequestAuthorizationCode{} -> return Nothing
@@ -155,8 +154,6 @@ processTokenRequest ref t (Just client_auth) req = do
         RequestClientCredentials{} -> return Nothing
         RequestRefreshToken{..} -> do
                 -- Decode previous token so we can copy details across.
-                --
-                -- TODO: Handle OAuth2Errors and not just liftIO here
                 previous <- liftIO $ storeLoadToken ref requestRefreshToken
                 return $ tokenDetailsUsername =<< previous
     let expires = addUTCTime 1800 t
@@ -173,8 +170,6 @@ processTokenRequest ref t (Just client_auth) req = do
             { grantTokenType = Refresh
             , grantExpires = refresh_expires
             }
-
-    -- TODO: Handle OAuth2Errors and not just liftIO here
     access_details <- liftIO $ storeSaveToken ref access_grant
     refresh_details <- liftIO $ storeSaveToken ref refresh_grant
     return $ grantResponse t access_details (Just $ tokenDetailsToken refresh_details)
@@ -341,18 +336,20 @@ authorizeEndpoint pool user_id permissions rt c_id' redirect sc' st = do
         Nothing -> error "ClientID is missing"
         Just c_id -> return c_id
     res <- liftIO $ storeLookupClient pool c_id
-    client <- case res of
+    ClientDetails{..} <- case res of
         Nothing -> error $ "no client found with id" <> show c_id
         Just x -> return x
 
     -- https://tools.ietf.org/html/rfc6749#section-3.1.2.3
-    case redirect of
-        Nothing -> return ()
+    redirect' <- case redirect of
+        Nothing -> case clientRedirectURI of
+            [redirect'] -> return redirect'
+            _ -> error $ "No redirect_uri providid and no unique default registered for client " <> show clientClientId
         Just redirect'
-            | redirect' `elem` clientRedirectURI client -> return ()
-            | otherwise -> error $ show redirect' <> " /= " <> show (clientRedirectURI client)
+            | redirect' `elem` clientRedirectURI -> return redirect'
+            | otherwise -> error $ show redirect' <> " /= " <> show clientRedirectURI
 
-    request_code <- liftIO $ storeCreateCode pool user_id client sc st
+    request_code <- liftIO $ storeCreateCode pool user_id clientClientId redirect' sc st
     return $ renderAuthorizePage request_code
 
 -- | Handle the response from the page served in 'authorizeEndpoint'
