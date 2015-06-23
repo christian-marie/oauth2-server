@@ -67,7 +67,6 @@ module Network.OAuth2.Server.Types (
 import           Blaze.ByteString.Builder                   (toByteString)
 import           Control.Applicative                        (Applicative ((<*), (<*>), pure),
                                                              (<$>))
-import           Control.Exception                          (Exception)
 import           Control.Lens.Fold                          (preview, (^?))
 import           Control.Lens.Operators                     ((%~), (&), (^.))
 import           Control.Lens.Prism                         (Prism', prism')
@@ -766,7 +765,6 @@ data OAuth2Error = OAuth2Error
     , oauth2ErrorURI         :: Maybe URI
     }
   deriving (Eq, Show, Typeable)
-instance Exception OAuth2Error
 
 data ErrorCode
     = InvalidClient
