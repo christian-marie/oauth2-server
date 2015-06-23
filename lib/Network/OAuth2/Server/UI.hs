@@ -108,6 +108,7 @@ htmlToken (cid, token_scope, t, tid) = tr $ do
     htmlScope  = toHtml $ T.decodeUtf8 $ scopeToBs token_scope
     htmlToken' = toHtml $ T.decodeUtf8 $ token # t
     htmlRevokeButton =
-        form ! method "POST" ! action ("/tokens?token_id=" <> toValue tid) $ do
+        form ! method "POST" ! action "/tokens" $ do
             input ! type_ "hidden" ! name "method" ! value "delete"
+            input ! type_ "hidden" ! name "token_id" ! value (toValue tid)
             input ! type_ "submit" ! value "Revoke Token"
