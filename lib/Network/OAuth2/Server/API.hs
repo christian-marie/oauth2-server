@@ -332,7 +332,6 @@ handleShib _ _        _        = error "Expected Shibbloleth headers"
 --   shifting them out of here entirely.
 --
 --   http://tools.ietf.org/html/rfc6749#section-3.1
-
 authorizeEndpoint
     :: ( MonadIO m
        , MonadBaseControl IO m
@@ -351,20 +350,24 @@ authorizeEndpoint pool user_id user_perms resp_type' cid' redirect scope' state'
     -- Required: a supported ResponseTypeCode value.
     response_type <- case resp_type' of
         Just ResponseTypeCode -> return ResponseTypeCode
-        Just _ -> error "Response type is not supported"
-                  -- Return UnsupportedResponseType error.
-        Nothing -> error "Response type code is missing"
-                   -- Return InvalidRequest error.
+        Just _ -> throwOAuth2Error $ OAuth2Error UnsupportedResponseType
+                                     (preview errorDescription "The authorization grant type is not supported by the authorization server.")
+                                     Nothing
+        Nothing -> throwOAuth2Error $ OAuth2Error InvalidRequest
+                                      (preview errorDescription "The request is missing the response_type parameter.")
+                                      Nothing
 
     -- Required: a ClientID value, which identified a client.
     client' <- case cid' of
-        Nothing -> error "ClientID is missing"
-                   -- Return InvalidResponse error.
-        Just c_id -> liftIO $ storeLookupClient pool c_id
+        Just cid -> liftIO $ storeLookupClient pool cid
+        Nothing -> throwOAuth2Error $ OAuth2Error InvalidRequest
+                                      (preview errorDescription "The request is missing the client_id parameter.")
+                                      Nothing
     client <- case client' of
         Just x -> return x
-        Nothing -> error $ "no client found with id" <> show cid'
-                   -- Return UnauthorizedClient error.
+        Nothing -> throwOAuth2Error $ OAuth2Error UnauthorizedClient
+                                      (preview errorDescription "This client is not authorized.")
+                                      Nothing
 
     -- Optional: requested redirect URI.
     -- https://tools.ietf.org/html/rfc6749#section-3.1.2.3
@@ -373,20 +376,24 @@ authorizeEndpoint pool user_id user_perms resp_type' cid' redirect scope' state'
         Nothing -> return (head $ clientRedirectURI client)
         Just redirect'
             | redirect' `elem` (clientRedirectURI client) -> return redirect'
-            | otherwise -> error $ show redirect' <> " /= " <> show (clientRedirectURI client)
-                           -- Return InvalidRequest error.
+            | otherwise -> throwOAuth2Error $ OAuth2Error
+                            InvalidRequest
+                            (preview errorDescription "The requested redirect_uri is invalid.")
+                            Nothing
 
     -- Optional (but we currently require): requested scope.
-    scope <- case scope' of
+    requested_scope <- case scope' of
         Just sc
             | sc `compatibleScope` user_perms -> return sc
-            | otherwise -> error "Requested permissions user doesn't have"
-                        -- Return InvalidScope error
-        Nothing -> error "No Scope supplied by client."
-                   -- Return InvalidScope error.
+            | otherwise -> throwOAuth2Error $ OAuth2Error InvalidScope
+                                              (preview errorDescription "The requested scope is invalid.")
+                                              Nothing
+        Nothing -> throwOAuth2Error $ OAuth2Error InvalidScope
+                                      (preview errorDescription "No scope was requested.")
+                                      Nothing
 
     -- Create a code for this request.
-    request_code <- liftIO $ storeCreateCode pool user_id client scope state'
+    request_code <- liftIO $ storeCreateCode pool user_id (clientClientId client) redirect_uri requested_scope state'
 
     -- @TODO(thsutton): Redirect the user to the reivew page.
     return $ renderAuthorizePage request_code
