@@ -1,12 +1,28 @@
+--
+-- Copyright © 2013-2015 Anchor Systems, Pty Ltd and Others
+--
+-- The code in this file, and the program it is a part of, is
+-- made available to you by its authors as open source software:
+-- you can redistribute it and/or modify it under the terms of
+-- the 3-clause BSD licence.
+--
+
 {-# LANGUAGE RecordWildCards #-}
 
-module Network.OAuth2.Server (
+-- | The main server module.
+--
+-- This includes the top level interface to run OAuth2 servers.
+--
+-- For now, we hard-code an implementation that uses PostgreSQL and our
+-- particular logic/handlers. The intention is for this to be modular.
+module Network.OAuth2.Server
+(
     P.version,
     startServer,
     module Network.OAuth2.Server.API,
     module Network.OAuth2.Server.Configuration,
     module Network.OAuth2.Server.Statistics,
-    ) where
+) where
 
 import           Control.Concurrent
 import           Control.Concurrent.Async
@@ -26,8 +42,6 @@ import           Network.OAuth2.Server.Statistics
 
 import           Paths_oauth2_server                 as P
 
-
--- * Server
 
 logName :: String
 logName = "Anchor.Tokens.Server"
@@ -51,9 +65,11 @@ startStatistics ServerOptions{..} connPool counters = do
             debugM logName $ "Stopped EKG"
     return (output, stop)
 
+-- | Start the main server, returns an action that can be used to stop the
+-- server cleanly.
 startServer
-    :: ServerOptions
-    -> IO (IO (Async ()))
+    :: ServerOptions      -- ^ Options
+    -> IO (IO (Async ())) -- ^ Stop action
 startServer serverOpts@ServerOptions{..} = do
     debugM logName $ "Opening API Socket"
     sock <- N.bindPortTCP optServicePort optServiceHost
