@@ -16,7 +16,6 @@ module Network.OAuth2.Server.API (
     TokenEndpoint,
 ) where
 
-import           Control.Exception                   (try)
 import           Control.Lens
 import           Control.Monad
 import           Control.Monad.Error.Class           (MonadError (throwError))
@@ -351,15 +350,12 @@ verifyEndpoint ServerState{..} (Just auth) token' = do
         Right (Just cid) -> do
             return cid
     -- 2. Load token information.
-    tok <- liftIO . try $ storeLoadToken serverPGConnPool token'
+    tok <- liftIO $ storeLoadToken serverPGConnPool token'
     case tok of
-        Left e -> do
-            logE $ "Error verifying token: " <> show (e :: OAuth2Error)
-            throwError denied
-        Right Nothing -> do
+        Nothing -> do
             logD $ "Cannot verify token: failed to lookup " <> show token'
             throwError denied
-        Right (Just details) -> do
+        Just details -> do
             -- 3. Check client authorization.
             when (Just client_id /= tokenDetailsClientID details) $ do
                 logD $ "Client " <> show client_id <> " attempted to verify someone elses token: " <> show token'
