@@ -154,7 +154,7 @@ tests base_uri = do
 
         it "the POST returns an error when the Shibboleth authentication headers identify a mismatched user" $ do
             -- 1. Get the page.
-            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) (const a_scope <$> client1)
+            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) code_request
             resp `shouldSatisfy` isRight
             -- 2. Extract the code.
             let Right page = resp
@@ -165,7 +165,7 @@ tests base_uri = do
 
         it "the POST returns a redirect when approved" $ do
             -- 1. Get the page.
-            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) (const a_scope <$> client1)
+            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) code_request
             resp `shouldSatisfy` isRight
             -- 2. Extract the code.
             let Right page = resp
