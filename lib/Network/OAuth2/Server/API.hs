@@ -1,10 +1,12 @@
+{-# LANGUAGE ConstraintKinds     #-}
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE FlexibleInstances   #-}
 {-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RankNTypes          #-}
-{-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE RecordWildCards     #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE TypeOperators       #-}
 
 module Network.OAuth2.Server.API (
@@ -30,12 +32,12 @@ import           Data.Maybe
 import           Data.Monoid
 import           Data.Pool
 import           Data.Proxy
+import qualified Data.ByteString.Char8               as B
 import qualified Data.Set                            as S
 import qualified Data.Text                           as T
 import qualified Data.Text.Encoding                  as T
 import           Data.Time.Clock                     (UTCTime, addUTCTime,
                                                       getCurrentTime)
-import qualified Data.UUID                           as U
 import           Database.PostgreSQL.Simple
 import           Network.HTTP.Types                  hiding (Header)
 import           Network.OAuth2.Server.Configuration as X
@@ -48,7 +50,8 @@ import           Servant.API                         ((:>), (:<|>)(..),
                                                       FromText(..), QueryParam, OctetStream, Capture)
 import           Servant.HTML.Blaze
 import           Servant.Server                      (ServantErr (errBody, errHeaders),
-                                                      Server, err302, err400, err401, err404, err403)
+                                                      Server, err302, err400, err401, err500, err404, err403)
+import           Servant.Utils.Links
 import           System.Log.Logger
 import           Text.Blaze.Html5                    (Html)
 
@@ -65,6 +68,12 @@ instance ToByteString NoStore where
 data NoCache = NoCache
 instance ToByteString NoCache where
     builder _ = "no-cache"
+
+-- | Temporary instance to create links with headers pending
+--   servant 0.4.3/0.5
+instance HasLink sub => HasLink (Header sym a :> sub) where
+    type MkLink (Header sym a :> sub) = MkLink sub
+    toLink _ = toLink (Proxy :: Proxy sub)
 
 type TokenEndpoint
     = "token"
@@ -432,7 +441,8 @@ serverRevokeToken
     -> m Html
 serverRevokeToken pool u _ t = do
     liftIO $ storeRevokeToken pool u t
-    throwError err302{errHeaders = [(hLocation, "/tokens")]}     --Redirect to tokens page
+    let link = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy ListTokens) (Page 1)
+    throwError err302{errHeaders = [(hLocation, B.pack $ show link)]} --Redirect to tokens page
 
 serverCreateToken
     :: ( MonadIO m
@@ -447,7 +457,8 @@ serverCreateToken
 serverCreateToken pool user_id userScope reqScope = do
     if compatibleScope reqScope userScope then do
         TokenID t <- liftIO $ storeCreateToken pool user_id reqScope
-        throwError err302{errHeaders = [(hLocation, "/tokens?token_id=" <> U.toASCIIBytes t)]} --Redirect to tokens page
+        let link = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy DisplayToken) (TokenID t)
+        throwError err302{errHeaders = [(hLocation, B.pack $ show link)]} --Redirect to tokens page
     else throwError err403{errBody = "Invalid requested token scope"}
 
 

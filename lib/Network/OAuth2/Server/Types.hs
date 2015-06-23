@@ -160,6 +160,9 @@ instance FromText TokenID where
                   (U.fromASCIIBytes $ T.encodeUtf8 t)
               <|> (U.fromString     $ T.unpack     t)
 
+instance ToText TokenID where
+    toText = T.decodeUtf8 . U.toASCIIBytes . unTokenID
+
 instance ToField TokenID where
     toField = toField . unTokenID
 
@@ -175,7 +178,7 @@ instance FromField Token where
 --
 -- Pages are things that are counted, so 'Page' starts at 1.
 newtype Page = Page { unpackPage :: Int }
-  deriving (Eq, Ord, Show, FromText)
+  deriving (Eq, Ord, Show, FromText, ToText)
 
 -- | Configuration options for the server.
 data ServerOptions = ServerOptions
@@ -867,6 +870,9 @@ instance FromJSON OAuth2Error where
 
 instance FromText Scope where
     fromText = bsToScope . T.encodeUtf8
+
+instance ToText Scope where
+    toText = T.decodeUtf8 . scopeToBs
 
 -- * Database Instances
 
