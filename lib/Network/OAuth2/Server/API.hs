@@ -295,7 +295,7 @@ authorizeEndpoint pool user_id permissions rt c_id' redirect sc' st = do
     case redirect of
         Nothing -> return ()
         Just redirect'
-            | redirect' == clientRedirectURI client -> return ()
+            | redirect' `elem` clientRedirectURI client -> return ()
             | otherwise -> error $ show redirect' <> " /= " <> show (clientRedirectURI client)
 
     request_code <- liftIO $ storeCreateCode pool user_id client sc st
@@ -537,29 +537,49 @@ checkCredentials ref auth req = do
     -- Verify scope and request token.
     --
     checkRefreshToken :: ClientID -> Token -> Maybe Scope -> m (Maybe ClientID, Scope)
-    checkRefreshToken _ _ Nothing = throwError $ OAuth2Error InvalidRequest
-                                                             (preview errorDescription "No scope supplied.")
-                                                             Nothing
-    checkRefreshToken client_id tok (Just request_scope) = do
-        details <- liftIO $ storeLoadToken ref tok
-        case details of
-            Nothing -> do
-                liftIO . debugM logName $ "Got passed invalid token " <> show tok
-                throwError $ OAuth2Error InvalidRequest
-                             (preview errorDescription "Invalid token")
-                              Nothing
-            Just details' -> do
-                unless (compatibleScope request_scope (tokenDetailsScope details')) $ do
-                    liftIO . debugM logName $
-                        "Incompatible scopes " <>
-                        show request_scope <>
-                        " and " <>
-                        show (tokenDetailsScope details') <>
-                        ", refusing to verify"
-                    throwError $ OAuth2Error InvalidScope
-                                             (preview errorDescription "Invalid scope")
+    checkRefreshToken client_id tok scope' = do
+            details <- liftIO $ storeLoadToken ref tok
+            case (details, scope') of
+                -- The old token is dead.
+                (Nothing, _) -> do
+                    liftIO $ debugM logName $ "Got passed invalid token " <> show tok
+                    throwError $ OAuth2Error InvalidRequest
+                                             (preview errorDescription "Invalid token")
                                              Nothing
-                return (Just client_id, request_scope)
+                (Just details', Nothing) -> do
+                    -- Check the ClientIDs match.
+                    -- @TODO(thsutton): Remove duplication with below.
+                    when (Just client_id /= tokenDetailsClientID details') $ do
+                        liftIO . errorM logName $ "Refresh requested with "
+                            <> "different ClientID: " <> show client_id <> " =/= "
+                            <> show (tokenDetailsClientID details') <> " for "
+                            <> show tok
+                        throwError $ OAuth2Error InvalidClient
+                                                 (preview errorDescription "Mismatching clientID")
+                                                 Nothing
+                    return (Just client_id, tokenDetailsScope details')
+                (Just details', Just request_scope) -> do
+                    -- Check the ClientIDs match.
+                    -- @TODO(thsutton): Remove duplication with above.
+                    when (Just client_id /= tokenDetailsClientID details') $ do
+                        liftIO . errorM logName $ "Refresh requested with "
+                            <> "different ClientID: " <> show client_id <> " =/= "
+                            <> show (tokenDetailsClientID details') <> " for "
+                            <> show tok
+                        throwError $ OAuth2Error InvalidClient
+                                                 (preview errorDescription "Mismatching clientID")
+                                                 Nothing
+                    -- Check scope compatible.
+                    -- @TODO(thsutton): The concern with scopes should probably
+                    -- be completely removed here.
+                    unless (compatibleScope request_scope (tokenDetailsScope details')) $ do
+                        liftIO . debugM logName $ "Refresh requested with incompatible " <>
+                            "scopes: " <> show request_scope <> " vs " <>
+                            show (tokenDetailsScope details')
+                        throwError $ OAuth2Error InvalidScope
+                                                 (preview errorDescription "Incompatible scope")
+                                                 Nothing
+                    return (Just client_id, request_scope)
 
 -- | Given an AuthHeader sent by a client, verify that it authenticates.
 --   If it does, return the authenticated ClientID; otherwise, Nothing.
