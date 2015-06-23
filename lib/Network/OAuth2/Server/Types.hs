@@ -542,21 +542,21 @@ instance FromFormUrlEncoded (Either OAuth2Error AccessRequest) where
                 c <- lookupEither "code" xs
                 requestCode <- case T.encodeUtf8 c ^? code of
                     Nothing -> Left $ OAuth2Error InvalidRequest
-                                                  (preview errorDescription . BC.pack $ "invalid code " <> show c)
+                                                  (preview errorDescription $ "invalid code " <> T.encodeUtf8 c)
                                                   Nothing
                     Just x -> Right x
                 requestRedirectURI <- case lookup "redirect_uri" xs of
                     Nothing -> return Nothing
                     Just r -> case fromText r of
                         Nothing -> Left $ OAuth2Error InvalidRequest
-                                                      (preview errorDescription . BC.pack $ "Error decoding redirect_uri: " <> T.unpack r)
+                                                      (preview errorDescription $ "Error decoding redirect_uri: " <> T.encodeUtf8 r)
                                                       Nothing
                         Just x -> return $ Just x
                 requestClientID <- case lookup "client_id" xs of
                     Nothing -> return Nothing
                     Just cid -> case T.encodeUtf8 cid ^? clientID of
                         Nothing -> Left $ OAuth2Error InvalidRequest
-                                                      (preview errorDescription . BC.pack $ "invalid client_id " <> show cid)
+                                                      (preview errorDescription $ "invalid client_id " <> T.encodeUtf8 cid)
                                                       Nothing
                         Just x -> return $ Just x
                 return $ RequestAuthorizationCode{..}
@@ -564,20 +564,20 @@ instance FromFormUrlEncoded (Either OAuth2Error AccessRequest) where
                 u <- lookupEither "username" xs
                 requestUsername <- case u ^? username of
                     Nothing -> Left $ OAuth2Error InvalidRequest
-                                                      (preview errorDescription . BC.pack $ "invalid username " <> show u)
+                                                      (preview errorDescription $ "invalid username " <> T.encodeUtf8 u)
                                                       Nothing
                     Just x -> return $ x
                 p <- lookupEither "password" xs
                 requestPassword <- case p ^? password of
                     Nothing -> Left $ OAuth2Error InvalidRequest
-                                                      (preview errorDescription . BC.pack $ "invalid password")
+                                                      (preview errorDescription $ "invalid password")
                                                       Nothing
                     Just x -> return $ x
                 requestScope <- case lookup "scope" xs of
                     Nothing -> return Nothing
                     Just x -> case bsToScope $ T.encodeUtf8 x of
                         Nothing -> Left $ OAuth2Error InvalidRequest
-                                                      (preview errorDescription . BC.pack $ "invalid scope " <> show x)
+                                                      (preview errorDescription $ "invalid scope " <> T.encodeUtf8 x)
                                                       Nothing
                         Just x' -> return $ Just x'
                 return $ RequestPassword{..}
@@ -586,7 +586,7 @@ instance FromFormUrlEncoded (Either OAuth2Error AccessRequest) where
                     Nothing -> return Nothing
                     Just x -> case bsToScope $ T.encodeUtf8 x of
                         Nothing -> Left $ OAuth2Error InvalidRequest
-                                                      (preview errorDescription . BC.pack $ "invalid scope " <> show x)
+                                                      (preview errorDescription $ "invalid scope " <> T.encodeUtf8 x)
                                                       Nothing
                         Just x' -> return $ Just x'
                 return $ RequestClientCredentials{..}
@@ -595,25 +595,25 @@ instance FromFormUrlEncoded (Either OAuth2Error AccessRequest) where
                 requestRefreshToken <-
                     case T.encodeUtf8 refresh_token ^? token of
                         Nothing -> Left $ OAuth2Error InvalidRequest
-                                                      (preview errorDescription . BC.pack $ "invalid refresh_token " <> show refresh_token)
+                                                      (preview errorDescription $ "invalid refresh_token " <> T.encodeUtf8 refresh_token)
                                                       Nothing
                         Just x  -> return x
                 requestScope <- case lookup "scope" xs of
                     Nothing -> return Nothing
                     Just x -> case bsToScope $ T.encodeUtf8 x of
                         Nothing -> Left $ OAuth2Error InvalidRequest
-                                                      (preview errorDescription . BC.pack $ "invalid scope " <> show x)
+                                                      (preview errorDescription $ "invalid scope " <> T.encodeUtf8 x)
                                                       Nothing
                         Just x' -> return $ Just x'
                 return $ RequestRefreshToken{..}
             x -> Left $ OAuth2Error InvalidRequest
-                                    (preview errorDescription . BC.pack $ "unsupported grant_type " <> show x)
+                                    (preview errorDescription $ "unsupported grant_type " <> T.encodeUtf8 x)
                                     Nothing
 
-lookupEither :: (Eq a, Show a) => a -> [(a,b)] -> Either OAuth2Error b
+lookupEither :: Text -> [(Text,b)] -> Either OAuth2Error b
 lookupEither v vs = case lookup v vs of
     Nothing -> Left $ OAuth2Error InvalidRequest
-                                  (preview errorDescription . BC.pack $ "missing required key " <> show v)
+                                  (preview errorDescription $ "missing required key " <> T.encodeUtf8 v)
                                   Nothing
     Just x -> Right x
 
