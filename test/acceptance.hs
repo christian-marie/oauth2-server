@@ -5,6 +5,7 @@ module Main where
 import           Control.Applicative
 import           Control.Exception
 import           Control.Lens
+import           Control.Monad
 import           Control.Monad.Error.Class
 import           Control.Monad.IO.Class
 import           Control.Monad.Trans.Except
@@ -13,6 +14,7 @@ import           Data.ByteString.Char8       (ByteString)
 import qualified Data.ByteString.Char8       as BC
 import qualified Data.ByteString.Lazy        as BSL
 import           Data.Either
+import           Data.Function
 import           Data.Maybe
 import           Data.Monoid
 import qualified Data.Text.Encoding          as T
@@ -25,6 +27,7 @@ import           Test.Hspec
 
 import           Network.OAuth2.Server       hiding (refreshToken)
 import           Network.OAuth2.Server.Types hiding (refreshToken)
+import qualified Network.OAuth2.Server.Types as OAuth2
 
 type URI = String
 
@@ -55,8 +58,23 @@ tests base_uri = do
             t2 <- either (\_ -> fail "Couldn't verify new token.")
                          (return) t2'
 
-            -- Compare them.
-            t2 `shouldBe` t1
+            -- If we got a new refresh token, the old one should be revoked.
+            when (isJust $ OAuth2.refreshToken t2) $ do
+                    r1 <- verifyToken base_uri client1 (snd tokenVV)
+                    r1 `shouldBe` Left "404 Not Found - This is not a valid token."
+
+            -- The original bearer token should now be revoked.
+            t1'' <- verifyToken base_uri client1 (fst tokenVV)
+            t1'' `shouldBe` Left "404 Not Found - This is not a valid token."
+
+            -- Compare them in all the respects which should be identical.
+            (shouldBe `on` tokenType) t1 t2
+            -- (shouldBe `on` accessToken) t1 t2
+            -- (shouldBe `on` refreshToken) t1 t2
+            -- (shouldBe `on` tokenExpiresIn) t1 t2
+            (shouldBe `on` tokenUsername) t1 t2
+            (shouldBe `on` tokenClientID) t1 t2
+            (shouldBe `on` tokenScope) t1 t2
 
         it "revokes the existing token when it is refreshed"
             pending
