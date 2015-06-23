@@ -58,6 +58,7 @@ module Network.OAuth2.Server.Types (
   tokenDetails,
   unicodecharnocrlf,
   UserID,
+  userid,
   Username,
   username,
   vschar,
@@ -144,6 +145,9 @@ newtype UserID = UserID
 instance ToField UserID where
     toField = toField . unpackUserID
 
+userid :: Prism' ByteString UserID
+userid = prism' (T.encodeUtf8 . unpackUserID) (Just . UserID . T.decodeUtf8)
+
 newtype TokenID = TokenID { unTokenID :: Text }
     deriving (Eq, Show, Ord, ToValue, FromText)
 
@@ -196,7 +200,7 @@ data ClientDetails = ClientDetails
     { clientClientId     :: ClientID
     , clientSecret       :: EncryptedPass
     , clientConfidential :: Bool
-    , clientRedirectURI  :: RedirectURI
+    , clientRedirectURI  :: [RedirectURI]
     , clientName         :: Text
     , clientDescription  :: Text
     , clientAppUrl       :: URI
@@ -920,7 +924,7 @@ instance ToRow TokenGrant where
         , ex
         , review username <$> uid
         , review clientID <$> cid
-        , scopeToBs sc
+        , sc
         )
 
 instance FromRow TokenDetails where
@@ -935,8 +939,8 @@ instance FromField RedirectURI where
     fromField f bs = do
         x <- fromField f bs
         case x ^? redirectURI of
-            Nothing -> returnError ConversionFailed f ""
-            Just uri -> return uri
+            Nothing -> returnError ConversionFailed f $ "Prism failed to conver URI: " <> show x
+            Just uris -> return uris
 
 instance ToField RedirectURI where
     toField = toField . review redirectURI
@@ -952,7 +956,7 @@ instance FromRow ClientDetails where
     fromRow = ClientDetails <$> field
                             <*> (EncryptedPass <$> field)
                             <*> field
-                            <*> field
+                            <*> (V.toList <$> field)
                             <*> field
                             <*> field
                             <*> fieldWith fromFieldURI
