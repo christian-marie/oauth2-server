@@ -22,11 +22,11 @@
 {-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE TypeOperators       #-}
 
--- | Anchor specific OAuth2 implementation.
+-- | OAuth2 API implementation.
 --
 -- This implementation assumes the use of Shibboleth, which doesn't actually
 -- mean anything all that specific. This just means that we expect a particular
--- header that says who the user is.
+-- header that says who the user is and what permissions they have to delegate.
 --
 -- The intention is to seperate all OAuth2 specific logic from our particular
 -- way of handling AAA.
@@ -98,6 +98,8 @@ instance ToByteString NoStore where
     builder _ = "no-store"
 
 -- | Same as Cache-Control: no-cache, we use Pragma for compatibilty.
+--
+-- http://tools.ietf.org/html/rfc2616#section-14.32
 data NoCache = NoCache
 instance ToByteString NoCache where
     builder _ = "no-cache"
@@ -109,6 +111,16 @@ instance HasLink sub => HasLink (Header sym a :> sub) where
     toLink _ = toLink (Proxy :: Proxy sub)
 
 -- | Request a token, basically AccessRequest -> AccessResponse with noise.
+--
+-- The response headers are mentioned here:
+--
+-- https://tools.ietf.org/html/rfc6749#section-5.1
+--
+--    The authorization server MUST include the HTTP "Cache-Control" response
+--    header field [RFC2616] with a value of "no-store" in any response
+--    containing tokens, credentials, or other sensitive information, as well
+--    as the "Pragma" response header field [RFC2616] with a value of
+--    "no-cache".
 type TokenEndpoint
     = "token"
     :> Header "Authorization" AuthHeader
@@ -137,7 +149,7 @@ tokenEndpoint conf auth (Right req) = do
         Right response -> do
             return $ addHeader NoStore $ addHeader NoCache $ response
 
--- Check that the request is valid, if it is, provide an 'AccessResponse',
+-- | Check that the request is valid, if it is, provide an 'AccessResponse',
 -- otherwise we return an 'OAuth2Error'.
 --
 -- Any IO exception that are thrown are probably catastrophic and unaccounted
