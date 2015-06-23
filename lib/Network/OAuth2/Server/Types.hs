@@ -200,7 +200,7 @@ data ClientDetails = ClientDetails
     { clientClientId     :: ClientID
     , clientSecret       :: EncryptedPass
     , clientConfidential :: Bool
-    , clientRedirectURI  :: RedirectURI
+    , clientRedirectURI  :: [RedirectURI]
     , clientName         :: Text
     , clientDescription  :: Text
     , clientAppUrl       :: URI
@@ -939,8 +939,8 @@ instance FromField RedirectURI where
     fromField f bs = do
         x <- fromField f bs
         case x ^? redirectURI of
-            Nothing -> returnError ConversionFailed f ""
-            Just uri -> return uri
+            Nothing -> returnError ConversionFailed f $ "Prism failed to conver URI: " <> show x
+            Just uris -> return uris
 
 instance ToField RedirectURI where
     toField = toField . review redirectURI
@@ -956,7 +956,7 @@ instance FromRow ClientDetails where
     fromRow = ClientDetails <$> field
                             <*> (EncryptedPass <$> field)
                             <*> field
-                            <*> field
+                            <*> (V.toList <$> field)
                             <*> field
                             <*> field
                             <*> fieldWith fromFieldURI

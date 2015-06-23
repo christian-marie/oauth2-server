@@ -117,7 +117,8 @@ class TokenStore ref where
 instance TokenStore (Pool Connection) where
     storeLookupClient pool client_id = do
         withResource pool $ \conn -> do
-            res <- query conn "SELECT (client_id, client_secret, confidential, redirect_url, name, description, app_url) FROM clients WHERE (client_id = ?)" (Only client_id)
+            debugM logName $ "Attempting storeLookupClient with " <> show client_id
+            res <- query conn "SELECT client_id, client_secret, confidential, redirect_url, name, description, app_url FROM clients WHERE (client_id = ?)" (Only client_id)
             return $ case res of
                 [] -> Nothing
                 [client] -> Just client
@@ -125,18 +126,22 @@ instance TokenStore (Pool Connection) where
 
     storeCreateCode pool user_id ClientDetails{..} sc requestCodeState = do
         withResource pool $ \conn -> do
-            [(requestCodeCode, requestCodeExpires)] <-
+            [(requestCodeCode, requestCodeExpires)] <- do
+                debugM logName $ "Attempting storeCreateCode with " <> show sc
                 query conn
                       "INSERT INTO request_codes (client_id, user_id, redirect_url, scope, state) VALUES (?,?,?,?) RETURNING code, expires"
-                      (clientClientId, user_id, clientRedirectURI, sc, requestCodeState)
+                      -- @TODO(thsutton): Note the head, we should really pass in completed objects. :-(
+                      (clientClientId, user_id, head clientRedirectURI, sc, requestCodeState)
             let requestCodeClientID = clientClientId
                 requestCodeScope = Just sc
                 requestCodeAuthorized = False
-                requestCodeRedirectURI = clientRedirectURI
+                -- @TODO(thsutton): this is a lie; this is another concern that should be factored out of the store.
+                requestCodeRedirectURI = head clientRedirectURI
             return RequestCode{..}
 
     storeActivateCode pool code' user_id = do
         withResource pool $ \conn -> do
+            debugM logName $ "Attempting storeActivateCode"
             res <- query conn "UPDATE request_codes SET authorized = TRUE WHERE code = ? AND user_id = ? RETURNING redirect_url" (code', user_id)
             case res of
                 [] -> return Nothing
@@ -146,7 +151,8 @@ instance TokenStore (Pool Connection) where
                     error "Consistency error: multiple redirect URLs found"
 
     storeLoadCode ref request_code = do
-        codes :: [RequestCode] <- withResource ref $ \conn ->
+        codes :: [RequestCode] <- withResource ref $ \conn -> do
+            debugM logName $ "Attempting storeLoadCode"
             query conn "SELECT code, expires, client_id, redirect_url, scope, state FROM request_codes WHERE (code = ?)"
                        (Only request_code)
         return $ case codes of
@@ -157,6 +163,7 @@ instance TokenStore (Pool Connection) where
     storeSaveToken pool grant = do
         debugM logName $ "Saving new token: " <> show grant
         res :: [TokenDetails] <- withResource pool $ \conn -> do
+            debugM logName $ "Attempting storeSaveToken"
             query conn "INSERT INTO tokens (token_type, expires, user_id, client_id, scope, token, created) VALUES (?,?,?,?,?,uuid_generate_v4(), NOW()) RETURNING token_type, token, expires, user_id, client_id, scope" grant
         case res of
             [tok] -> return tok
