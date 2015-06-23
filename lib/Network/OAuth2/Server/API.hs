@@ -327,49 +327,73 @@ handleShib
 handleShib f (Just u) (Just s) = f u s
 handleShib _ _        _        = error "Expected Shibbloleth headers"
 
--- | Receive requests from clients and display the authorization user interface
+-- | Implement the OAuth2 authorize endpoint.
 --
--- TODO: Handle the validation of things more nicely here, preferably shifting
--- them out of here entirely.
+--   This handler must be protected by Shibboleth (or other mechanism in the
+--   front-end proxy). It decodes the client request and presents a UI allowing
+--   the user to approve or reject a grant request.
+--
+--   TODO: Handle the validation of things more nicely here, preferably
+--   shifting them out of here entirely.
+--
+--   http://tools.ietf.org/html/rfc6749#section-3.1
+
 authorizeEndpoint
     :: ( MonadIO m
        , MonadBaseControl IO m
        , MonadError ServantErr m
        )
     => Pool Connection
-    -> UserID
-    -> Scope
-    -> Maybe ResponseTypeCode
-    -> Maybe ClientID
-    -> Maybe RedirectURI
-    -> Maybe Scope
-    -> Maybe ClientState
+    -> UserID -- ^ Authenticated user
+    -> Scope  -- ^ Authenticated permissions
+    -> Maybe ResponseTypeCode -- ^ Requested response type.
+    -> Maybe ClientID         -- ^ Requesting Client ID.
+    -> Maybe RedirectURI      -- ^ Requested redirect URI.
+    -> Maybe Scope            -- ^ Requested scope.
+    -> Maybe ClientState      -- ^ State from requesting client.
     -> m Html
-authorizeEndpoint pool user_id permissions rt c_id' redirect sc' st = do
-    case rt of
+authorizeEndpoint pool user_id user_perms resp_type' cid' redirect scope' state' = do
+    -- Required: a supported ResponseTypeCode value.
+    response_type <- case resp_type' of
+        Just ResponseTypeCode -> return ResponseTypeCode
+        Just _ -> error "Response type is not supported"
+                  -- Return UnsupportedResponseType error.
         Nothing -> error "Response type code is missing"
-        Just ResponseTypeCode -> return ()
-    sc <- case sc' of
-        Nothing -> error "Scope is missing"
-        Just sc -> if sc `compatibleScope` permissions then return sc else error "NOOOOO"
-    c_id <- case c_id' of
+                   -- Return InvalidRequest error.
+
+    -- Required: a ClientID value, which identified a client.
+    client' <- case cid' of
         Nothing -> error "ClientID is missing"
-        Just c_id -> return c_id
-    res <- liftIO $ storeLookupClient pool c_id
-    ClientDetails{..} <- case res of
-        Nothing -> error $ "no client found with id" <> show c_id
+                   -- Return InvalidResponse error.
+        Just c_id -> liftIO $ storeLookupClient pool c_id
+    client <- case client' of
         Just x -> return x
+        Nothing -> error $ "no client found with id" <> show cid'
+                   -- Return UnauthorizedClient error.
 
+    -- Optional: requested redirect URI.
     -- https://tools.ietf.org/html/rfc6749#section-3.1.2.3
-    redirect' <- case redirect of
-        Nothing -> case clientRedirectURI of
-            [redirect'] -> return redirect'
-            _ -> error $ "No redirect_uri providid and no unique default registered for client " <> show clientClientId
+    -- @TODO(thsutton): Let's document our lack of support for RFC3986
+    redirect_uri <- case redirect of
+        Nothing -> return (head $ clientRedirectURI client)
         Just redirect'
-            | redirect' `elem` clientRedirectURI -> return redirect'
-            | otherwise -> error $ show redirect' <> " /= " <> show clientRedirectURI
+            | redirect' `elem` (clientRedirectURI client) -> return redirect'
+            | otherwise -> error $ show redirect' <> " /= " <> show (clientRedirectURI client)
+                           -- Return InvalidRequest error.
 
-    request_code <- liftIO $ storeCreateCode pool user_id clientClientId redirect' sc st
+    -- Optional (but we currently require): requested scope.
+    scope <- case scope' of
+        Just sc
+            | sc `compatibleScope` user_perms -> return sc
+            | otherwise -> error "Requested permissions user doesn't have"
+                        -- Return InvalidScope error
+        Nothing -> error "No Scope supplied by client."
+                   -- Return InvalidScope error.
+
+    -- Create a code for this request.
+    request_code <- liftIO $ storeCreateCode pool user_id client scope state'
+
+    -- @TODO(thsutton): Redirect the user to the reivew page.
     return $ renderAuthorizePage request_code
 
 -- | Handle the approval or rejection, we get here from the page served in

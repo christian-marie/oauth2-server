@@ -23,6 +23,7 @@ module Network.OAuth2.Server.Types (
   AccessRequest(..),
   AccessResponse(..),
   addQueryParameters,
+  OAuth2Error(..),
   AuthHeader(..),
   bsToScope,
   ClientDetails(..),
@@ -44,7 +45,6 @@ module Network.OAuth2.Server.Types (
   HTTPAuthChallenge(..),
   nqchar,
   nqschar,
-  OAuth2Error(..),
   Page(..),
   Password,
   password,
@@ -428,15 +428,17 @@ instance FromText ClientID where
 --
 -- http://tools.ietf.org/html/rfc6749#section-3.1.1
 data ResponseTypeCode
-    = ResponseTypeCode   -- ^ Client requests a code.
-    | ResponseTypeToken  -- ^ Client requests a token.
-    -- @TODO(thsutton): Support extension types as described at link above.
+    = ResponseTypeCode           -- ^ Client requests a code.
+    | ResponseTypeToken          -- ^ Client requests a token.
+    -- @TODO(thsutton): This should probably be Set Text.
+    | ResponseTypeExtension Text -- ^ Client requests an extension type.
   deriving (Eq, Show)
 
 instance FromText ResponseTypeCode where
     fromText "code"  = Just ResponseTypeCode
     fromText "token" = Just ResponseTypeToken
-    fromText _       = Nothing
+    -- @TODO(thsutton): This should probably be Set Text.
+    fromText txt     = Just (ResponseTypeExtension txt)
 
 newtype Code = Code { unCode :: ByteString }
     deriving (Eq, Typeable)
@@ -485,6 +487,10 @@ instance FromJSON ClientState where
 instance FromText ClientState where
     fromText t = T.encodeUtf8 t ^? clientState
 
+-- | Details of an authorization request.
+--
+--   These details are retained in the database while the user reviews them. If
+--   approved, they will be used when issuing a token.
 data RequestCode = RequestCode
     { requestCodeCode        :: Code
     , requestCodeAuthorized  :: Bool
@@ -808,13 +814,27 @@ data OAuth2Error = OAuth2Error
     }
   deriving (Eq, Show, Typeable)
 
+-- | OAuth2 error codes.
+--
+--   These codes are defined in the OAuth2 RFC and returned to clients.
+--
+--   http://tools.ietf.org/html/rfc6749#section-4.1.2.1
+--   http://tools.ietf.org/html/rfc6749#section-4.2.2.1
+--   http://tools.ietf.org/html/rfc6749#section-5.2
 data ErrorCode
-    = InvalidClient
-    | InvalidGrant
-    | InvalidRequest
-    | InvalidScope
-    | UnauthorizedClient
-    | UnsupportedGrantType
+    -- http://tools.ietf.org/html/rfc6749#section-4.1.2.1
+    = InvalidRequest     -- ^ Missing or invalid params.
+    | UnauthorizedClient -- ^ Client not authorized to make request.
+    | AccessDenied       -- ^ User said denied a request.
+    | UnsupportedResponseType -- ^ Response type not supported by server.
+    | InvalidScope           -- ^ Invalid, etc. scope.
+    | ServerError            -- ^ HTTP 500, but in JSON.
+    | TemporarilyUnavailable -- ^ HTTP 503, but in JSON.
+
+    -- http://tools.ietf.org/html/rfc6749#section-5.2
+    | InvalidClient          -- ^ Client ID does not identify a client.
+    | InvalidGrant           -- ^ Supplied token, code, etc. not valid.
+    | UnsupportedGrantType   -- ^ Grant type not supported by server.
   deriving (Eq, Show, Typeable)
 
 -- | Get the OAuth2 error code for an error case.
@@ -823,21 +843,29 @@ errorCode = prism' fromErrorCode toErrorCode
   where
     fromErrorCode :: ErrorCode -> ByteString
     fromErrorCode e = case e of
+        AccessDenied -> "access_denied"
         InvalidClient -> "invalid_client"
         InvalidGrant -> "invalid_grant"
         InvalidRequest -> "invalid_request"
         InvalidScope -> "invalid_scope"
+        ServerError -> "server_error"
+        TemporarilyUnavailable -> "temporarily_unavailable"
         UnauthorizedClient -> "unauthorized_client"
         UnsupportedGrantType -> "unsupported_grant_type"
+        UnsupportedResponseType -> "unsupported_response_type"
 
     toErrorCode :: ByteString -> Maybe ErrorCode
     toErrorCode err_code = case err_code of
+        "access_denied"  -> pure AccessDenied
         "invalid_client" -> pure InvalidClient
         "invalid_grant" -> pure InvalidGrant
         "invalid_request" -> pure InvalidRequest
         "invalid_scope" -> pure InvalidScope
+        "server_error" -> pure ServerError
+        "temporarily_unavailable" -> pure TemporarilyUnavailable
         "unauthorized_client" -> pure UnauthorizedClient
         "unsupported_grant_type" -> pure UnsupportedGrantType
+        "unsupported_response_type" -> pure UnsupportedResponseType
         _ -> fail $ show err_code <> " is not a valid error code."
 
 instance ToJSON ErrorCode where
@@ -849,6 +877,10 @@ instance FromJSON ErrorCode where
             Nothing -> fail $ T.unpack t <> " is not a valid URI."
             Just s -> return s
 
+-- | Redirect URIs as used in the OAuth2 RFC.
+--
+-- @TODO(thsutton): The RFC requires that they be absolute and also not include
+-- fragments, we should probably enforce that.
 newtype RedirectURI = RedirectURI { unRedirectURI :: URI }
   deriving (Eq, Show, Typeable)
 

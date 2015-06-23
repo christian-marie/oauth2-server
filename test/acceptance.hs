@@ -106,13 +106,14 @@ tests base_uri = do
 
     describe "authorize endpoint" $ do
         let Just a_scope = bsToScope "login missiles:launch"
+        let code_request = (const a_scope <$> client1)
 
         it "returns an error when Shibboleth authentication headers are missing" $ do
-            resp <- runExceptT $ getAuthorizePage base_uri Nothing (const a_scope <$> client1)
+            resp <- runExceptT $ getAuthorizePage base_uri Nothing code_request
             resp `shouldBe` Left "500 Internal Server Error - Something went wrong"
 
         it "displays the details of the token to be approved" $ do
-            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) (const a_scope <$> client1)
+            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) code_request
             resp `shouldSatisfy` isRight
 
             let Right page = resp
@@ -122,7 +123,7 @@ tests base_uri = do
             page `shouldSatisfy` ("login" `BC.isInfixOf`)
 
         it "includes an identifier for the code request" $ do
-            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) (const a_scope <$> client1)
+            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) code_request
             resp `shouldSatisfy` isRight
             let Right page = resp
 
@@ -131,7 +132,7 @@ tests base_uri = do
 
         it "the POST returns an error when Shibboleth authentication headers are missing" $ do
             -- 1. Get the page.
-            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) (const a_scope <$> client1)
+            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) code_request
             resp `shouldSatisfy` isRight
             -- 2. Extract the code.
             let Right page = resp
@@ -142,7 +143,7 @@ tests base_uri = do
 
         it "the POST returns an error when the request ID is missing" $ do
             -- 1. Get the page.
-            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) (const a_scope <$> client1)
+            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) code_request
             resp `shouldSatisfy` isRight
             -- 2. Extract the code.
             let Right page = resp
