@@ -7,18 +7,14 @@
 -- the 3-clause BSD licence.
 --
 
+{-# LANGUAGE ConstraintKinds     #-}
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE FlexibleInstances   #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeFamilies        #-}
-{-# LANGUAGE DataKinds           #-}
-{-# LANGUAGE FlexibleContexts    #-}
-{-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE TypeOperators       #-}
 
@@ -47,13 +43,13 @@ import           Control.Monad.Trans.Control
 import           Control.Monad.Trans.Except          (ExceptT, runExceptT)
 import           Crypto.Scrypt
 import           Data.Aeson                          (encode)
+import qualified Data.ByteString.Char8               as B
 import           Data.ByteString.Conversion          (ToByteString (..))
 import           Data.Either
 import           Data.Maybe
 import           Data.Monoid
 import           Data.Pool
 import           Data.Proxy
-import qualified Data.ByteString.Char8               as B
 import qualified Data.Set                            as S
 import qualified Data.Text                           as T
 import qualified Data.Text.Encoding                  as T
@@ -74,8 +70,7 @@ import           Servant.API                         ((:<|>) (..), (:>),
 import           Servant.HTML.Blaze
 import           Servant.Server                      (ServantErr (errBody, errHeaders),
                                                       Server, err302, err400,
-                                                      err401, err403, err404,
-                                                      err500)
+                                                      err401, err403, err404)
 import           Servant.Utils.Links
 import           System.Log.Logger
 import           Text.Blaze.Html5                    (Html)
