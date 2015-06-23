@@ -38,7 +38,7 @@ module Network.OAuth2.Server.Types (
   errorCode,
   ErrorDescription,
   errorDescription,
-  ResponseTypeCode(..),
+  ResponseType(..),
   GrantEvent(..),
   grantResponse,
   HTTPAuthRealm(..),
@@ -427,14 +427,14 @@ instance FromText ClientID where
 -- | Response type requested by client when using the authorize endpoint.
 --
 -- http://tools.ietf.org/html/rfc6749#section-3.1.1
-data ResponseTypeCode
-    = ResponseTypeCode           -- ^ Client requests a code.
-    | ResponseTypeToken          -- ^ Client requests a token.
+data ResponseType
+    = ResponseTypeCode   -- ^ Client requests a code.
+    | ResponseTypeToken  -- ^ Client requests a token.
     -- @TODO(thsutton): This should probably be Set Text.
     | ResponseTypeExtension Text -- ^ Client requests an extension type.
   deriving (Eq, Show)
 
-instance FromText ResponseTypeCode where
+instance FromText ResponseType where
     fromText "code"  = Just ResponseTypeCode
     fromText "token" = Just ResponseTypeToken
     -- @TODO(thsutton): This should probably be Set Text.

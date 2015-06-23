@@ -14,6 +14,7 @@
 module Network.OAuth2.Server.Statistics where
 
 import           Control.Applicative
+import           Control.Exception
 import           Control.Monad
 import           Control.Monad.STM
 import qualified Data.HashMap.Strict         as HM
@@ -97,17 +98,22 @@ gatherStats GrantCounters{..} conn =
   where
     gather :: Query -> IO Int64
     gather q = do
-        res <- query_ conn q
+        res <- try $ query_ conn q
         case res of
-            [Only c] -> return c
-            x   -> do
+            Left e -> do
+                criticalM statsLogName $ "gatherStats: error executing query "
+                                      <> show q <> " "
+                                      <> show (e :: SomeException)
+                throw e
+            Right [Only c] -> return c
+            Right x   -> do
                 warningM statsLogName $ "Expected singleton count from PGS, got: " <> show x <> " defaulting to 0"
                 return 0
     gatherClients           = gather "SELECT COUNT(*) FROM clients"
     gatherUsers             = gather "SELECT COUNT(DISTINCT user_id) FROM tokens"
     gatherStatTokensIssued  = gather "SELECT COUNT(*) FROM tokens"
-    gatherStatTokensExpired = gather "SELECT COUNT(*) FROM tokens WHERE expires NOT NULL AND expires <= NOW ()"
-    gatherStatTokensRevoked = gather "SELECT COUNT(*) FROM tokens WHERE revoked NOT NULL"
+    gatherStatTokensExpired = gather "SELECT COUNT(*) FROM tokens WHERE expires IS NOT NULL AND expires <= NOW ()"
+    gatherStatTokensRevoked = gather "SELECT COUNT(*) FROM tokens WHERE revoked IS NOT NULL"
 
 -- | Increment 'GrantCounter's as 'GrantEvent' come in.
 statsWatcher :: Input GrantEvent -> GrantCounters -> IO ()
