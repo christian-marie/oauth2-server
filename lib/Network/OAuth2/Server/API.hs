@@ -1,11 +1,29 @@
-{-# LANGUAGE DataKinds         #-}
-{-# LANGUAGE FlexibleContexts  #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RankNTypes        #-}
-{-# LANGUAGE TypeFamilies      #-}
-{-# LANGUAGE RecordWildCards   #-}
-{-# LANGUAGE TypeOperators     #-}
+--
+-- Copyright © 2013-2015 Anchor Systems, Pty Ltd and Others
+--
+-- The code in this file, and the program it is a part of, is
+-- made available to you by its authors as open source software:
+-- you can redistribute it and/or modify it under the terms of
+-- the 3-clause BSD licence.
+--
 
+{-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE RankNTypes          #-}
+{-# LANGUAGE RecordWildCards     #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies        #-}
+{-# LANGUAGE TypeOperators       #-}
+
+-- | Anchor specific OAuth2 implementation.
+--
+-- This implementation assumes the use of Shibboleth, which doesn't actually
+-- mean anything all that specific. This just means that we expect a particular
+-- header that says who the user is.
+--
+-- The intention is to seperate all OAuth2 specific logic from our particular
+-- way of handling AAA.
 module Network.OAuth2.Server.API (
     module X,
     server,
@@ -39,15 +57,18 @@ import           Database.PostgreSQL.Simple
 import           Network.HTTP.Types                  hiding (Header)
 import           Network.OAuth2.Server.Configuration as X
 import           Network.OAuth2.Server.Types         as X
-import           Servant.API                         ((:>), (:<|>)(..),
+import           Servant.API                         ((:<|>) (..), (:>),
                                                       AddHeader (addHeader),
-                                                      FormUrlEncoded, Header,
-                                                      Headers, JSON, Post, Get,
-                                                      ReqBody, FromFormUrlEncoded(..),
-                                                      FromText(..), QueryParam, OctetStream, Capture)
+                                                      Capture, FormUrlEncoded,
+                                                      FromFormUrlEncoded (..),
+                                                      FromText (..), Get,
+                                                      Header, Headers, JSON,
+                                                      OctetStream, Post,
+                                                      QueryParam, ReqBody)
 import           Servant.HTML.Blaze
 import           Servant.Server                      (ServantErr (errBody, errHeaders),
-                                                      Server, err302, err400, err401, err404, err403)
+                                                      Server, err302, err400,
+                                                      err401, err403, err404)
 import           System.Log.Logger
 import           Text.Blaze.Html5                    (Html)
 
@@ -57,26 +78,41 @@ import           Network.OAuth2.Server.UI
 logName :: String
 logName = "Anchor.Tokens.Server.API"
 
+
+-- TODO: Move this into some servant common package
+
+-- | http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.9.2
+--
+-- The purpose of the no-store directive is to prevent the inadvertent release
+-- or retention of sensitive information (for example, on backup tapes).
 data NoStore = NoStore
 instance ToByteString NoStore where
     builder _ = "no-store"
 
+-- | Same as Cache-Control: no-cache, we use Pragma for compatibilty.
 data NoCache = NoCache
 instance ToByteString NoCache where
     builder _ = "no-cache"
 
+-- | Request a token, basically AccessRequest -> AccessResponse with noise.
 type TokenEndpoint
     = "token"
     :> Header "Authorization" AuthHeader
     :> ReqBody '[FormUrlEncoded] (Either OAuth2Error AccessRequest)
+                                 -- ^ The Either here is a weird hack to be
+                                 -- able to handle parse failures explicitly.
     :> Post '[JSON] (Headers '[Header "Cache-Control" NoStore, Header "Pragma" NoCache] AccessResponse)
 
-throwOAuth2Error :: (MonadError ServantErr m) => OAuth2Error -> m a
+-- | Encode an 'OAuth2Error' and throw it to servant.
+--
+-- TODO: Fix the name/behaviour. Terrible name for something that 400s.
+throwOAuth2Error :: MonadError ServantErr m => OAuth2Error -> m a
 throwOAuth2Error e =
     throwError err400 { errBody = encode e
                       , errHeaders = [("Content-Type", "application/json")]
                       }
 
+-- | Handler for 'TokenEndpoint', basically a wrapper for 'processTokenRequest'
 tokenEndpoint :: Pool Connection -> Server TokenEndpoint
 tokenEndpoint _ _ (Left e) = throwOAuth2Error e
 tokenEndpoint conf auth (Right req) = do
@@ -87,12 +123,17 @@ tokenEndpoint conf auth (Right req) = do
         Right response -> do
             return $ addHeader NoStore $ addHeader NoCache $ response
 
+-- Check that the request is valid, if it is, provide an 'AccessResponse',
+-- otherwise we return an 'OAuth2Error'.
+--
+-- Any IO exception that are thrown are probably catastrophic and unaccounted
+-- for, and should not be caught.
 processTokenRequest
     :: TokenStore ref
-    => ref
-    -> UTCTime
-    -> Maybe AuthHeader
-    -> AccessRequest
+    => ref                                        -- ^ PG pool, ioref, etc.
+    -> UTCTime                                    -- ^ Time of request
+    -> Maybe AuthHeader                           -- ^ Who wants the token?
+    -> AccessRequest                              -- ^ What do they want?
     -> ExceptT OAuth2Error IO AccessResponse
 processTokenRequest ref t client_auth req = do
     -- TODO: Handle OAuth2Errors and not just liftIO here
@@ -127,12 +168,17 @@ processTokenRequest ref t client_auth req = do
     refresh_details <- liftIO $ storeSaveToken ref refresh_grant
     return $ grantResponse t access_details (Just $ tokenDetailsToken refresh_details)
 
+-- | Headers for Shibboleth, this tells us who the user is and what they're
+-- allowed to do.
 type OAuthUserHeader = "Identity-OAuthUser"
 type OAuthUserScopeHeader = "Identity-OAuthUserScopes"
 
+-- | The user may want to delete a token, or create a new one with a given
+-- scope.
 data TokenRequest = DeleteRequest
                   | CreateRequest Scope
 
+-- Decode something like: method=delete/create;scope=thing.
 instance FromFormUrlEncoded TokenRequest where
     fromFormUrlEncoded o = case lookup "method" o of
         Nothing -> Left "method field missing"
@@ -149,6 +195,7 @@ instance FromFormUrlEncoded TokenRequest where
                 es -> Left $ "invalid scopes: " <> show es
         Just x        -> Left . T.unpack $ "Invalid method field value, got: " <> x
 
+-- | The response_type param: REQUIRED.  Value MUST be set to "code".
 data ResponseTypeCode = ResponseTypeCode
 instance FromText ResponseTypeCode where
     fromText "code" = Just ResponseTypeCode
@@ -236,6 +283,7 @@ type AnchorOAuth2API
 anchorOAuth2API :: Proxy AnchorOAuth2API
 anchorOAuth2API = Proxy
 
+-- | Construct a server of the entire API from an initial state
 server :: ServerState -> Server AnchorOAuth2API
 server state@ServerState{..}
        = tokenEndpoint serverPGConnPool
@@ -257,6 +305,11 @@ handleShib
 handleShib f (Just u) (Just s) = f u s
 handleShib _ _        _        = error "Expected Shibbloleth headers"
 
+-- | Authorize all of the things. This serves the page that allows the user to
+-- decide if the client is allowed to do things.
+--
+-- TODO: Handle the validation of things more nicely here, preferably shifting
+-- them out of here entirely.
 authorizeEndpoint
     :: ( MonadIO m
        , MonadBaseControl IO m
@@ -296,6 +349,7 @@ authorizeEndpoint pool user_id permissions rt c_id' redirect sc' st = do
     request_code <- liftIO $ storeCreateCode pool user_id client sc st
     return $ renderAuthorizePage request_code
 
+-- | Handle the response from the page served in 'authorizeEndpoint'
 authorizePost
     :: ( MonadIO m
        , MonadBaseControl IO m
@@ -369,6 +423,7 @@ verifyEndpoint ServerState{..} (Just auth) token' = do
     logD = liftIO . debugM (logName <> ".verifyEndpoint")
     logE = liftIO . errorM (logName <> ".verifyEndpoint")
 
+-- | Display a given token, if the user is allowed to do so.
 serverDisplayToken
     :: ( MonadIO m
        , MonadBaseControl IO m
@@ -385,6 +440,7 @@ serverDisplayToken pool u s t = do
         Nothing -> throwError err404{errBody = "There's nothing here! =("}
         Just x -> return $ renderTokensPage s 1 (Page 1) ([x], 1)
 
+-- | List all tokens for a given user, paginated.
 serverListTokens
     :: ( MonadIO m
        , MonadBaseControl IO m
@@ -401,6 +457,7 @@ serverListTokens pool size u s p = do
     res <- liftIO $ storeListTokens pool size u p'
     return $ renderTokensPage s size p' res
 
+-- | Handle a token create/delete request.
 serverPostToken
     :: ( MonadIO m
        , MonadBaseControl IO m
@@ -416,6 +473,7 @@ serverPostToken pool u s DeleteRequest      (Just t) = handleShib (serverRevokeT
 serverPostToken _    _ _ DeleteRequest      Nothing  = throwError err400{errBody = "Malformed delete request"}
 serverPostToken pool u s (CreateRequest rs) _        = handleShib (serverCreateToken pool) u s rs
 
+-- | Revoke a given token
 serverRevokeToken
     :: ( MonadIO m
        , MonadBaseControl IO m
@@ -430,6 +488,7 @@ serverRevokeToken pool u _ t = do
     liftIO $ storeRevokeToken pool u t
     throwError err302{errHeaders = [(hLocation, "/tokens")]}     --Redirect to tokens page
 
+-- | Create a new token
 serverCreateToken
     :: ( MonadIO m
        , MonadBaseControl IO m

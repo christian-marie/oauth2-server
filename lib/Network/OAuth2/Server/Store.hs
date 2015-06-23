@@ -1,3 +1,12 @@
+--
+-- Copyright © 2013-2015 Anchor Systems, Pty Ltd and Others
+--
+-- The code in this file, and the program it is a part of, is
+-- made available to you by its authors as open source software:
+-- you can redistribute it and/or modify it under the terms of
+-- the 3-clause BSD licence.
+--
+
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -11,7 +20,7 @@
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TypeFamilies               #-}
 
--- | Description: OAuth2 token storage using PostgreSQL.
+-- | OAuth2 token storage, including instances for postgres
 module Network.OAuth2.Server.Store where
 
 import           Control.Applicative
@@ -44,7 +53,7 @@ class TokenStore ref where
         -> ClientID
         -> IO (Maybe ClientDetails)
 
-    -- | TODO: Document the part of the RFC this is from
+    -- | Create a 'RequestCode'.
     storeCreateCode
         :: ref
         -> UserID

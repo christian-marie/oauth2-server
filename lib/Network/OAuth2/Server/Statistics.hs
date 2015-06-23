@@ -1,7 +1,16 @@
+--
+-- Copyright © 2013-2015 Anchor Systems, Pty Ltd and Others
+--
+-- The code in this file, and the program it is a part of, is
+-- made available to you by its authors as open source software:
+-- you can redistribute it and/or modify it under the terms of
+-- the 3-clause BSD licence.
+--
+
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 
--- | Description: Monitoring and reporting statistics.
+-- | Monitoring and reporting statistics.
 module Network.OAuth2.Server.Statistics where
 
 import           Control.Applicative
@@ -24,7 +33,7 @@ import           Network.OAuth2.Server.Types
 statsLogName :: String
 statsLogName = "Tokens.Server.Statistics"
 
-
+-- | Counters for EKG monitoring
 data GrantCounters = GrantCounters
     { codeCounter              :: C.Counter
     , implicitCounter          :: C.Counter
@@ -33,6 +42,7 @@ data GrantCounters = GrantCounters
     , extensionCounter         :: C.Counter
     }
 
+-- | Intitialize some empty 'GrantCounters'
 mkGrantCounters :: IO GrantCounters
 mkGrantCounters = GrantCounters
     <$> C.new
@@ -58,9 +68,14 @@ data Stats = Stats
     }
   deriving (Show, Eq)
 
+-- | Empty stats, all starting from zero.
 defaultStats :: Stats
 defaultStats = Stats 0 0 0 0 0 0 0 0 0 0
 
+-- | Go to the postgres database and get some stats for now.
+--
+-- TODO: This should not talk directly to postgres, and should instead be
+-- parametrised by TokenStore ref
 gatherStats
     :: GrantCounters
     -> Connection
@@ -91,6 +106,7 @@ gatherStats GrantCounters{..} conn =
     gatherStatTokensExpired = gather "SELECT COUNT(*) FROM tokens WHERE expires NOT NULL AND expires <= NOW ()"
     gatherStatTokensRevoked = gather "SELECT COUNT(*) FROM tokens WHERE revoked NOT NULL"
 
+-- | Increment 'GrantCounter's as 'GrantEvent' come in.
 statsWatcher :: Input GrantEvent -> GrantCounters -> IO ()
 statsWatcher source GrantCounters{..} = forever $ do
     curr <- atomically $ recv source
@@ -103,6 +119,7 @@ statsWatcher source GrantCounters{..} = forever $ do
             ClientCredentialsGranted -> clientCredentialsCounter
             ExtensionGranted         -> extensionCounter
 
+-- | Set up EKG, registering the things.
 registerOAuth2Metrics
     :: Store
     -> Pool Connection
