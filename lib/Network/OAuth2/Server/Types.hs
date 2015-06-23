@@ -535,74 +535,92 @@ data AccessRequest
 -- support, or is otherwise invalid) then return an 'OAuth2Error' describing
 -- the problem instead.
 instance FromFormUrlEncoded (Either OAuth2Error AccessRequest) where
-    fromFormUrlEncoded o = case fromFormUrlEncoded o of
-        Right x -> return $ Right x
-        Left  _ -> Left <$> case lookup "grant_type" o of
-            Nothing ->
-                return $ OAuth2Error InvalidRequest Nothing Nothing
-            Just _ ->
-                return $ OAuth2Error UnsupportedGrantType Nothing Nothing
-
-lookupEither :: (Eq a, Show a) => a -> [(a,b)] -> Either String b
-lookupEither v vs = case lookup v vs of
-    Nothing -> Left $ "missing required key " <> show v
-    Just x -> Right x
-
-instance FromFormUrlEncoded AccessRequest where
-    fromFormUrlEncoded xs = do
+    fromFormUrlEncoded xs = return $ do
         grant_type <- lookupEither "grant_type" xs
         case grant_type of
             "authorization_code" -> do
                 c <- lookupEither "code" xs
                 requestCode <- case T.encodeUtf8 c ^? code of
-                    Nothing -> Left $ "invalid code " <> show c
-                    Just x -> return $ x
+                    Nothing -> Left $ OAuth2Error InvalidRequest
+                                                  (preview errorDescription . BC.pack $ "invalid code " <> show c)
+                                                  Nothing
+                    Just x -> Right x
                 requestRedirectURI <- case lookup "redirect_uri" xs of
                     Nothing -> return Nothing
                     Just r -> case fromText r of
-                        Nothing -> Left $ "Error decoding redirect_uri: " <> T.unpack r
+                        Nothing -> Left $ OAuth2Error InvalidRequest
+                                                      (preview errorDescription . BC.pack $ "Error decoding redirect_uri: " <> T.unpack r)
+                                                      Nothing
                         Just x -> return $ Just x
                 requestClientID <- case lookup "client_id" xs of
                     Nothing -> return Nothing
                     Just cid -> case T.encodeUtf8 cid ^? clientID of
-                        Nothing -> Left $ "invalid client_id " <> show cid
+                        Nothing -> Left $ OAuth2Error InvalidRequest
+                                                      (preview errorDescription . BC.pack $ "invalid client_id " <> show cid)
+                                                      Nothing
                         Just x -> return $ Just x
                 return $ RequestAuthorizationCode{..}
             "password" -> do
                 u <- lookupEither "username" xs
                 requestUsername <- case u ^? username of
-                    Nothing -> Left $ "invalid username " <> show u
+                    Nothing -> Left $ OAuth2Error InvalidRequest
+                                                      (preview errorDescription . BC.pack $ "invalid username " <> show u)
+                                                      Nothing
                     Just x -> return $ x
                 p <- lookupEither "password" xs
                 requestPassword <- case p ^? password of
-                    Nothing -> Left $ "invalid password " <> show p
+                    Nothing -> Left $ OAuth2Error InvalidRequest
+                                                      (preview errorDescription . BC.pack $ "invalid password")
+                                                      Nothing
                     Just x -> return $ x
                 requestScope <- case lookup "scope" xs of
                     Nothing -> return Nothing
                     Just x -> case bsToScope $ T.encodeUtf8 x of
-                        Nothing -> Left $ "invalid scope " <> show x
+                        Nothing -> Left $ OAuth2Error InvalidRequest
+                                                      (preview errorDescription . BC.pack $ "invalid scope " <> show x)
+                                                      Nothing
                         Just x' -> return $ Just x'
                 return $ RequestPassword{..}
             "client_credentials" -> do
                 requestScope <- case lookup "scope" xs of
                     Nothing -> return Nothing
                     Just x -> case bsToScope $ T.encodeUtf8 x of
-                        Nothing -> Left $ "invalid scope " <> show x
+                        Nothing -> Left $ OAuth2Error InvalidRequest
+                                                      (preview errorDescription . BC.pack $ "invalid scope " <> show x)
+                                                      Nothing
                         Just x' -> return $ Just x'
                 return $ RequestClientCredentials{..}
             "refresh_token" -> do
                 refresh_token <- lookupEither "refresh_token" xs
                 requestRefreshToken <-
                     case T.encodeUtf8 refresh_token ^? token of
-                        Nothing -> Left $ "invalid refresh_token " <> show refresh_token
+                        Nothing -> Left $ OAuth2Error InvalidRequest
+                                                      (preview errorDescription . BC.pack $ "invalid refresh_token " <> show refresh_token)
+                                                      Nothing
                         Just x  -> return x
                 requestScope <- case lookup "scope" xs of
                     Nothing -> return Nothing
                     Just x -> case bsToScope $ T.encodeUtf8 x of
-                        Nothing -> Left $ "invalid scope " <> show x
+                        Nothing -> Left $ OAuth2Error InvalidRequest
+                                                      (preview errorDescription . BC.pack $ "invalid scope " <> show x)
+                                                      Nothing
                         Just x' -> return $ Just x'
                 return $ RequestRefreshToken{..}
-            x -> Left $ T.unpack x <> " not supported"
+            x -> Left $ OAuth2Error InvalidRequest
+                                    (preview errorDescription . BC.pack $ "unsupported grant_type " <> show x)
+                                    Nothing
+
+lookupEither :: (Eq a, Show a) => a -> [(a,b)] -> Either OAuth2Error b
+lookupEither v vs = case lookup v vs of
+    Nothing -> Left $ OAuth2Error InvalidRequest
+                                  (preview errorDescription . BC.pack $ "missing required key " <> show v)
+                                  Nothing
+    Just x -> Right x
+
+
+instance FromFormUrlEncoded AccessRequest where
+    fromFormUrlEncoded xs = either Left (either (Left . show) Right) $
+        (fromFormUrlEncoded xs :: Either String (Either OAuth2Error AccessRequest))
 
 instance ToFormUrlEncoded AccessRequest where
     toFormUrlEncoded RequestAuthorizationCode{..} =
