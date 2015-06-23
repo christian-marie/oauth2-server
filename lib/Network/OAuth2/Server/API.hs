@@ -1,14 +1,35 @@
-{-# LANGUAGE ConstraintKinds     #-}
+--
+-- Copyright © 2013-2015 Anchor Systems, Pty Ltd and Others
+--
+-- The code in this file, and the program it is a part of, is
+-- made available to you by its authors as open source software:
+-- you can redistribute it and/or modify it under the terms of
+-- the 3-clause BSD licence.
+--
+
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE FlexibleContexts    #-}
-{-# LANGUAGE FlexibleInstances   #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies        #-}
+{-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE RankNTypes          #-}
+{-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE TypeOperators       #-}
 
+-- | OAuth2 API implementation.
+--
+-- This implementation assumes the use of Shibboleth, which doesn't actually
+-- mean anything all that specific. This just means that we expect a particular
+-- header that says who the user is and what permissions they have to delegate.
+--
+-- The intention is to seperate all OAuth2 specific logic from our particular
+-- way of handling AAA.
 module Network.OAuth2.Server.API (
     module X,
     server,
@@ -42,15 +63,19 @@ import           Database.PostgreSQL.Simple
 import           Network.HTTP.Types                  hiding (Header)
 import           Network.OAuth2.Server.Configuration as X
 import           Network.OAuth2.Server.Types         as X
-import           Servant.API                         ((:>), (:<|>)(..),
+import           Servant.API                         ((:<|>) (..), (:>),
                                                       AddHeader (addHeader),
-                                                      FormUrlEncoded, Header,
-                                                      Headers, JSON, Post, Get,
-                                                      ReqBody, FromFormUrlEncoded(..),
-                                                      FromText(..), QueryParam, OctetStream, Capture)
+                                                      Capture, FormUrlEncoded,
+                                                      FromFormUrlEncoded (..),
+                                                      FromText (..), Get,
+                                                      Header, Headers, JSON,
+                                                      OctetStream, Post,
+                                                      QueryParam, ReqBody)
 import           Servant.HTML.Blaze
 import           Servant.Server                      (ServantErr (errBody, errHeaders),
-                                                      Server, err302, err400, err401, err500, err404, err403)
+                                                      Server, err302, err400,
+                                                      err401, err403, err404,
+                                                      err500)
 import           Servant.Utils.Links
 import           System.Log.Logger
 import           Text.Blaze.Html5                    (Html)
@@ -61,10 +86,20 @@ import           Network.OAuth2.Server.UI
 logName :: String
 logName = "Anchor.Tokens.Server.API"
 
+
+-- TODO: Move this into some servant common package
+
+-- | http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.9.2
+--
+-- The purpose of the no-store directive is to prevent the inadvertent release
+-- or retention of sensitive information (for example, on backup tapes).
 data NoStore = NoStore
 instance ToByteString NoStore where
     builder _ = "no-store"
 
+-- | Same as Cache-Control: no-cache, we use Pragma for compatibilty.
+--
+-- http://tools.ietf.org/html/rfc2616#section-14.32
 data NoCache = NoCache
 instance ToByteString NoCache where
     builder _ = "no-cache"
@@ -75,18 +110,35 @@ instance HasLink sub => HasLink (Header sym a :> sub) where
     type MkLink (Header sym a :> sub) = MkLink sub
     toLink _ = toLink (Proxy :: Proxy sub)
 
+-- | Request a token, basically AccessRequest -> AccessResponse with noise.
+--
+-- The response headers are mentioned here:
+--
+-- https://tools.ietf.org/html/rfc6749#section-5.1
+--
+--    The authorization server MUST include the HTTP "Cache-Control" response
+--    header field [RFC2616] with a value of "no-store" in any response
+--    containing tokens, credentials, or other sensitive information, as well
+--    as the "Pragma" response header field [RFC2616] with a value of
+--    "no-cache".
 type TokenEndpoint
     = "token"
     :> Header "Authorization" AuthHeader
     :> ReqBody '[FormUrlEncoded] (Either OAuth2Error AccessRequest)
+                                 -- ^ The Either here is a weird hack to be
+                                 -- able to handle parse failures explicitly.
     :> Post '[JSON] (Headers '[Header "Cache-Control" NoStore, Header "Pragma" NoCache] AccessResponse)
 
-throwOAuth2Error :: (MonadError ServantErr m) => OAuth2Error -> m a
+-- | Encode an 'OAuth2Error' and throw it to servant.
+--
+-- TODO: Fix the name/behaviour. Terrible name for something that 400s.
+throwOAuth2Error :: MonadError ServantErr m => OAuth2Error -> m a
 throwOAuth2Error e =
     throwError err400 { errBody = encode e
                       , errHeaders = [("Content-Type", "application/json")]
                       }
 
+-- | Handler for 'TokenEndpoint', basically a wrapper for 'processTokenRequest'
 tokenEndpoint :: Pool Connection -> Server TokenEndpoint
 tokenEndpoint _ _ (Left e) = throwOAuth2Error e
 tokenEndpoint conf auth (Right req) = do
@@ -97,12 +149,17 @@ tokenEndpoint conf auth (Right req) = do
         Right response -> do
             return $ addHeader NoStore $ addHeader NoCache $ response
 
+-- | Check that the request is valid, if it is, provide an 'AccessResponse',
+-- otherwise we return an 'OAuth2Error'.
+--
+-- Any IO exception that are thrown are probably catastrophic and unaccounted
+-- for, and should not be caught.
 processTokenRequest
     :: TokenStore ref
-    => ref
-    -> UTCTime
-    -> Maybe AuthHeader
-    -> AccessRequest
+    => ref                                        -- ^ PG pool, ioref, etc.
+    -> UTCTime                                    -- ^ Time of request
+    -> Maybe AuthHeader                           -- ^ Who wants the token?
+    -> AccessRequest                              -- ^ What do they want?
     -> ExceptT OAuth2Error IO AccessResponse
 processTokenRequest _ _ Nothing _ = do
     liftIO . debugM logName $ "Checking credentials but none provided."
@@ -137,12 +194,15 @@ processTokenRequest ref t (Just client_auth) req = do
     refresh_details <- liftIO $ storeSaveToken ref refresh_grant
     return $ grantResponse t access_details (Just $ tokenDetailsToken refresh_details)
 
+-- | Headers for Shibboleth, this tells us who the user is and what they're
+-- allowed to do.
 type OAuthUserHeader = "Identity-OAuthUser"
 type OAuthUserScopeHeader = "Identity-OAuthUserScopes"
 
 data TokenRequest = DeleteRequest TokenID
                   | CreateRequest Scope
 
+-- Decode something like: method=delete/create;scope=thing.
 instance FromFormUrlEncoded TokenRequest where
     fromFormUrlEncoded o = case lookup "method" o of
         Nothing -> Left "method field missing"
@@ -245,6 +305,7 @@ type AnchorOAuth2API
 anchorOAuth2API :: Proxy AnchorOAuth2API
 anchorOAuth2API = Proxy
 
+-- | Construct a server of the entire API from an initial state
 server :: ServerState -> Server AnchorOAuth2API
 server state@ServerState{..}
        = tokenEndpoint serverPGConnPool
@@ -255,9 +316,9 @@ server state@ServerState{..}
     :<|> handleShib (serverDisplayToken serverPGConnPool)
     :<|> handleShib (serverPostToken serverPGConnPool)
 
--- Any shibboleth authed endpoint must have all relevant headers defined,
--- and any other case is an internal error. handleShib consolidates
--- checking these headers.
+-- Any shibboleth authed endpoint must have all relevant headers defined, and
+-- any other case is an internal error. handleShib consolidates checking these
+-- headers.
 handleShib
     :: (UserID -> Scope -> a)
     -> Maybe UserID
@@ -266,6 +327,10 @@ handleShib
 handleShib f (Just u) (Just s) = f u s
 handleShib _ _        _        = error "Expected Shibbloleth headers"
 
+-- | Receive requests from clients and display the authorization user interface
+--
+-- TODO: Handle the validation of things more nicely here, preferably shifting
+-- them out of here entirely.
 authorizeEndpoint
     :: ( MonadIO m
        , MonadBaseControl IO m
@@ -307,6 +372,8 @@ authorizeEndpoint pool user_id permissions rt c_id' redirect sc' st = do
     request_code <- liftIO $ storeCreateCode pool user_id clientClientId redirect' sc st
     return $ renderAuthorizePage request_code
 
+-- | Handle the approval or rejection, we get here from the page served in
+-- 'authorizeEndpoint'
 authorizePost
     :: ( MonadIO m
        , MonadBaseControl IO m
@@ -377,6 +444,7 @@ verifyEndpoint ServerState{..} (Just auth) token' = do
     logD = liftIO . debugM (logName <> ".verifyEndpoint")
     logE = liftIO . errorM (logName <> ".verifyEndpoint")
 
+-- | Display a given token, if the user is allowed to do so.
 serverDisplayToken
     :: ( MonadIO m
        , MonadBaseControl IO m
@@ -393,6 +461,7 @@ serverDisplayToken pool u s t = do
         Nothing -> throwError err404{errBody = "There's nothing here! =("}
         Just x -> return $ renderTokensPage s 1 (Page 1) ([x], 1)
 
+-- | List all tokens for a given user, paginated.
 serverListTokens
     :: ( MonadIO m
        , MonadBaseControl IO m
@@ -409,6 +478,7 @@ serverListTokens pool size u s p = do
     res <- liftIO $ storeListTokens pool size u p'
     return $ renderTokensPage s size p' res
 
+-- | Handle a token create/delete request.
 serverPostToken
     :: ( MonadIO m
        , MonadBaseControl IO m
@@ -422,6 +492,7 @@ serverPostToken
 serverPostToken pool u s (DeleteRequest t)  = serverRevokeToken pool u s t
 serverPostToken pool u s (CreateRequest rs) = serverCreateToken pool u s rs
 
+-- | Revoke a given token
 serverRevokeToken
     :: ( MonadIO m
        , MonadBaseControl IO m
@@ -437,6 +508,7 @@ serverRevokeToken pool u _ t = do
     let link = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy ListTokens) (Page 1)
     throwError err302{errHeaders = [(hLocation, B.pack $ show link)]} --Redirect to tokens page
 
+-- | Create a new token
 serverCreateToken
     :: ( MonadIO m
        , MonadBaseControl IO m

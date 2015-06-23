@@ -1,3 +1,12 @@
+--
+-- Copyright © 2013-2015 Anchor Systems, Pty Ltd and Others
+--
+-- The code in this file, and the program it is a part of, is
+-- made available to you by its authors as open source software:
+-- you can redistribute it and/or modify it under the terms of
+-- the 3-clause BSD licence.
+--
+
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 
@@ -11,6 +20,10 @@ import           Data.String
 
 import           Network.OAuth2.Server.Types
 
+-- | Some (in?)sane defaults for an oauth server, run on localhost:8080, with
+-- stats being served on *:8888.
+--
+-- You'll want to set optDBString at minimum.
 defaultServerOptions :: ServerOptions
 defaultServerOptions =
     let optDBString = ""
@@ -22,6 +35,7 @@ defaultServerOptions =
         optVerifyRealm = "verify-token"
     in ServerOptions{..}
 
+-- | Load some server options, overwriting defaults in 'defaultServerOptions'.
 loadOptions :: Config -> IO ServerOptions
 loadOptions conf = do
     optDBString <- ldef optDBString "database"
