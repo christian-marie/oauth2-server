@@ -1,10 +1,11 @@
-{-# LANGUAGE DataKinds         #-}
-{-# LANGUAGE FlexibleContexts  #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RankNTypes        #-}
-{-# LANGUAGE TypeFamilies      #-}
-{-# LANGUAGE RecordWildCards   #-}
-{-# LANGUAGE TypeOperators     #-}
+{-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE RankNTypes          #-}
+{-# LANGUAGE TypeFamilies        #-}
+{-# LANGUAGE RecordWildCards     #-}
+{-# LANGUAGE TypeOperators       #-}
 
 module Network.OAuth2.Server.API (
     module X,
@@ -15,7 +16,7 @@ module Network.OAuth2.Server.API (
     TokenEndpoint,
 ) where
 
-import           Control.Exception                   (try, throwIO)
+import           Control.Exception                   (try)
 import           Control.Lens
 import           Control.Monad
 import           Control.Monad.Error.Class           (MonadError (throwError))
@@ -94,9 +95,14 @@ processTokenRequest
     -> Maybe AuthHeader
     -> AccessRequest
     -> ExceptT OAuth2Error IO AccessResponse
-processTokenRequest ref t client_auth req = do
+processTokenRequest _ _ Nothing _ = do
+    liftIO . debugM logName $ "Checking credentials but none provided."
+    throwError $ OAuth2Error InvalidRequest
+                             (preview errorDescription "No credentials provided")
+                             Nothing
+processTokenRequest ref t (Just client_auth) req = do
     -- TODO: Handle OAuth2Errors and not just liftIO here
-    (client_id, modified_scope) <- liftIO $ checkCredentials ref client_auth req
+    (client_id, modified_scope) <- checkCredentials ref client_auth req
     user <- case req of
         RequestAuthorizationCode{} -> return Nothing
         RequestPassword{..} -> return $ Just requestUsername
@@ -334,7 +340,7 @@ verifyEndpoint ServerState{..} Nothing _token =
                    }
 verifyEndpoint ServerState{..} (Just auth) token' = do
     -- 1. Check client authentication.
-    client_id' <- liftIO . try $ checkClientAuth serverPGConnPool auth
+    client_id' <- liftIO . runExceptT $ checkClientAuth serverPGConnPool auth
     client_id <- case client_id' of
         Left e -> do
             logE $ "Error verifying token: " <> show (e :: OAuth2Error)
@@ -449,23 +455,18 @@ serverCreateToken pool user_id userScope reqScope = do
 
 -- | Check the supplied credentials against the database.
 checkCredentials
-    :: TokenStore ref
+    :: forall m ref. (MonadIO m, MonadError OAuth2Error m, TokenStore ref)
     => ref
-    -> Maybe AuthHeader
+    -> AuthHeader
     -> AccessRequest
-    -> IO (Maybe ClientID, Scope)
-checkCredentials _ Nothing _ = do
-    debugM logName $ "Checking credentials but none provided."
-    throwIO $ OAuth2Error InvalidRequest
-                          (preview errorDescription "No credentials provided")
-                          Nothing
-checkCredentials ref (Just auth) req = do
-    debugM logName $ "Checking some credentials"
+    -> m (Maybe ClientID, Scope)
+checkCredentials ref auth req = do
+    liftIO . debugM logName $ "Checking some credentials"
     client_id <- checkClientAuth ref auth
     case client_id of
-        Nothing -> throwIO $ OAuth2Error UnauthorizedClient
-                                         (preview errorDescription "Invalid client credentials")
-                                         Nothing
+        Nothing -> throwError $ OAuth2Error UnauthorizedClient
+                                            (preview errorDescription "Invalid client credentials")
+                                            Nothing
         Just client_id' -> case req of
             -- https://tools.ietf.org/html/rfc6749#section-4.1.3
             RequestAuthorizationCode auth_code uri client ->
@@ -479,114 +480,114 @@ checkCredentials ref (Just auth) req = do
             -- http://tools.ietf.org/html/rfc6749#section-6
             RequestRefreshToken tok request_scope ->
                 checkRefreshToken client_id' tok request_scope
-      where
-        --
-        -- Verify client, scope and request code.
-        --
-        checkClientAuthCode _ _ Nothing _ = throwIO $ OAuth2Error InvalidRequest
-                                                                  (preview errorDescription "No redirect URI supplied.")
-                                                                  Nothing
-        checkClientAuthCode _ _ _ Nothing = throwIO $ OAuth2Error InvalidRequest
-                                                                  (preview errorDescription "No client ID supplied.")
-                                                                  Nothing
-        checkClientAuthCode client_id request_code (Just uri) (Just purported_client) = do
-             do
-                    when (client_id /= purported_client) $ throwIO $
-                        OAuth2Error UnauthorizedClient
-                                    (preview errorDescription "Invalid client credentials")
-                                    Nothing
-                    codes <- storeLoadCode ref request_code
-                    case codes of
-                        Nothing -> throwIO $ OAuth2Error InvalidGrant
-                                                         (preview errorDescription "Request code not found")
-                                                         Nothing
-                        Just rc -> do
-                             -- Fail if redirect_uri doesn't match what's in the database.
-                             when (uri /= (requestCodeRedirectURI rc)) $ do
-                                 debugM logName $    "Redirect URI mismatch verifying access token request: requested"
-                                                           <> show uri
-                                                           <> " but got "
-                                                           <> show (requestCodeRedirectURI rc)
-                                 throwIO $ OAuth2Error InvalidRequest
-                                                       (preview errorDescription "Invalid redirect URI")
-                                                       Nothing
-                             case requestCodeScope rc of
-                                 Nothing -> do
-                                     debugM logName $ "No scope found for code " <> show request_code
-                                     throwIO $ OAuth2Error InvalidScope
-                                                           (preview errorDescription "No scope found")
-                                                           Nothing
-                                 Just code_scope -> return (Just client_id, code_scope)
+  where
+    --
+    -- Verify client, scope and request code.
+    --
+    checkClientAuthCode :: ClientID -> Code -> Maybe RedirectURI -> Maybe ClientID -> m (Maybe ClientID, Scope)
+    checkClientAuthCode _ _ _ Nothing = throwError $ OAuth2Error InvalidRequest
+                                                                 (preview errorDescription "No client ID supplied.")
+                                                                 Nothing
+    checkClientAuthCode client_id request_code uri (Just purported_client) = do
+        when (client_id /= purported_client) $ throwError $
+            OAuth2Error UnauthorizedClient
+                        (preview errorDescription "Invalid client credentials")
+                        Nothing
+        codes <- liftIO $ storeLoadCode ref request_code
+        case codes of
+            Nothing -> throwError $ OAuth2Error InvalidGrant
+                                                (preview errorDescription "Request code not found")
+                                                Nothing
+            Just rc -> do
+                -- Fail if redirect_uri doesn't match what's in the database.
+                case uri of
+                    Just uri' | uri' /= (requestCodeRedirectURI rc) -> do
+                        liftIO . debugM logName $ "Redirect URI mismatch verifying access token request: requested"
+                                               <> show uri
+                                               <> " but got "
+                                               <> show (requestCodeRedirectURI rc)
+                        throwError $ OAuth2Error InvalidRequest
+                                                 (preview errorDescription "Invalid redirect URI")
+                                                 Nothing
+                    _ -> return ()
 
-        --
-        -- Check nothing and fail; we don't support password grants.
-        --
+                case requestCodeScope rc of
+                    Nothing -> do
+                        liftIO . debugM logName $ "No scope found for code " <> show request_code
+                        throwError $ OAuth2Error InvalidScope
+                                                 (preview errorDescription "No scope found")
+                                                 Nothing
+                    Just code_scope -> return (Just client_id, code_scope)
 
-        checkPassword _ _ _ _ = throwIO $ OAuth2Error UnsupportedGrantType
-                                                      (preview errorDescription "password grants not supported")
-                                                      Nothing
+    --
+    -- Check nothing and fail; we don't support password grants.
+    --
+    checkPassword :: ClientID -> Username -> Password -> Maybe Scope -> m (Maybe ClientID, Scope)
+    checkPassword _ _ _ _ = throwError $ OAuth2Error UnsupportedGrantType
+                                                     (preview errorDescription "password grants not supported")
+                                                     Nothing
 
-        --
-        -- Client has been verified and there's nothing to verify for the
-        -- scope, so this will always succeed unless we get no scope at all.
-        --
+    --
+    -- Client has been verified and there's nothing to verify for the
+    -- scope, so this will always succeed unless we get no scope at all.
+    --
+    checkClientCredentials :: ClientID -> Maybe Scope -> m (Maybe ClientID, Scope)
+    checkClientCredentials _ Nothing = throwError $ OAuth2Error InvalidRequest
+                                                                (preview errorDescription "No scope supplied.")
+                                                                Nothing
+    checkClientCredentials client_id (Just request_scope) = return (Just client_id, request_scope)
 
-        checkClientCredentials _ Nothing = throwIO $ OAuth2Error InvalidRequest
-                                                                   (preview errorDescription "No scope supplied.")
-                                                                   Nothing
-        checkClientCredentials client_id (Just request_scope) = return (Just client_id, request_scope)
-
-        --
-        -- Verify scope and request token.
-        --
-
-        checkRefreshToken _ _ Nothing     = throwIO $ OAuth2Error InvalidRequest
-                                                                  (preview errorDescription "No scope supplied.")
-                                                                  Nothing
-        checkRefreshToken client_id tok (Just request_scope) = do
-            details <- storeLoadToken ref tok
-            case details of
-                Nothing -> do
-                    debugM logName $ "Got passed invalid token " <> show tok
-                    throwIO $ OAuth2Error InvalidRequest
-                                          (preview errorDescription "Invalid token")
-                                          Nothing
-                Just details' -> do
-                    unless (compatibleScope request_scope (tokenDetailsScope details')) $ do
-                        debugM logName $
-                            "Incompatible scopes " <>
-                            show request_scope <>
-                            " and " <>
-                            show (tokenDetailsScope details') <>
-                            ", refusing to verify"
-                        throwIO $ OAuth2Error InvalidScope
-                                              (preview errorDescription "Invalid scope")
-                                              Nothing
-                    return (Just client_id, request_scope)
+    --
+    -- Verify scope and request token.
+    --
+    checkRefreshToken :: ClientID -> Token -> Maybe Scope -> m (Maybe ClientID, Scope)
+    checkRefreshToken _ _ Nothing = throwError $ OAuth2Error InvalidRequest
+                                                             (preview errorDescription "No scope supplied.")
+                                                             Nothing
+    checkRefreshToken client_id tok (Just request_scope) = do
+        details <- liftIO $ storeLoadToken ref tok
+        case details of
+            Nothing -> do
+                liftIO . debugM logName $ "Got passed invalid token " <> show tok
+                throwError $ OAuth2Error InvalidRequest
+                             (preview errorDescription "Invalid token")
+                              Nothing
+            Just details' -> do
+                unless (compatibleScope request_scope (tokenDetailsScope details')) $ do
+                    liftIO . debugM logName $
+                        "Incompatible scopes " <>
+                        show request_scope <>
+                        " and " <>
+                        show (tokenDetailsScope details') <>
+                        ", refusing to verify"
+                    throwError $ OAuth2Error InvalidScope
+                                             (preview errorDescription "Invalid scope")
+                                             Nothing
+                return (Just client_id, request_scope)
 
 -- | Given an AuthHeader sent by a client, verify that it authenticates.
 --   If it does, return the authenticated ClientID; otherwise, Nothing.
 checkClientAuth
-    :: TokenStore ref
+    :: (MonadIO m, MonadError OAuth2Error m, TokenStore ref)
     => ref
     -> AuthHeader
-    -> IO (Maybe ClientID)
+    -> m (Maybe ClientID)
 checkClientAuth ref auth = do
     case preview authDetails auth of
         Nothing -> do
-            debugM logName $ "Got an invalid auth header."
-            throwIO $ OAuth2Error InvalidRequest
-                                  (preview errorDescription "Invalid auth header provided.")
-                                  Nothing
+            liftIO . debugM logName $ "Got an invalid auth header."
+            throwError $ OAuth2Error InvalidRequest
+                                     (preview errorDescription "Invalid auth header provided.")
+                                     Nothing
         Just (client_id, secret) -> do
-            client <- storeLookupClient ref client_id
+            client <- liftIO $ storeLookupClient ref client_id
             case client of
                 Just ClientDetails{..} -> return $ verifyClientSecret client_id secret clientSecret
                 Nothing -> do
-                    debugM logName $ "Got a request for invalid client_id " <> show client_id
-                    throwIO $ OAuth2Error InvalidClient
-                                          (preview errorDescription "No such client.")
-                                          Nothing
+                    liftIO . debugM logName $ "Got a request for invalid client_id " <> show client_id
+                    throwError $ OAuth2Error InvalidClient
+                                             (preview errorDescription "No such client.")
+                                             Nothing
   where
     verifyClientSecret client_id secret hash =
         let pass = Pass . T.encodeUtf8 $ review password secret in
