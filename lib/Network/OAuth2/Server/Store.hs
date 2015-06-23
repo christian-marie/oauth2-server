@@ -44,7 +44,11 @@ class TokenStore ref where
         -> ClientID
         -> IO (Maybe ClientDetails)
 
-    -- | TODO: Document the part of the RFC this is from
+    -- | Create a `RequestCode` used in the Authorization Code Grant.
+    -- The code created here is stored, but is not authorized yet.
+    -- To authorize, call `storeActivateCode`.
+    --
+    -- https://tools.ietf.org/html/rfc6749#section-4.1
     storeCreateCode
         :: ref
         -> UserID
@@ -54,7 +58,10 @@ class TokenStore ref where
         -> Maybe ClientState
         -> IO RequestCode
 
-    -- | TODO: Document
+    -- | Authorize a `Code` used in the Authorization Code Grant.
+    -- This was created before using `storeCreateCode`.
+    --
+    -- https://tools.ietf.org/html/rfc6749#section-4.1
     storeActivateCode
         :: ref
         -> Code
