@@ -278,8 +278,11 @@ getAuthorizePage
     -> Maybe (UserID, Scope)
     -> (ClientID, Scope)
     -> ExceptT String IO ByteString
-getAuthorizePage base_uri user_m (client, scope) = do
+getAuthorizePage base_uri user_m (client, req_scope) = do
     let opts = defaults & header "Accept" .~ ["text/html"]
+                        & param "response_type" .~ ["code"]
+                        & param "client_id" .~ [T.decodeUtf8 $ review clientID client]
+                        & param "scope" .~ [T.decodeUtf8 . scopeToBs $ req_scope]
                         & auths user_m
 
     r <- liftIO $ try (getWith opts endpoint)
