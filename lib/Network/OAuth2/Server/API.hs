@@ -50,7 +50,7 @@ import           Servant.API                         ((:>), (:<|>)(..),
                                                       FromText(..), QueryParam, OctetStream, Capture)
 import           Servant.HTML.Blaze
 import           Servant.Server                      (ServantErr (errBody, errHeaders),
-                                                      Server, err302, err400, err401, err500, err404, err403)
+                                                      Server, err302, err400, err401, err404, err403)
 import           Servant.Utils.Links
 import           System.Log.Logger
 import           Text.Blaze.Html5                    (Html)
@@ -174,7 +174,7 @@ type AuthorizeEndpoint
     = "authorize"
     :> Header OAuthUserHeader UserID
     :> Header OAuthUserScopeHeader Scope
-    :> QueryParam "response_type" ResponseTypeCode
+    :> QueryParam "response_type" ResponseType
     :> QueryParam "client_id" ClientID
     :> QueryParam "redirect_uri" RedirectURI
     :> QueryParam "scope" Scope
@@ -274,7 +274,7 @@ authorizeEndpoint
     => Pool Connection
     -> UserID
     -> Scope
-    -> Maybe ResponseTypeCode
+    -> Maybe ResponseType
     -> Maybe ClientID
     -> Maybe RedirectURI
     -> Maybe Scope
@@ -282,8 +282,9 @@ authorizeEndpoint
     -> m Html
 authorizeEndpoint pool user_id permissions rt c_id' redirect sc' st = do
     case rt of
-        Nothing -> error "Response type code is missing"
+        Nothing -> error "Response type is missing"
         Just ResponseTypeCode -> return ()
+        Just x -> error $ "Invalid response type: " <> show x
     sc <- case sc' of
         Nothing -> error "Scope is missing"
         Just sc -> if sc `compatibleScope` permissions then return sc else error "NOOOOO"
