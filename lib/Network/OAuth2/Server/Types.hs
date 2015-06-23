@@ -492,6 +492,11 @@ data AccessRequest
         }
     deriving (Eq, Typeable)
 
+-- | Decode an 'AccessRequest' from a client.
+--
+-- If the request can't be decoded (because it uses a grant type we don't
+-- support, or is otherwise invalid) then return an 'OAuth2Error' describing
+-- the problem instead.
 instance FromFormUrlEncoded (Either OAuth2Error AccessRequest) where
     fromFormUrlEncoded o = case fromFormUrlEncoded o of
         Right x -> return $ Right x
