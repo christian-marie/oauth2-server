@@ -316,9 +316,9 @@ server state@ServerState{..}
     :<|> handleShib (serverDisplayToken serverPGConnPool)
     :<|> handleShib (serverPostToken serverPGConnPool)
 
--- Any shibboleth authed endpoint must have all relevant headers defined,
--- and any other case is an internal error. handleShib consolidates
--- checking these headers.
+-- Any shibboleth authed endpoint must have all relevant headers defined, and
+-- any other case is an internal error. handleShib consolidates checking these
+-- headers.
 handleShib
     :: (UserID -> Scope -> a)
     -> Maybe UserID
@@ -327,8 +327,7 @@ handleShib
 handleShib f (Just u) (Just s) = f u s
 handleShib _ _        _        = error "Expected Shibbloleth headers"
 
--- | Authorize all of the things. This serves the page that allows the user to
--- decide if the client is allowed to do things.
+-- | Receive requests from clients and display the authorization user interface
 --
 -- TODO: Handle the validation of things more nicely here, preferably shifting
 -- them out of here entirely.
@@ -373,7 +372,8 @@ authorizeEndpoint pool user_id permissions rt c_id' redirect sc' st = do
     request_code <- liftIO $ storeCreateCode pool user_id clientClientId redirect' sc st
     return $ renderAuthorizePage request_code
 
--- | Handle the response from the page served in 'authorizeEndpoint'
+-- | Handle the approval or rejection, we get here from the page served in
+-- 'authorizeEndpoint'
 authorizePost
     :: ( MonadIO m
        , MonadBaseControl IO m

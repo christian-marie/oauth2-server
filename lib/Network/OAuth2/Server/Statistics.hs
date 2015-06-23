@@ -34,6 +34,9 @@ statsLogName :: String
 statsLogName = "Tokens.Server.Statistics"
 
 -- | Counters for EKG monitoring
+--
+-- The counters are not added to the EKG server state but will be collected on
+-- demand by gatherStats
 data GrantCounters = GrantCounters
     { codeCounter              :: C.Counter
     , implicitCounter          :: C.Counter
