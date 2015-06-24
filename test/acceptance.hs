@@ -5,6 +5,7 @@ module Main where
 import           Control.Applicative
 import           Control.Exception
 import           Control.Lens
+import           Data.Text.Strict.Lens
 import           Control.Monad
 import           Control.Monad.Error.Class
 import           Control.Monad.IO.Class
@@ -106,13 +107,14 @@ tests base_uri = do
 
     describe "authorize endpoint" $ do
         let Just a_scope = bsToScope "login missiles:launch"
+        let code_request = a_scope <$ client1
 
         it "returns an error when Shibboleth authentication headers are missing" $ do
-            resp <- runExceptT $ getAuthorizePage base_uri Nothing (const a_scope <$> client1)
+            resp <- runExceptT $ getAuthorizePage base_uri Nothing code_request
             resp `shouldBe` Left "500 Internal Server Error - Something went wrong"
 
         it "displays the details of the token to be approved" $ do
-            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) (const a_scope <$> client1)
+            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) code_request
             resp `shouldSatisfy` isRight
 
             let Right page = resp
@@ -122,7 +124,7 @@ tests base_uri = do
             page `shouldSatisfy` ("login" `BC.isInfixOf`)
 
         it "includes an identifier for the code request" $ do
-            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) (const a_scope <$> client1)
+            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) code_request
             resp `shouldSatisfy` isRight
             let Right page = resp
 
@@ -131,7 +133,7 @@ tests base_uri = do
 
         it "the POST returns an error when Shibboleth authentication headers are missing" $ do
             -- 1. Get the page.
-            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) (const a_scope <$> client1)
+            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) code_request
             resp `shouldSatisfy` isRight
             -- 2. Extract the code.
             let Right page = resp
@@ -142,7 +144,7 @@ tests base_uri = do
 
         it "the POST returns an error when the request ID is missing" $ do
             -- 1. Get the page.
-            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) (const a_scope <$> client1)
+            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) code_request
             resp `shouldSatisfy` isRight
             -- 2. Extract the code.
             let Right page = resp
@@ -153,7 +155,7 @@ tests base_uri = do
 
         it "the POST returns an error when the Shibboleth authentication headers identify a mismatched user" $ do
             -- 1. Get the page.
-            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) (const a_scope <$> client1)
+            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) code_request
             resp `shouldSatisfy` isRight
             -- 2. Extract the code.
             let Right page = resp
@@ -164,7 +166,7 @@ tests base_uri = do
 
         it "the POST returns a redirect when approved" $ do
             -- 1. Get the page.
-            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) (const a_scope <$> client1)
+            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) code_request
             resp `shouldSatisfy` isRight
             -- 2. Extract the code.
             let Right page = resp
@@ -277,8 +279,11 @@ getAuthorizePage
     -> Maybe (UserID, Scope)
     -> (ClientID, Scope)
     -> ExceptT String IO ByteString
-getAuthorizePage base_uri user_m (client, scope) = do
+getAuthorizePage base_uri user_m (client, req_scope) = do
     let opts = defaults & header "Accept" .~ ["text/html"]
+                        & param "response_type" .~ ["code"]
+                        & param "client_id" .~ [T.decodeUtf8 $ review clientID client]
+                        & param "scope" .~ [T.decodeUtf8 . scopeToBs $ req_scope]
                         & auths user_m
 
     r <- liftIO $ try (getWith opts endpoint)

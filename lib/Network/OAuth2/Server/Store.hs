@@ -53,11 +53,18 @@ class TokenStore ref where
         -> ClientID
         -> IO (Maybe ClientDetails)
 
-    -- | Create a `RequestCode` used in the Authorization Code Grant.
-    -- The code created here is stored, but is not authorized yet.
-    -- To authorize, call `storeActivateCode`.
+    -- | Record an `RequestCode` used in the Authorization Code Grant.
     --
-    -- https://tools.ietf.org/html/rfc6749#section-4.1
+    --   The code created here is stored, but is not authorized yet. To
+    --   authorize, call `storeActivateCode`.
+    --
+    --   These details are retained for review by the client and, if approved,
+    --   for issuing tokens.
+    --
+    --   http://tools.ietf.org/html/rfc6749#section-4.1
+    --
+    --   @TODO(thsutton): Should take as parameters all details except the
+    --   'Code' itself.
     storeCreateCode
         :: ref
         -> UserID
@@ -146,7 +153,7 @@ instance TokenStore (Pool Connection) where
             [(requestCodeCode, requestCodeExpires)] <- do
                 debugM logName $ "Attempting storeCreateCode with " <> show sc
                 query conn
-                      "INSERT INTO request_codes (client_id, user_id, redirect_url, scope, state) VALUES (?,?,?,?) RETURNING code, expires"
+                      "INSERT INTO request_codes (client_id, user_id, redirect_url, scope, state) VALUES (?,?,?,?,?) RETURNING code, expires"
                       (requestCodeClientID, user_id, requestCodeRedirectURI, sc, requestCodeState)
             let requestCodeScope = Just sc
                 requestCodeAuthorized = False

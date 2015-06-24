@@ -312,7 +312,7 @@ server state@ServerState{..}
     :<|> handleShib (serverDisplayToken serverPGConnPool)
     :<|> handleShib (serverPostToken serverPGConnPool)
 
--- Any shibboleth authed endpoint must have all relevant headers defined, and
+-- | Any shibboleth authed endpoint must have all relevant headers defined, and
 -- any other case is an internal error. handleShib consolidates checking these
 -- headers.
 handleShib
@@ -323,32 +323,38 @@ handleShib
 handleShib f (Just u) (Just s) = f u s
 handleShib _ _        _        = error "Expected Shibbloleth headers"
 
--- | Receive requests from clients and display the authorization user interface
+-- | Implement the OAuth2 authorize endpoint.
 --
--- TODO: Handle the validation of things more nicely here, preferably shifting
--- them out of here entirely.
+--   This handler must be protected by Shibboleth (or other mechanism in the
+--   front-end proxy). It decodes the client request and presents a UI allowing
+--   the user to approve or reject a grant request.
+--
+--   TODO: Handle the validation of things more nicely here, preferably
+--   shifting them out of here entirely.
+--
+--   http://tools.ietf.org/html/rfc6749#section-3.1
 authorizeEndpoint
     :: ( MonadIO m
        , MonadBaseControl IO m
        , MonadError ServantErr m
        )
     => Pool Connection
-    -> UserID
-    -> Scope
-    -> Maybe ResponseType
-    -> Maybe ClientID
-    -> Maybe RedirectURI
-    -> Maybe Scope
-    -> Maybe ClientState
+    -> UserID             -- ^ Authenticated user
+    -> Scope              -- ^ Authenticated permissions
+    -> Maybe ResponseType -- ^ Requested response type.
+    -> Maybe ClientID     -- ^ Requesting Client ID.
+    -> Maybe RedirectURI  -- ^ Requested redirect URI.
+    -> Maybe Scope        -- ^ Requested scope.
+    -> Maybe ClientState  -- ^ State from requesting client.
     -> m Html
-authorizeEndpoint pool user_id permissions rt c_id' redirect sc' st = do
-    res <- runExceptT $ processAuthorizeGet pool user_id permissions rt c_id' redirect sc' st
+authorizeEndpoint pool user_id permissions response_type client_id' redirect scope' state = do
+    res <- runExceptT $ processAuthorizeGet pool user_id permissions response_type client_id' redirect scope' state
     case res of
-        Left (Nothing,e) -> error $ show e
-        Left (Just redirect',e) -> do
+        Left (Nothing, e) -> throwOAuth2Error e
+        Left (Just redirect', e) -> do
             let url = addQueryParameters redirect' $
-                    map (bimap T.encodeUtf8 T.encodeUtf8) (toFormUrlEncoded e) <>
-                    [("state", st' ^.re clientState) | Just st' <- [st]]
+                    over (mapped . both) T.encodeUtf8 (toFormUrlEncoded e) <>
+                    [("state", state' ^.re clientState) | Just state' <- [state]]
             throwError err302{ errHeaders = [(hLocation, url ^.re redirectURI)] }
         Right x -> return x
 
@@ -366,44 +372,59 @@ processAuthorizeGet
     -> Maybe Scope
     -> Maybe ClientState
     -> m Html
-processAuthorizeGet pool user_id permissions rt c_id' redirect sc' st = do
-    c_id <- case c_id' of
+processAuthorizeGet pool user_id permissions response_type client_id' redirect scope' state = do
+    -- Required: a ClientID value, which identifies a client.
+    ClientDetails{..} <- case client_id' of
+        Just client_id -> do
+            client <- liftIO $ storeLookupClient pool client_id
+            case client of
+                Nothing -> error $ "Could not find client with id: " <> show client_id
+                Just c -> return c
         Nothing -> error "ClientID is missing"
-        Just c_id -> return c_id
-    res <- liftIO $ storeLookupClient pool c_id
-    ClientDetails{..} <- case res of
-        Nothing -> error $ "no client found with id" <> show c_id
-        Just x -> return x
+
+    -- Optional: requested redirect URI.
     -- https://tools.ietf.org/html/rfc6749#section-3.1.2.3
-    redirect' <- case redirect of
+    redirect_uri <- case redirect of
         Nothing -> case clientRedirectURI of
-            [redirect'] -> return redirect'
+            redirect':_ -> return redirect'
             _ -> error $ "No redirect_uri provided and no unique default registered for client " <> show clientClientId
         Just redirect'
             | redirect' `elem` clientRedirectURI -> return redirect'
             | otherwise -> error $ show redirect' <> " /= " <> show clientRedirectURI
 
-    case rt of
-        Nothing -> throwError $ ( Just redirect'
+    -- Required: a supported ResponseType value.
+    case response_type of
+        Nothing -> throwError $ ( Just redirect_uri
                                 , OAuth2Error InvalidRequest
                                               (preview errorDescription "Response type is missing")
                                               Nothing
                                 )
         Just ResponseTypeCode -> return ()
-        Just _ -> throwError $ ( Just redirect'
-                                , OAuth2Error InvalidRequest
-                                              (preview errorDescription "Invalid response type")
-                                              Nothing
-                                )
-    sc <- case sc' of
-        Nothing -> throwError $ ( Just redirect'
-                                , OAuth2Error InvalidRequest
-                                              (preview errorDescription "Scope is missing")
-                                              Nothing
-                                )
-        Just sc -> if sc `compatibleScope` permissions then return sc else error "NOOOOO"
+        Just _ -> throwError ( Just redirect_uri
+                             , OAuth2Error InvalidRequest
+                                           (preview errorDescription "Invalid response type")
+                                           Nothing
+                             )
 
-    request_code <- liftIO $ storeCreateCode pool user_id clientClientId redirect' sc st
+    -- Optional (but we currently require): requested scope.
+    requested_scope <- case scope' of
+        Nothing ->
+            throwError $ ( Just redirect_uri
+                         , OAuth2Error InvalidRequest
+                                         (preview errorDescription "Scope is missing")
+                                         Nothing
+                         )
+        Just requested_scope ->
+            if requested_scope `compatibleScope` permissions
+                then return requested_scope
+                else throwError ( Just redirect_uri
+                                , OAuth2Error InvalidScope
+                                              (preview errorDescription "Invalid scope")
+                                              Nothing
+                                )
+
+    -- Create a code for this request.
+    request_code <- liftIO $ storeCreateCode pool user_id clientClientId redirect_uri requested_scope state
     return $ renderAuthorizePage request_code
 
 -- | Handle the approval or rejection, we get here from the page served in
