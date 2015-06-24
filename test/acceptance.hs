@@ -5,7 +5,6 @@ module Main where
 import           Control.Applicative
 import           Control.Exception
 import           Control.Lens
-import           Data.Text.Strict.Lens
 import           Control.Monad
 import           Control.Monad.Error.Class
 import           Control.Monad.IO.Class
@@ -19,6 +18,7 @@ import           Data.Function
 import           Data.Maybe
 import           Data.Monoid
 import qualified Data.Text.Encoding          as T
+import           Data.Text.Strict.Lens
 import           Network.HTTP.Client         (HttpException (..))
 import           Network.HTTP.Types          (Status (..))
 import           Network.Wreq
