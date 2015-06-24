@@ -63,6 +63,7 @@ import           Servant.API                         ((:<|>) (..), (:>),
                                                       AddHeader (addHeader),
                                                       Capture, FormUrlEncoded,
                                                       FromFormUrlEncoded (..),
+                                                      ToFormUrlEncoded (..),
                                                       FromText (..), Get,
                                                       Header, Headers, JSON,
                                                       OctetStream, Post,
@@ -346,56 +347,69 @@ authorizeEndpoint
     -> Maybe Scope        -- ^ Requested scope.
     -> Maybe ClientState  -- ^ State from requesting client.
     -> m Html
-authorizeEndpoint pool user_id user_perms resp_type' cid' redirect scope' state' = do
-    -- Required: a supported ResponseTypeCode value.
-    _response_type <- case resp_type' of
-        Just ResponseTypeCode -> return ResponseTypeCode
-        Just _ -> throwOAuth2Error $ OAuth2Error UnsupportedResponseType
-                                     (preview errorDescription "The authorization grant type is not supported by the authorization server.")
-                                     Nothing
-        Nothing -> throwOAuth2Error $ OAuth2Error InvalidRequest
-                                      (preview errorDescription "The request is missing the response_type parameter.")
-                                      Nothing
+authorizeEndpoint pool user_id permissions rt c_id' redirect sc' st = do
+    res <- runExceptT $ processAuthorizeGet pool user_id permissions rt c_id' redirect sc' st
+    case res of
+        Left (Nothing,e) -> error $ show e
+        Left (Just redirect',e) -> do
+            let url = addQueryParameters redirect' $
+                    map (bimap T.encodeUtf8 T.encodeUtf8) (toFormUrlEncoded e) <>
+                    [("state", st' ^.re clientState) | Just st' <- [st]]
+            throwError err302{ errHeaders = [(hLocation, url ^.re redirectURI)] }
+        Right x -> return x
 
-    -- Required: a ClientID value, which identified a client.
-    client' <- case cid' of
-        Just cid -> liftIO $ storeLookupClient pool cid
-        Nothing -> throwOAuth2Error $ OAuth2Error InvalidRequest
-                                      (preview errorDescription "The request is missing the client_id parameter.")
-                                      Nothing
-    client <- case client' of
+processAuthorizeGet
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       , MonadError (Maybe RedirectURI, OAuth2Error) m
+       )
+    => Pool Connection
+    -> UserID
+    -> Scope
+    -> Maybe ResponseType
+    -> Maybe ClientID
+    -> Maybe RedirectURI
+    -> Maybe Scope
+    -> Maybe ClientState
+    -> m Html
+processAuthorizeGet pool user_id permissions rt c_id' redirect sc' st = do
+    c_id <- case c_id' of
+        Nothing -> error "ClientID is missing"
+        Just c_id -> return c_id
+    res <- liftIO $ storeLookupClient pool c_id
+    ClientDetails{..} <- case res of
+        Nothing -> error $ "no client found with id" <> show c_id
         Just x -> return x
-        Nothing -> throwOAuth2Error $ OAuth2Error UnauthorizedClient
-                                      (preview errorDescription "This client is not authorized.")
-                                      Nothing
-
-    -- Optional: requested redirect URI.
     -- https://tools.ietf.org/html/rfc6749#section-3.1.2.3
-    -- @TODO(thsutton): Let's document our lack of support for RFC3986
-    redirect_uri <- case redirect of
-        Nothing -> return (head $ clientRedirectURI client)
+    redirect' <- case redirect of
+        Nothing -> case clientRedirectURI of
+            [redirect'] -> return redirect'
+            _ -> error $ "No redirect_uri provided and no unique default registered for client " <> show clientClientId
         Just redirect'
-            | redirect' `elem` (clientRedirectURI client) -> return redirect'
-            | otherwise -> throwOAuth2Error $ OAuth2Error
-                            InvalidRequest
-                            (preview errorDescription "The requested redirect_uri is invalid.")
-                            Nothing
+            | redirect' `elem` clientRedirectURI -> return redirect'
+            | otherwise -> error $ show redirect' <> " /= " <> show clientRedirectURI
 
-    -- Optional (but we currently require): requested scope.
-    requested_scope <- case scope' of
-        Just sc
-            | sc `compatibleScope` user_perms -> return sc
-            | otherwise -> throwOAuth2Error $ OAuth2Error InvalidScope
-                                              (preview errorDescription "The requested scope is invalid.")
+    case rt of
+        Nothing -> throwError $ ( Just redirect'
+                                , OAuth2Error InvalidRequest
+                                              (preview errorDescription "Response type is missing")
                                               Nothing
-        Nothing -> throwOAuth2Error $ OAuth2Error InvalidScope
-                                      (preview errorDescription "No scope was requested.")
-                                      Nothing
+                                )
+        Just ResponseTypeCode -> return ()
+        Just _ -> throwError $ ( Just redirect'
+                                , OAuth2Error InvalidRequest
+                                              (preview errorDescription "Invalid response type")
+                                              Nothing
+                                )
+    sc <- case sc' of
+        Nothing -> throwError $ ( Just redirect'
+                                , OAuth2Error InvalidRequest
+                                              (preview errorDescription "Scope is missing")
+                                              Nothing
+                                )
+        Just sc -> if sc `compatibleScope` permissions then return sc else error "NOOOOO"
 
-    -- Create a code for this request.
-    request_code <- liftIO $ storeCreateCode pool user_id (clientClientId client) redirect_uri requested_scope state'
-
-    -- @TODO(thsutton): Redirect the user to the reivew page.
+    request_code <- liftIO $ storeCreateCode pool user_id clientClientId redirect' sc st
     return $ renderAuthorizePage request_code
 
 -- | Handle the approval or rejection, we get here from the page served in
@@ -643,16 +657,15 @@ checkCredentials ref auth req = do
     checkRefreshToken :: ClientID -> Token -> Maybe Scope -> m (Maybe ClientID, Scope)
     checkRefreshToken client_id tok scope' = do
             details <- liftIO $ storeLoadToken ref tok
-            case (details, scope') of
+            case details of
                 -- The old token is dead.
-                (Nothing, _) -> do
+                Nothing -> do
                     liftIO $ debugM logName $ "Got passed invalid token " <> show tok
                     throwError $ OAuth2Error InvalidRequest
                                              (preview errorDescription "Invalid token")
                                              Nothing
-                (Just details', Nothing) -> do
+                Just details' -> do
                     -- Check the ClientIDs match.
-                    -- @TODO(thsutton): Remove duplication with below.
                     when (Just client_id /= tokenDetailsClientID details') $ do
                         liftIO . errorM logName $ "Refresh requested with "
                             <> "different ClientID: " <> show client_id <> " =/= "
@@ -661,29 +674,23 @@ checkCredentials ref auth req = do
                         throwError $ OAuth2Error InvalidClient
                                                  (preview errorDescription "Mismatching clientID")
                                                  Nothing
-                    return (Just client_id, tokenDetailsScope details')
-                (Just details', Just request_scope) -> do
-                    -- Check the ClientIDs match.
-                    -- @TODO(thsutton): Remove duplication with above.
-                    when (Just client_id /= tokenDetailsClientID details') $ do
-                        liftIO . errorM logName $ "Refresh requested with "
-                            <> "different ClientID: " <> show client_id <> " =/= "
-                            <> show (tokenDetailsClientID details') <> " for "
-                            <> show tok
-                        throwError $ OAuth2Error InvalidClient
-                                                 (preview errorDescription "Mismatching clientID")
-                                                 Nothing
-                    -- Check scope compatible.
-                    -- @TODO(thsutton): The concern with scopes should probably
-                    -- be completely removed here.
-                    unless (compatibleScope request_scope (tokenDetailsScope details')) $ do
-                        liftIO . debugM logName $ "Refresh requested with incompatible " <>
-                            "scopes: " <> show request_scope <> " vs " <>
-                            show (tokenDetailsScope details')
-                        throwError $ OAuth2Error InvalidScope
-                                                 (preview errorDescription "Incompatible scope")
-                                                 Nothing
-                    return (Just client_id, request_scope)
+
+                    case scope' of
+                         Nothing ->
+                             return (Just client_id, tokenDetailsScope details')
+                         Just request_scope -> do
+                             -- Check scope compatible.
+                             -- @TODO(thsutton): The concern with scopes should probably
+                             -- be completely removed here.
+                             unless (compatibleScope request_scope (tokenDetailsScope details')) $ do
+                                 liftIO . debugM logName $
+                                     "Refresh requested with incompatible " <>
+                                     "scopes: " <> show request_scope <> " vs " <>
+                                     show (tokenDetailsScope details')
+                                 throwError $ OAuth2Error InvalidScope
+                                                          (preview errorDescription "Incompatible scope")
+                                                          Nothing
+                             return (Just client_id, request_scope)
 
 -- | Given an AuthHeader sent by a client, verify that it authenticates.
 --   If it does, return the authenticated ClientID; otherwise, Nothing.
