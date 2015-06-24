@@ -40,9 +40,22 @@ renderAuthorizePage req@RequestCode{..} = docTypeHtml $ do
     body $ do
         h1 "Authorize"
         h2 $ toHtml (show req)
-        form ! method "POST" ! action "/authorize" $ do
+        -- TODO(thsutton): base URL of server should be configurable.
+        form ! method "POST" ! action "/oauth2/authorize" $ do
             br
-            input ! type_ "submit" ! value "YES"
+            input ! type_ "hidden"
+                  ! name "code"
+                  ! value (toValue $ show requestCodeCode)
+            -- Approve button is first and, therefore, the default action.
+            input ! type_ "submit"
+                  ! name "action"
+                  ! value "Approve"
+                  ! alt "Yes, please issue this token."
+            -- Reject button is second, so not the default action.
+            input ! type_ "submit"
+                  ! name "action"
+                  ! value "Decline"
+                  ! alt "No, do not issue this token."
 
 renderTokensPage :: Scope -> Int -> Page -> ([(Maybe ClientID, Scope, Token, TokenID)], Int) -> Html
 renderTokensPage userScope size (Page p) (ts, numTokens) = docTypeHtml $ do

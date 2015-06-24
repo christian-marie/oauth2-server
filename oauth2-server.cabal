@@ -148,6 +148,8 @@ test-suite             test-acceptance
   build-depends:       base
                      , aeson
                      , bytestring
+                     , HandsomeSoup
+                     , hxt
                      , hoauth2
                      , hspec
                      , http-client
@@ -155,6 +157,7 @@ test-suite             test-acceptance
                      , lens
                      , lens-aeson
                      , mtl
+                     , network-uri
                      , oauth2-server
                      , servant
                      , text

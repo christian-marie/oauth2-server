@@ -231,7 +231,7 @@ data ClientDetails = ClientDetails
 
 instance FromFormUrlEncoded Code where
     fromFormUrlEncoded xs = case lookup "code" xs of
-        Nothing -> Left "No code"
+        Nothing -> Left "Code is a required field."
         Just x -> case T.encodeUtf8 x ^? code of
             Nothing -> Left "Invalid Code Syntax"
             Just c -> Right c
