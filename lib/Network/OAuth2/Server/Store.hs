@@ -24,12 +24,14 @@
 module Network.OAuth2.Server.Store where
 
 import           Control.Applicative
+import           Control.Exception
 import           Control.Lens                (preview)
 import           Control.Lens.Prism
 import           Control.Lens.Review
 import qualified Data.ByteString             as BS
 import qualified Data.ByteString.Base64      as B64
 import           Data.Char
+import           Data.Int
 import           Data.Monoid
 import           Data.Pool
 import           Data.Text.Encoding
@@ -138,6 +140,25 @@ class TokenStore ref where
         -> TokenID
         -> IO ()
 
+    -- | (Optionally) gather EKG stats
+    storeGatherStats
+        :: ref
+        -> IO StoreStats
+    storeGatherStats _ = return defaultStoreStats
+
+-- | Record containing statistics to report from a store.
+data StoreStats = StoreStats
+    { statClients       :: Int64 -- ^ Registered clients
+    , statUsers         :: Int64 -- ^ Users who granted.
+    , statTokensIssued  :: Int64 -- ^ Tokens issued.
+    , statTokensExpired :: Int64 -- ^ Tokens expired.
+    , statTokensRevoked :: Int64 -- ^ Tokens revoked.
+    } deriving (Show, Eq)
+
+-- | Empty store stats, all starting from zero.
+defaultStoreStats :: StoreStats
+defaultStoreStats = StoreStats 0 0 0 0 0
+
 instance TokenStore (Pool Connection) where
     storeLookupClient pool client_id = do
         withResource pool $ \conn -> do
@@ -234,6 +255,31 @@ instance TokenStore (Pool Connection) where
                 0 -> fail $ "Failed to revoke token " <> show token_id <> " for user " <> show user_id
                 _ -> errorM logName $ "Consistency error: revoked multiple tokens " <> show token_id <> " for user " <> show user_id
 
+    storeGatherStats pool =
+        let gather :: Query -> Connection -> IO Int64
+            gather q conn = do
+                res <- try $ query_ conn q
+                case res of
+                    Left e -> do
+                        criticalM logName $ "storeGatherStats: error executing query "
+                                          <> show q <> " "
+                                          <> show (e :: SomeException)
+                        throw e
+                    Right [Only c] -> return c
+                    Right x   -> do
+                        warningM logName $ "Expected singleton count from PGS, got: " <> show x <> " defaulting to 0"
+                        return 0
+            gatherClients           = gather "SELECT COUNT(*) FROM clients"
+            gatherUsers             = gather "SELECT COUNT(DISTINCT user_id) FROM tokens"
+            gatherStatTokensIssued  = gather "SELECT COUNT(*) FROM tokens"
+            gatherStatTokensExpired = gather "SELECT COUNT(*) FROM tokens WHERE expires IS NOT NULL AND expires <= NOW ()"
+            gatherStatTokensRevoked = gather "SELECT COUNT(*) FROM tokens WHERE revoked IS NOT NULL"
+        in withResource pool $ \conn ->
+               StoreStats <$> gatherClients conn
+                          <*> gatherUsers conn
+                          <*> gatherStatTokensIssued conn
+                          <*> gatherStatTokensExpired conn
+                          <*> gatherStatTokensRevoked conn
 
 authDetails :: Prism' AuthHeader (ClientID, Password)
 authDetails =

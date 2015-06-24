@@ -14,25 +14,17 @@
 module Network.OAuth2.Server.Statistics where
 
 import           Control.Applicative
-import           Control.Exception
 import           Control.Monad
 import           Control.Monad.STM
 import qualified Data.HashMap.Strict         as HM
 import           Data.Int
-import           Data.Monoid
-import           Data.Pool
 import           Data.Text                   ()
-import           Database.PostgreSQL.Simple
 import           Pipes.Concurrent
-import           System.Log.Logger
 import           System.Metrics
 import qualified System.Metrics.Counter      as C
 
+import           Network.OAuth2.Server.Store
 import           Network.OAuth2.Server.Types
-
--- | Name of server component for logging.
-statsLogName :: String
-statsLogName = "Tokens.Server.Statistics"
 
 -- | Counters for EKG monitoring
 --
@@ -46,6 +38,15 @@ data GrantCounters = GrantCounters
     , extensionCounter         :: C.Counter
     }
 
+-- | Record containing statistics to report from grant events.
+data GrantStats = GrantStats
+    { statGrantCode              :: Int64 -- ^ Code grants completed.
+    , statGrantImplicit          :: Int64 -- ^ Implicit grants completed.
+    , statGrantOwnerCredentials  :: Int64 -- ^ Resource Owner credential grants completed.
+    , statGrantClientCredentials :: Int64 -- ^ Client credential grants completed.
+    , statGrantExtension         :: Int64 -- ^ Extension grants completed.
+    } deriving (Show, Eq)
+
 -- | Intitialize some empty 'GrantCounters'
 mkGrantCounters :: IO GrantCounters
 mkGrantCounters = GrantCounters
@@ -55,65 +56,20 @@ mkGrantCounters = GrantCounters
     <*> C.new
     <*> C.new
 
--- | Record containing statistics to report.
-data Stats = Stats
-    { statClients                :: Int64 -- ^ Registered clients
-    , statUsers                  :: Int64 -- ^ Users who granted.
+-- | Empty grant stats, all starting from zero.
+defaultGrantStats :: GrantStats
+defaultGrantStats = GrantStats 0 0 0 0 0
 
-    , statGrantCode              :: Int64 -- ^ Code grants completed.
-    , statGrantImplicit          :: Int64 -- ^ Implicit grants completed.
-    , statGrantOwnerCredentials  :: Int64 -- ^ Resource Owner credential grants completed.
-    , statGrantClientCredentials :: Int64 -- ^ Client credential grants completed.
-    , statGrantExtension         :: Int64 -- ^ Extension grants completed.
-
-    , statTokensIssued           :: Int64 -- ^ Tokens issued.
-    , statTokensExpired          :: Int64 -- ^ Tokens expired.
-    , statTokensRevoked          :: Int64 -- ^ Tokens revoked.
-    }
-  deriving (Show, Eq)
-
--- | Empty stats, all starting from zero.
-defaultStats :: Stats
-defaultStats = Stats 0 0 0 0 0 0 0 0 0 0
-
--- | Go to the postgres database and get some stats for now.
---
--- TODO: This should not talk directly to postgres, and should instead be
--- parametrised by TokenStore ref
-gatherStats
+-- | Get some stas from a GrantCounters
+grantGatherStats
     :: GrantCounters
-    -> Connection
-    -> IO Stats
-gatherStats GrantCounters{..} conn =
-    Stats <$> gatherClients
-          <*> gatherUsers
-          <*> C.read codeCounter
-          <*> C.read implicitCounter
-          <*> C.read ownerCredentialsCounter
-          <*> C.read clientCredentialsCounter
-          <*> C.read extensionCounter
-          <*> gatherStatTokensIssued
-          <*> gatherStatTokensExpired
-          <*> gatherStatTokensRevoked
-  where
-    gather :: Query -> IO Int64
-    gather q = do
-        res <- try $ query_ conn q
-        case res of
-            Left e -> do
-                criticalM statsLogName $ "gatherStats: error executing query "
-                                      <> show q <> " "
-                                      <> show (e :: SomeException)
-                throw e
-            Right [Only c] -> return c
-            Right x   -> do
-                warningM statsLogName $ "Expected singleton count from PGS, got: " <> show x <> " defaulting to 0"
-                return 0
-    gatherClients           = gather "SELECT COUNT(*) FROM clients"
-    gatherUsers             = gather "SELECT COUNT(DISTINCT user_id) FROM tokens"
-    gatherStatTokensIssued  = gather "SELECT COUNT(*) FROM tokens"
-    gatherStatTokensExpired = gather "SELECT COUNT(*) FROM tokens WHERE expires IS NOT NULL AND expires <= NOW ()"
-    gatherStatTokensRevoked = gather "SELECT COUNT(*) FROM tokens WHERE revoked IS NOT NULL"
+    -> IO GrantStats
+grantGatherStats GrantCounters{..} =
+    GrantStats <$> C.read codeCounter
+               <*> C.read implicitCounter
+               <*> C.read ownerCredentialsCounter
+               <*> C.read clientCredentialsCounter
+               <*> C.read extensionCounter
 
 -- | Increment 'GrantCounter's as 'GrantEvent' come in.
 statsWatcher :: Input GrantEvent -> GrantCounters -> IO ()
@@ -128,26 +84,28 @@ statsWatcher source GrantCounters{..} = forever $ do
             ClientCredentialsGranted -> clientCredentialsCounter
             ExtensionGranted         -> extensionCounter
 
--- | Set up EKG, registering the things.
+-- | Set up EKG
 registerOAuth2Metrics
-    :: Store
-    -> Pool Connection
+    :: TokenStore ref
+    => Store
+    -> ref
     -> Input GrantEvent
     -> GrantCounters
     -> IO ()
-registerOAuth2Metrics store connPool source counters = do
+registerOAuth2Metrics store ref source counters = do
     void $ forkIO $ statsWatcher source counters
     registerGroup (HM.fromList
         [ ("oauth2.clients",                   Gauge . statClients)
         , ("oauth2.users",                     Gauge . statUsers)
-
-        , ("oauth2.grants.code",               Counter . statGrantCode)
+        , ("oauth2.tokens.issued",             Gauge . statTokensIssued)
+        , ("oauth2.tokens.expired",            Gauge . statTokensExpired)
+        , ("oauth2.tokens.revoked",            Gauge . statTokensRevoked)
+        ]) (storeGatherStats ref) store
+    registerGroup (HM.fromList
+        [ ("oauth2.grants.code",               Counter . statGrantCode)
         , ("oauth2.grants.implicit",           Counter . statGrantImplicit)
         , ("oauth2.grants.owner_credentials",  Counter . statGrantOwnerCredentials)
         , ("oauth2.grants.client_credentials", Counter . statGrantClientCredentials)
         , ("oauth2.grants.extension",          Counter . statGrantExtension)
+        ]) (grantGatherStats counters) store
 
-        , ("oauth2.tokens.issued",             Gauge . statTokensIssued)
-        , ("oauth2.tokens.expired",            Gauge . statTokensExpired)
-        , ("oauth2.tokens.revoked",            Gauge . statTokensRevoked)
-        ]) (withResource connPool $ gatherStats counters) store
