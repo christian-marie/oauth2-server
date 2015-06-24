@@ -651,16 +651,15 @@ checkCredentials ref auth req = do
     checkRefreshToken :: ClientID -> Token -> Maybe Scope -> m (Maybe ClientID, Scope)
     checkRefreshToken client_id tok scope' = do
             details <- liftIO $ storeLoadToken ref tok
-            case (details, scope') of
+            case details of
                 -- The old token is dead.
-                (Nothing, _) -> do
+                Nothing -> do
                     liftIO $ debugM logName $ "Got passed invalid token " <> show tok
                     throwError $ OAuth2Error InvalidRequest
                                              (preview errorDescription "Invalid token")
                                              Nothing
-                (Just details', Nothing) -> do
+                Just details' -> do
                     -- Check the ClientIDs match.
-                    -- @TODO(thsutton): Remove duplication with below.
                     when (Just client_id /= tokenDetailsClientID details') $ do
                         liftIO . errorM logName $ "Refresh requested with "
                             <> "different ClientID: " <> show client_id <> " =/= "
@@ -669,29 +668,23 @@ checkCredentials ref auth req = do
                         throwError $ OAuth2Error InvalidClient
                                                  (preview errorDescription "Mismatching clientID")
                                                  Nothing
-                    return (Just client_id, tokenDetailsScope details')
-                (Just details', Just request_scope) -> do
-                    -- Check the ClientIDs match.
-                    -- @TODO(thsutton): Remove duplication with above.
-                    when (Just client_id /= tokenDetailsClientID details') $ do
-                        liftIO . errorM logName $ "Refresh requested with "
-                            <> "different ClientID: " <> show client_id <> " =/= "
-                            <> show (tokenDetailsClientID details') <> " for "
-                            <> show tok
-                        throwError $ OAuth2Error InvalidClient
-                                                 (preview errorDescription "Mismatching clientID")
-                                                 Nothing
-                    -- Check scope compatible.
-                    -- @TODO(thsutton): The concern with scopes should probably
-                    -- be completely removed here.
-                    unless (compatibleScope request_scope (tokenDetailsScope details')) $ do
-                        liftIO . debugM logName $ "Refresh requested with incompatible " <>
-                            "scopes: " <> show request_scope <> " vs " <>
-                            show (tokenDetailsScope details')
-                        throwError $ OAuth2Error InvalidScope
-                                                 (preview errorDescription "Incompatible scope")
-                                                 Nothing
-                    return (Just client_id, request_scope)
+
+                    case scope' of
+                         Nothing ->
+                             return (Just client_id, tokenDetailsScope details')
+                         Just request_scope -> do
+                             -- Check scope compatible.
+                             -- @TODO(thsutton): The concern with scopes should probably
+                             -- be completely removed here.
+                             unless (compatibleScope request_scope (tokenDetailsScope details')) $ do
+                                 liftIO . debugM logName $
+                                     "Refresh requested with incompatible " <>
+                                     "scopes: " <> show request_scope <> " vs " <>
+                                     show (tokenDetailsScope details')
+                                 throwError $ OAuth2Error InvalidScope
+                                                          (preview errorDescription "Incompatible scope")
+                                                          Nothing
+                             return (Just client_id, request_scope)
 
 -- | Given an AuthHeader sent by a client, verify that it authenticates.
 --   If it does, return the authenticated ClientID; otherwise, Nothing.
