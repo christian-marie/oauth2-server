@@ -1,11 +1,13 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings     #-}
 
 module Main where
 
 import           Control.Applicative
+import           Control.Arrow
 import           Control.Exception
 import           Control.Lens
-import           Data.Text.Strict.Lens
 import           Control.Monad
 import           Control.Monad.Error.Class
 import           Control.Monad.IO.Class
@@ -19,28 +21,29 @@ import           Data.Function
 import           Data.Maybe
 import           Data.Monoid
 import qualified Data.Text.Encoding          as T
+import           Data.Text.Strict.Lens
 import           Network.HTTP.Client         (HttpException (..))
 import           Network.HTTP.Types          (Status (..))
+import           Network.URI
 import           Network.Wreq
 import           Servant.Common.Text
 import           System.Environment
 import           Test.Hspec
+import           Text.HandsomeSoup
+import           Text.XML.HXT.Core           (IOSArrow, XmlTree, runX)
 
 import           Network.OAuth2.Server       hiding (refreshToken)
 import           Network.OAuth2.Server.Types hiding (refreshToken)
 import qualified Network.OAuth2.Server.Types as OAuth2
 
-type URI = String
-
 main :: IO ()
 main = do
     args <- getArgs
     case args of
-        ('h':'t':'t':'p':'s':':':'/':'/':uri):rest -> withArgs rest $ hspec (tests $ "https://"<>uri)
-        ('h':'t':'t':'p':':':'/':'/':uri):rest -> withArgs rest $ hspec (tests $ "http://"<>uri)
+        (uri:rest) | Just x <- parseURI uri -> withArgs rest $ hspec (tests x)
         _ -> putStrLn "First argument must be a server URI."
 
-tests :: String -> Spec
+tests :: URI -> Spec
 tests base_uri = do
     describe "token endpoint" $ do
         it "uses the same details when refreshing a token" $ do
@@ -113,34 +116,18 @@ tests base_uri = do
             resp <- runExceptT $ getAuthorizePage base_uri Nothing code_request
             resp `shouldBe` Left "500 Internal Server Error - Something went wrong"
 
-        it "displays the details of the token to be approved" $ do
-            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) code_request
-            resp `shouldSatisfy` isRight
-
-            let Right page = resp
-            page `shouldSatisfy` ("Client Name" `BC.isInfixOf`)
-            page `shouldSatisfy` ("Client Description" `BC.isInfixOf`)
-            page `shouldSatisfy` ("missiles:launch" `BC.isInfixOf`)
-            page `shouldSatisfy` ("login" `BC.isInfixOf`)
-
-        it "includes an identifier for the code request" $ do
-            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) code_request
-            resp `shouldSatisfy` isRight
-            let Right page = resp
-
-            Right (uri, fields) <- runExceptT $ getAuthorizeFields base_uri page
-            fields `shouldSatisfy` (not . null)
-
         it "the POST returns an error when Shibboleth authentication headers are missing" $ do
             -- 1. Get the page.
             resp <- runExceptT $ getAuthorizePage base_uri (Just user1) code_request
             resp `shouldSatisfy` isRight
             -- 2. Extract the code.
             let Right page = resp
-            let code = BC.take 10 page
-            -- 3. Send the response.
-            resp <- runExceptT $ sendAuthorization base_uri Nothing []
-            resp `shouldSatisfy` isRight
+            resp <- runExceptT $ getAuthorizeFields base_uri page
+            case resp of
+                Left _ -> error "No fields"
+                Right (uri, fields) -> do
+                    resp <- runExceptT $ sendAuthorization uri Nothing fields
+                    resp `shouldSatisfy` isLeft
 
         it "the POST returns an error when the request ID is missing" $ do
             -- 1. Get the page.
@@ -148,10 +135,15 @@ tests base_uri = do
             resp `shouldSatisfy` isRight
             -- 2. Extract the code.
             let Right page = resp
-            let code = BC.take 10 page
-            -- 3. Send the response.
-            resp <- runExceptT $ sendAuthorization base_uri (Just user1) []
-            resp `shouldSatisfy` isRight
+            resp <- runExceptT $ getAuthorizeFields base_uri page
+            case resp of
+                Left _ -> error "No fields"
+                Right (uri, fields) -> do
+                    let f = filter (\(k,v) -> k /= "code") fields
+                    resp <- runExceptT $ sendAuthorization uri (Just user1) f
+                    -- TODO(thsutton): FromFormUrlEncoded Code results in this
+                    -- terrible error.
+                    resp `shouldBe` (Left "400 Bad Request - invalid request body: Code is a required field.")
 
         it "the POST returns an error when the Shibboleth authentication headers identify a mismatched user" $ do
             -- 1. Get the page.
@@ -159,24 +151,38 @@ tests base_uri = do
             resp `shouldSatisfy` isRight
             -- 2. Extract the code.
             let Right page = resp
-            let code = BC.take 10 page
-            -- 3. Send the response.
-            resp <- runExceptT $ sendAuthorization base_uri (Just user2) []
-            resp `shouldBe` (Left "403 Unauthorized - You are not authorized to approve this request.")
+            resp <- runExceptT $ getAuthorizeFields base_uri page
+            case resp of
+                Left _ -> error "No fields"
+                Right (uri, fields) -> do
+                    resp <- runExceptT $ sendAuthorization uri (Just user2) fields
+                    resp `shouldBe` (Left "403 Unauthorized - You are not authorized to approve this request.")
 
-        it "the POST returns a redirect when approved" $ do
+        it "the redirect contains a code which can be used to request a token" $ do
             -- 1. Get the page.
             resp <- runExceptT $ getAuthorizePage base_uri (Just user1) code_request
             resp `shouldSatisfy` isRight
+
             -- 2. Extract the code.
             let Right page = resp
-            let code = BC.take 10 page
-            -- 3. Send the response.
-            resp <- runExceptT $ sendAuthorization base_uri Nothing []
-            resp `shouldSatisfy` isRight
 
-        it "the redirect contains a code which can be used to request a token"
-            pending
+            -- 3. Check that the page describes the requested token.
+            page `shouldSatisfy` ("Client Name" `BC.isInfixOf`)
+            page `shouldSatisfy` ("Client Description" `BC.isInfixOf`)
+            page `shouldSatisfy` ("missiles:launch" `BC.isInfixOf`)
+            page `shouldSatisfy` ("login" `BC.isInfixOf`)
+
+            -- 4. Extract details from the form.
+            resp <- runExceptT $ getAuthorizeFields base_uri page
+            case resp of
+                Left _ -> error "No fields"
+                Right (uri, fields) -> do
+                    -- 5. Submit the approval form.
+                    resp <- runExceptT $ sendAuthorization uri (Just user1) fields
+                    resp `shouldSatisfy` isRight
+
+                    -- 6. Use the code in the redirect to request a token.
+                    -- requestTokenWithCode base_uri client1
 
     describe "user interface" $ do
         it "returns an error when Shibboleth authentication headers are missing"
@@ -194,12 +200,11 @@ tests base_uri = do
 -- | Use the verify endpoint of a token server to verify a token.
 verifyToken :: URI -> (ClientID, Password) -> Token -> IO (Either String AccessResponse)
 verifyToken base_uri (client,secret) tok = do
-
     let opts = defaults & header "Accept" .~ ["application/json"]
                         & header "Content-Type" .~ ["application/octet-stream"]
                         & auth ?~ basicAuth user pass
 
-    r <- try (postWith opts endpoint body)
+    r <- try (postWith opts (show endpoint) body)
     case r of
         Left (StatusCodeException (Status c m) h _) -> do
             let b = BC.unpack <$> lookup "X-Response-Body-Start" h
@@ -213,7 +218,7 @@ verifyToken base_uri (client,secret) tok = do
     user = review clientID client
     pass = T.encodeUtf8 $ review password secret
     body = review token tok
-    endpoint = base_uri <> "/oauth2/verify"
+    endpoint = base_uri { uriPath = "/oauth2/verify" }
 
 refreshToken
     :: URI
@@ -225,7 +230,7 @@ refreshToken base_uri (client, secret) tok = do
                         & header "Content-Type" .~ ["application/json"]
                         & auth ?~ basicAuth user pass
 
-    r <- liftIO $ try (postWith opts endpoint body)
+    r <- liftIO $ try (postWith opts (show endpoint) body)
     grant <- case r of
         Left (StatusCodeException (Status c m) h _) -> do
             let b = BC.unpack <$> lookup "X-Response-Body-Start" h
@@ -242,7 +247,7 @@ refreshToken base_uri (client, secret) tok = do
            , ("refresh_token", review token tok)
            -- , ("", "") -- Scope
            ] -- RequestRefreshToken token Nothing
-    endpoint = base_uri <> "/oauth2/token"
+    endpoint = base_uri { uriPath = "/oauth2/token" }
     pass = T.encodeUtf8 $ review password secret
     user = review clientID client
 
@@ -257,8 +262,8 @@ requestToken base_uri (client, secret) (uid, perms) scope = do
     code <- authorizeRequest auth_endpoint (uid, perms) client scope
     throwError "Not implemented"
   where
-    auth_endpoint = base_uri <> "/oauth2/authorize"
-    token_endpoint = base_uri <> "/oauth2/token"
+    auth_endpoint = base_uri { uriPath = "/oauth2/authorize" }
+    token_endpoint = base_uri { uriPath = "/oauth2/token" }
 
 -- | Conact a server and authorize a request.
 authorizeRequest
@@ -284,39 +289,66 @@ getAuthorizePage base_uri user_m (client, req_scope) = do
                         & param "response_type" .~ ["code"]
                         & param "client_id" .~ [T.decodeUtf8 $ review clientID client]
                         & param "scope" .~ [T.decodeUtf8 . scopeToBs $ req_scope]
-                        & auths user_m
+                        & addAuthHeaders user_m
 
-    r <- liftIO $ try (getWith opts endpoint)
+    r <- liftIO $ try (getWith opts (show endpoint))
+    handleResponse r
+  where
+    endpoint = base_uri { uriPath = "/oauth2/authorize" }
+
+handleResponse
+    :: MonadError String m
+    => Either HttpException (Response BSL.ByteString)
+    -> m ByteString
+handleResponse r =
     case r of
         Left (StatusCodeException (Status c m) h _) -> do
             let b = BC.unpack <$> lookup "X-Response-Body-Start" h
             throwError $ show c <> " " <> BC.unpack m <> " - " <> fromMaybe "" b
         Left e -> throwError (show e)
         Right v ->
-            case v ^? responseBody of
-                Nothing -> throwError "Could not decode response."
-                Just tr -> return $ BSL.toStrict tr
-  where
-    endpoint = base_uri <> "/oauth2/authorize"
-    auths Nothing = id
-    auths (Just (user, perms)) =
-          (header "Identity-OAuthUser" .~ [review userid user])
-        . (header "Identity-OAuthUserScopes" .~ [scopeToBs perms])
+            return $ v ^. responseBody . to BSL.toStrict
 
+addAuthHeaders :: Maybe (UserID, Scope) -> Options -> Options
+addAuthHeaders Nothing = id
+addAuthHeaders (Just (user, perms)) =
+    (header "Identity-OAuthUser" .~ [review userid user])
+    . (header "Identity-OAuthUserScopes" .~ [scopeToBs perms])
+
+-- | Helper for string -> bytestring conversion and lifting IO
+runXBS :: MonadIO m => IOSArrow XmlTree String -> m [ByteString]
+runXBS a = liftIO $ runX (a >>^ BC.pack)
+
+-- | Extract form fields and submission URI from authorize endpoint HTML.
 getAuthorizeFields
     :: URI
     -> ByteString
     -> ExceptT String IO (URI, [(ByteString, ByteString)])
-getAuthorizeFields uri page = do
-    throwError "Not implemented"
+getAuthorizeFields base_uri page = do
+    let doc = parseHtml (BC.unpack page)
+    form_actions <- liftIO . runX $ doc >>> css "form" ! "action"
+    dst_uri <- case form_actions of
+        [tgt] ->
+            case parseURIReference tgt of
+                Nothing -> error $ "invalid uri: " <> tgt
+                Just dst_uri -> return dst_uri
+        xs -> throwError $ "Expected one form, got " <> show (length xs)
+    names <- runXBS $ doc >>> css "form input" ! "name"
+    vals <- runXBS $ doc >>> css "form input" ! "value"
 
+    return (dst_uri `relativeTo` base_uri, zip names vals)
+
+-- | Submit authorization form
 sendAuthorization
     :: URI
     -> Maybe (UserID, Scope)
     -> [(ByteString, ByteString)]
     -> ExceptT String IO ByteString
-sendAuthorization uri user fields = do
-    throwError "Not implemented"
+sendAuthorization uri user_m fields = do
+    let opts = defaults & header "Accept" .~ ["text/html"]
+                        & addAuthHeaders user_m
+    r <- liftIO . try $ postWith opts (show uri) fields
+    handleResponse r
 
 -- * Fixtures
 --
