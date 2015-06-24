@@ -897,6 +897,33 @@ instance FromJSON OAuth2Error where
                  f Nothing = pure Nothing
              in o .:? "error_uri" >>= f)
 
+instance ToFormUrlEncoded OAuth2Error where
+    toFormUrlEncoded OAuth2Error{..} = map (fmap T.decodeUtf8) $
+        [ ("error", oauth2ErrorCode ^.re errorCode) ] <>
+        [ ("error_description", desc ^.re errorDescription) | Just desc <- [oauth2ErrorDescription]] <>
+        [ ("error_uri", toByteString . serializeURI $ uri)  | Just uri <- [oauth2ErrorURI]]
+
+instance FromFormUrlEncoded OAuth2Error where
+    fromFormUrlEncoded xs = OAuth2Error
+        <$> (case lookup "error" xs of
+                 Nothing -> Left "Key \"error\" is missing"
+                 Just x -> case T.encodeUtf8 x ^? errorCode of
+                     Nothing -> Left $ "Invalid error: " <> show x
+                     Just e -> Right e
+            )
+        <*> (case lookup "error_description" xs of
+                 Nothing -> Right Nothing
+                 Just x -> case T.encodeUtf8 x ^? errorDescription of
+                     Nothing -> Left $ "Invalid error_description: " <> show x
+                     Just res -> Right $ Just res
+            )
+        <*> (case lookup "error_uri" xs of
+                 Nothing -> Right Nothing
+                 Just x -> case parseURI strictURIParserOptions $ T.encodeUtf8 x of
+                     Left _ -> Left $ "Invalid error_description: " <> show x
+                     Right res -> Right $ Just res
+            )
+
 instance FromText Scope where
     fromText = bsToScope . T.encodeUtf8
 
