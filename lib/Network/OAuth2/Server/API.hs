@@ -63,6 +63,7 @@ import           Servant.API                         ((:<|>) (..), (:>),
                                                       AddHeader (addHeader),
                                                       Capture, FormUrlEncoded,
                                                       FromFormUrlEncoded (..),
+                                                      ToFormUrlEncoded (..),
                                                       FromText (..), Get,
                                                       Header, Headers, JSON,
                                                       OctetStream, Post,
@@ -341,13 +342,31 @@ authorizeEndpoint
     -> Maybe ClientState
     -> m Html
 authorizeEndpoint pool user_id permissions rt c_id' redirect sc' st = do
-    case rt of
-        Nothing -> error "Response type code is missing"
-        Just ResponseTypeCode -> return ()
-        Just x -> error $ "Invalid response type: " <> show x
-    sc <- case sc' of
-        Nothing -> error "Scope is missing"
-        Just sc -> if sc `compatibleScope` permissions then return sc else error "NOOOOO"
+    res <- runExceptT $ processAuthorizeGet pool user_id permissions rt c_id' redirect sc' st
+    case res of
+        Left (Nothing,e) -> error $ show e
+        Left (Just redirect',e) -> do
+            let url = addQueryParameters redirect' $
+                    map (bimap T.encodeUtf8 T.encodeUtf8) (toFormUrlEncoded e) <>
+                    [("state", st' ^.re clientState) | Just st' <- [st]]
+            throwError err302{ errHeaders = [(hLocation, url ^.re redirectURI)] }
+        Right x -> return x
+
+processAuthorizeGet
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       , MonadError (Maybe RedirectURI, OAuth2Error) m
+       )
+    => Pool Connection
+    -> UserID
+    -> Scope
+    -> Maybe ResponseType
+    -> Maybe ClientID
+    -> Maybe RedirectURI
+    -> Maybe Scope
+    -> Maybe ClientState
+    -> m Html
+processAuthorizeGet pool user_id permissions rt c_id' redirect sc' st = do
     c_id <- case c_id' of
         Nothing -> error "ClientID is missing"
         Just c_id -> return c_id
@@ -355,15 +374,34 @@ authorizeEndpoint pool user_id permissions rt c_id' redirect sc' st = do
     ClientDetails{..} <- case res of
         Nothing -> error $ "no client found with id" <> show c_id
         Just x -> return x
-
     -- https://tools.ietf.org/html/rfc6749#section-3.1.2.3
     redirect' <- case redirect of
         Nothing -> case clientRedirectURI of
             [redirect'] -> return redirect'
-            _ -> error $ "No redirect_uri providid and no unique default registered for client " <> show clientClientId
+            _ -> error $ "No redirect_uri provided and no unique default registered for client " <> show clientClientId
         Just redirect'
             | redirect' `elem` clientRedirectURI -> return redirect'
             | otherwise -> error $ show redirect' <> " /= " <> show clientRedirectURI
+
+    case rt of
+        Nothing -> throwError $ ( Just redirect'
+                                , OAuth2Error InvalidRequest
+                                              (preview errorDescription "Response type is missing")
+                                              Nothing
+                                )
+        Just ResponseTypeCode -> return ()
+        Just _ -> throwError $ ( Just redirect'
+                                , OAuth2Error InvalidRequest
+                                              (preview errorDescription "Invalid response type")
+                                              Nothing
+                                )
+    sc <- case sc' of
+        Nothing -> throwError $ ( Just redirect'
+                                , OAuth2Error InvalidRequest
+                                              (preview errorDescription "Scope is missing")
+                                              Nothing
+                                )
+        Just sc -> if sc `compatibleScope` permissions then return sc else error "NOOOOO"
 
     request_code <- liftIO $ storeCreateCode pool user_id clientClientId redirect' sc st
     return $ renderAuthorizePage request_code
