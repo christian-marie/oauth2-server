@@ -311,7 +311,7 @@ server state@ServerState{..}
     :<|> handleShib (serverDisplayToken serverPGConnPool)
     :<|> handleShib (serverPostToken serverPGConnPool)
 
--- Any shibboleth authed endpoint must have all relevant headers defined, and
+-- | Any shibboleth authed endpoint must have all relevant headers defined, and
 -- any other case is an internal error. handleShib consolidates checking these
 -- headers.
 handleShib
@@ -338,8 +338,8 @@ authorizeEndpoint
        , MonadError ServantErr m
        )
     => Pool Connection
-    -> UserID -- ^ Authenticated user
-    -> Scope  -- ^ Authenticated permissions
+    -> UserID             -- ^ Authenticated user
+    -> Scope              -- ^ Authenticated permissions
     -> Maybe ResponseType -- ^ Requested response type.
     -> Maybe ClientID     -- ^ Requesting Client ID.
     -> Maybe RedirectURI  -- ^ Requested redirect URI.
@@ -348,7 +348,7 @@ authorizeEndpoint
     -> m Html
 authorizeEndpoint pool user_id user_perms resp_type' cid' redirect scope' state' = do
     -- Required: a supported ResponseTypeCode value.
-    response_type <- case resp_type' of
+    _response_type <- case resp_type' of
         Just ResponseTypeCode -> return ResponseTypeCode
         Just _ -> throwOAuth2Error $ OAuth2Error UnsupportedResponseType
                                      (preview errorDescription "The authorization grant type is not supported by the authorization server.")

@@ -5,6 +5,7 @@ module Main where
 import           Control.Applicative
 import           Control.Exception
 import           Control.Lens
+import           Data.Text.Strict.Lens
 import           Control.Monad
 import           Control.Monad.Error.Class
 import           Control.Monad.IO.Class
@@ -106,7 +107,7 @@ tests base_uri = do
 
     describe "authorize endpoint" $ do
         let Just a_scope = bsToScope "login missiles:launch"
-        let code_request = (const a_scope <$> client1)
+        let code_request = a_scope <$ client1
 
         it "returns an error when Shibboleth authentication headers are missing" $ do
             resp <- runExceptT $ getAuthorizePage base_uri Nothing code_request

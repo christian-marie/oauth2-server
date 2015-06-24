@@ -22,7 +22,7 @@ CREATE TABLE clients (
 -- Store codes for use in Authorizatrion Code Grant
 -- https://tools.ietf.org/html/rfc6749#section-4.1
 CREATE TABLE request_codes (
-    code         VARCHAR(73)    NOT NULL DEFAULT uuid_generate_v4(),
+    code         VARCHAR(42)    NOT NULL DEFAULT uuid_generate_v4(),
 
     authorized   BOOLEAN        NOT NULL DEFAULT FALSE,
     expires TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW() + '10 minutes',
