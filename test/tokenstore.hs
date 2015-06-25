@@ -64,8 +64,8 @@ instance Arbitrary ClientID where
         (^?! packedChars . clientID) <$> vectorOf 32 alphabet
 
 instance Arbitrary Token where
-  arbitrary =
-    (^?! packedChars . token) <$> vectorOf 63 alphabet
+    arbitrary =
+        (^?! packedChars . token) <$> vectorOf 63 alphabet
 
 instance Arbitrary TokenType where
     arbitrary = arbitraryBoundedEnum
@@ -79,7 +79,7 @@ instance Arbitrary TokenGrant where
                    <*> arbitrary
 
 instance Arbitrary TokenDetails where
-  arbitrary = tokenDetails <$> arbitrary <*> arbitrary
+    arbitrary = tokenDetails <$> arbitrary <*> arbitrary
 
 instance Arbitrary ByteString where
     arbitrary = B.pack <$> arbitrary
@@ -93,6 +93,11 @@ instance Arbitrary Page where
     arbitrary = do
         n <- (succ . abs) <$> arbitrary :: Gen Integer
         maybe arbitrary return (n ^? page)
+
+instance Arbitrary Code where
+    arbitrary = do
+        bs <- B.pack <$> listOf alphabet
+        maybe arbitrary return (bs ^? code)
 
 main :: IO ()
 main = do
@@ -119,17 +124,39 @@ suite pg_pool =
 testStore :: TokenStore ref => ref -> SpecM () ()
 testStore ref = do
     prop "empty database props" (propEmpty ref)
+    prop "save then load token" (propSaveThenLoadToken ref)
 
 -- | Group props that rely on an empty DB together because maybe it's expensive
 -- to create an empty DB.
-propEmpty :: TokenStore ref => ref -> Token -> UserID -> Page -> Property
-propEmpty ref tok uid pg =
+propEmpty :: TokenStore ref => ref -> Token -> UserID -> Page -> Code -> Property
+propEmpty ref tok uid pg code' =
     monadicIO $ do
         -- There shouldn't be any tokens, so we shouldn't be able to load any.
         no_token <- run $ storeLoadToken ref tok
         assert (no_token == Nothing)
 
+        no_code <- run $ storeLoadCode ref code'
+        assert (no_code == Nothing)
+
         (list, n_pages) <- run $ storeListTokens ref 100 uid pg
         assert (null list)
         assert (n_pages == 0)
+
+-- | Saving a valid token grant, then trying to read it should always work,
+-- no matter what.
+propSaveThenLoadToken :: TokenStore ref => ref -> TokenGrant -> Property
+propSaveThenLoadToken ref token_grant = do
+    monadicIO $ do
+        -- We first save the grant
+        details1 <- run $ storeSaveToken ref token_grant
+        -- Then try to read it back
+        maybe_details2 <- run $ storeLoadToken ref (tokenDetailsToken details1)
+
+        case maybe_details2 of
+            Nothing ->
+                error "Expected load to be Just for grant: " $ show token_grant
+            Just details2 ->
+                -- The thing we read should both exist and be the same 
+                assert (details1 == details2)
+
 

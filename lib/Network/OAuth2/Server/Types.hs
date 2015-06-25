@@ -509,7 +509,7 @@ data RequestCode = RequestCode
     , requestCodeScope       :: Maybe Scope
     , requestCodeState       :: Maybe ClientState
     }
-  deriving (Typeable, Show)
+  deriving (Typeable, Show, Eq)
 
 -- | A request to the token endpoint.
 --
