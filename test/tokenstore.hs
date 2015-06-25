@@ -14,7 +14,7 @@ module Main where
 import           Control.Applicative
 import           Control.Lens.Operators
 import           Control.Monad
-import           Control.Monad.Error
+import           Control.Monad.Except
 import           Data.ByteString             (ByteString)
 import qualified Data.ByteString.Char8       as B
 import           Data.Maybe
@@ -26,7 +26,7 @@ import           Database.PostgreSQL.Simple
 import           Network.OAuth2.Server
 import           System.Process
 import           Test.Hspec
-import           Test.Hspec.Core             (SpecM)
+import           Test.Hspec.Core.Spec        (SpecM)
 import           Test.Hspec.QuickCheck
 import           Test.QuickCheck
 import           Test.QuickCheck.Monadic
