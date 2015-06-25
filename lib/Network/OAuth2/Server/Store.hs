@@ -26,9 +26,7 @@ module Network.OAuth2.Server.Store where
 
 import           Control.Applicative
 import           Control.Exception
-import           Control.Lens                (preview, review)
-import           Control.Lens.Prism
-import           Control.Lens.Review
+import           Control.Lens                (preview, review, prism', Prism')
 import qualified Data.ByteString             as BS
 import qualified Data.ByteString.Base64      as B64
 import           Data.Char
