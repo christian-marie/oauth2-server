@@ -499,6 +499,10 @@ verifyEndpoint ServerState{..} (Just auth) token' = do
     logD = liftIO . debugM (logName <> ".verifyEndpoint")
     logE = liftIO . errorM (logName <> ".verifyEndpoint")
 
+-- | Page 1 is totally a valid page, promise.
+page1 :: Page
+page1 = (1 :: Integer) ^?! page
+
 -- | Display a given token, if the user is allowed to do so.
 serverDisplayToken
     :: ( MonadIO m
@@ -514,7 +518,7 @@ serverDisplayToken pool u s t = do
     res <- liftIO $ storeDisplayToken pool u t
     case res of
         Nothing -> throwError err404{errBody = "There's nothing here! =("}
-        Just x -> return $ renderTokensPage s 1 (Page 1) ([x], 1)
+        Just x -> return $ renderTokensPage s 1 page1 ([x], 1)
 
 -- | List all tokens for a given user, paginated.
 serverListTokens
@@ -529,7 +533,7 @@ serverListTokens
     -> Maybe Page
     -> m Html
 serverListTokens pool size u s p = do
-    let p' = fromMaybe (Page 1) p
+    let p' = fromMaybe page1 p
     res <- liftIO $ storeListTokens pool size u p'
     return $ renderTokensPage s size p' res
 
@@ -560,7 +564,7 @@ serverRevokeToken
     -> m Html
 serverRevokeToken pool u _ t = do
     liftIO $ storeRevokeToken pool u t
-    let link = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy ListTokens) (Page 1)
+    let link = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy ListTokens) page1
     throwError err302{errHeaders = [(hLocation, B.pack $ show link)]} --Redirect to tokens page
 
 -- | Create a new token

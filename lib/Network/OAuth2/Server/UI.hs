@@ -10,6 +10,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE TemplateHaskell   #-}
+{-# LANGUAGE ViewPatterns      #-}
 
 module Network.OAuth2.Server.UI where
 
@@ -58,7 +59,7 @@ renderAuthorizePage req@RequestCode{..} = docTypeHtml $ do
                   ! alt "No, do not issue this token."
 
 renderTokensPage :: Scope -> Int -> Page -> ([(Maybe ClientID, Scope, Token, TokenID)], Int) -> Html
-renderTokensPage userScope size (Page p) (ts, numTokens) = docTypeHtml $ do
+renderTokensPage userScope size (review page -> p) (ts, numTokens) = docTypeHtml $ do
     head $ do
         title "Such Token"
         style ! type_ "text/css" $ toHtml stylesheet
@@ -72,7 +73,7 @@ renderTokensPage userScope size (Page p) (ts, numTokens) = docTypeHtml $ do
             htmlInvalidPage
   where
     numPages = if numTokens == 0 then 1 else ((numTokens - 1) `div` size) + 1
-    validPage = p > 0 && p <= numPages
+    validPage = p <= numPages
     prevPages = p /= 1
     nextPages = p < numPages
     htmlPageButton n =

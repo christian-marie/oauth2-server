@@ -38,6 +38,7 @@ Library
                      , case-insensitive
                      , configurator
                      , containers
+                     , errors
                      , ekg
                      , ekg-core
                      , file-embed
