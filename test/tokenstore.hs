@@ -60,8 +60,14 @@ instance Arbitrary Scope where
         fromJust . bsToScope . B.pack . unwords <$> listOf1 (listOf1 alphabet)
 
 instance Arbitrary ClientID where
-    arbitrary =
-        (^?! packedChars . clientID) <$> vectorOf 32 alphabet
+    arbitrary = do
+        -- Stores are is seeded with two clients, as there is not yet an
+        -- interface for creating them.
+        --
+        -- See: test/initial-data.sql for the postgresql store
+        uid <- elements [ "5641ea27-1111-1111-1111-8fc06b502be0"
+                        , "5641ea27-2222-2222-2222-8fc06b502be0" ]
+        return $ uid ^?! packedChars . clientID
 
 instance Arbitrary Token where
     arbitrary =
@@ -112,7 +118,8 @@ getPGPool = do
     callCommand $ concat
         [ " dropdb --if-exists ", dbname, " || true"
         , " && createdb ", dbname
-        , " && psql --quiet --file=schema/postgresql.sql ", dbname ]
+        , " && psql --quiet --file=schema/postgresql.sql ", dbname
+        , " && psql --quiet --file=test/initial-data.sql ", dbname ]
     let db = B.pack $ "dbname=" ++ dbname
     createPool (connectPostgreSQL db) close 1 1 1
 
