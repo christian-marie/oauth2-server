@@ -19,15 +19,14 @@
 {-# LANGUAGE StandaloneDeriving         #-}
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE ViewPatterns               #-}
 
 -- | OAuth2 token storage, including instances for postgres
 module Network.OAuth2.Server.Store where
 
 import           Control.Applicative
 import           Control.Exception
-import           Control.Lens                (preview)
-import           Control.Lens.Prism
-import           Control.Lens.Review
+import           Control.Lens                (preview, review, prism', Prism')
 import qualified Data.ByteString             as BS
 import qualified Data.ByteString.Base64      as B64
 import           Data.Char
@@ -224,7 +223,7 @@ instance TokenStore (Pool Connection) where
                 errorM logName $ "Consistency error: multiple tokens found matching " <> show tok
                 return Nothing
 
-    storeListTokens pool size uid (Page p) = do
+    storeListTokens pool size uid (review page -> p) = do
         withResource pool $ \conn -> do
             debugM logName $ "Listing tokens for " <> show uid
             tokens <- query conn "SELECT client_id, scope, token, token_id FROM tokens WHERE (user_id = ?) AND revoked is NULL ORDER BY created LIMIT ? OFFSET ?" (uid, size, (p - 1) * size)

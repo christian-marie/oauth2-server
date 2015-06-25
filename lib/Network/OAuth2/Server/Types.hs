@@ -45,7 +45,8 @@ module Network.OAuth2.Server.Types (
   HTTPAuthChallenge(..),
   nqchar,
   nqschar,
-  Page(..),
+  Page,
+  page,
   Password,
   password,
   RequestCode(..),
@@ -77,6 +78,7 @@ module Network.OAuth2.Server.Types (
 import           Blaze.ByteString.Builder                   (toByteString)
 import           Control.Applicative                        (Applicative ((<*), (<*>), pure),
                                                              (<$>), (<|>))
+import           Control.Error.Util                         (hush)
 import           Control.Lens.Fold                          (preview, (^?))
 import           Control.Lens.Operators                     ((%~), (&), (^.))
 import           Control.Lens.Prism                         (Prism', prism')
@@ -117,6 +119,7 @@ import           Data.String
 import           Data.Text                                  (Text)
 import qualified Data.Text                                  as T (all, unpack)
 import qualified Data.Text.Encoding                         as T (decodeUtf8,
+                                                                  decodeUtf8',
                                                                   encodeUtf8)
 import           Data.Time.Clock                            (UTCTime,
                                                              diffUTCTime)
@@ -157,7 +160,8 @@ instance ToField UserID where
     toField = toField . unpackUserID
 
 userid :: Prism' ByteString UserID
-userid = prism' (T.encodeUtf8 . unpackUserID) (Just . UserID . T.decodeUtf8)
+userid = prism' (T.encodeUtf8 . unpackUserID)
+                (fmap UserID . hush . T.decodeUtf8')
 
 newtype TokenID = TokenID { unTokenID :: UUID }
     deriving (Eq, Show, Ord)
@@ -187,8 +191,13 @@ instance FromField Token where
 -- | Page number for paginated user interfaces.
 --
 -- Pages are things that are counted, so 'Page' starts at 1.
-newtype Page = Page { unpackPage :: Int }
+newtype Page = Page { unpackPage :: Integer }
   deriving (Eq, Ord, Show, FromText, ToText)
+
+-- | Prism for constructing a page, must be > 0
+page :: Integral n => Prism' n Page
+page = prism' (fromIntegral . unpackPage)
+              (\(toInteger -> i) -> guard (i > 0) >> return (Page i))
 
 -- | Configuration options for the server.
 data ServerOptions = ServerOptions
@@ -287,8 +296,8 @@ nqschar c = or
 unicodecharnocrlf :: Char -> Bool
 unicodecharnocrlf (ord -> c) = or
     [ c==0x09
-    , c>=0x20 && c<=0x7E
-    , c>=0x80 && c<=0xD7FF
+    , c>=0x20   && c<=0x7E
+    , c>=0x80   && c<=0xD7FF
     , c>=0xE000 && c<=0xFFFD
     ]
 

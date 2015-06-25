@@ -13,13 +13,12 @@ module Main where
 
 import           Control.Applicative
 import           Control.Lens.Operators
-import           Control.Monad
-import           Control.Monad.Except
 import           Data.ByteString             (ByteString)
 import qualified Data.ByteString.Char8       as B
+import           Data.ByteString.Lens        (packedChars)
 import           Data.Maybe
 import           Data.Pool
-import qualified Data.Text                   as T
+import           Data.Text.Lens              (packed)
 import           Data.Time.Calendar
 import           Data.Time.Clock
 import           Database.PostgreSQL.Simple
@@ -41,43 +40,59 @@ deriving instance Bounded TokenType
 deriving instance Enum    TokenType
 
 instance Arbitrary UTCTime where
-  arbitrary = UTCTime <$> day <*> time
-    where day  = ModifiedJulianDay <$> arbitrary
-          time = secondsToDiffTime <$> arbitrary
+    arbitrary =
+        UTCTime <$> arbitrary <*> arbitrary
+
+instance Arbitrary DiffTime where
+    arbitrary =
+        secondsToDiffTime <$> arbitrary
+
+instance Arbitrary Day where
+    arbitrary =
+        ModifiedJulianDay <$> arbitrary
 
 instance Arbitrary Username where
-  arbitrary = do
-    s <- liftM (take 32) $ infiniteListOf alphabet
-    return (T.pack s ^?! username)
+    arbitrary =
+        (^?! packed . username) <$> vectorOf 32 alphabet
 
 instance Arbitrary Scope where
-  arbitrary = do
-    s <- liftM unwords $ listOf1 $ listOf1 alphabet
-    return $ fromJust $ bsToScope $ B.pack s -- trust me
+    arbitrary =
+        fromJust . bsToScope . B.pack . unwords <$> listOf1 (listOf1 alphabet)
 
 instance Arbitrary ClientID where
-  arbitrary = do
-    s <- liftM (take 32) $ infiniteListOf alphabet
-    return (B.pack s ^?! clientID)
+    arbitrary =
+        (^?! packedChars . clientID) <$> vectorOf 32 alphabet
 
 instance Arbitrary Token where
-  arbitrary = do
-    s <- liftM (take 64) $ infiniteListOf alphabet
-    return (B.pack s ^?! token)
+  arbitrary =
+    (^?! packedChars . token) <$> vectorOf 63 alphabet
 
 instance Arbitrary TokenType where
-  arbitrary = arbitraryBoundedEnum
+    arbitrary = arbitraryBoundedEnum
 
 instance Arbitrary TokenGrant where
-  arbitrary =   TokenGrant
-            <$> arbitrary
-            <*> arbitrary
-            <*> arbitrary
-            <*> arbitrary
-            <*> arbitrary
+    arbitrary =
+        TokenGrant <$> arbitrary
+                   <*> arbitrary
+                   <*> arbitrary
+                   <*> arbitrary
+                   <*> arbitrary
 
 instance Arbitrary TokenDetails where
   arbitrary = tokenDetails <$> arbitrary <*> arbitrary
+
+instance Arbitrary ByteString where
+    arbitrary = B.pack <$> arbitrary
+
+instance Arbitrary UserID where
+    arbitrary = do
+        bs <- arbitrary
+        maybe arbitrary return (bs ^? userid)
+
+instance Arbitrary Page where
+    arbitrary = do
+        n <- (succ . abs) <$> arbitrary :: Gen Integer
+        maybe arbitrary return (n ^? page)
 
 main :: IO ()
 main = do
@@ -103,16 +118,18 @@ suite pg_pool =
 
 testStore :: TokenStore ref => ref -> SpecM () ()
 testStore ref = do
-    prop "empty database props" (emptyProps ref)
+    prop "empty database props" (propEmpty ref)
 
 -- | Group props that rely on an empty DB together because maybe it's expensive
 -- to create an empty DB.
-emptyProps :: TokenStore ref => ref -> Property
-emptyProps ref =
+propEmpty :: TokenStore ref => ref -> Token -> UserID -> Page -> Property
+propEmpty ref tok uid pg =
     monadicIO $ do
-        no_token <- run $ do
-            -- Create a new empty db
-            let Just tok = "hai" ^? token
-            storeLoadToken ref tok -- storeListTokens r "Woo" 10 (Page 0)
-
+        -- There shouldn't be any tokens, so we shouldn't be able to load any.
+        no_token <- run $ storeLoadToken ref tok
         assert (no_token == Nothing)
+
+        (list, n_pages) <- run $ storeListTokens ref 100 uid pg
+        assert (null list)
+        assert (n_pages == 0)
+
