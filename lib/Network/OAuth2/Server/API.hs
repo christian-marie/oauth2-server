@@ -48,14 +48,12 @@ import           Data.ByteString.Conversion          (ToByteString (..))
 import           Data.Either
 import           Data.Maybe
 import           Data.Monoid
-import           Data.Pool
 import           Data.Proxy
 import qualified Data.Set                            as S
 import qualified Data.Text                           as T
 import qualified Data.Text.Encoding                  as T
 import           Data.Time.Clock                     (UTCTime, addUTCTime,
                                                       getCurrentTime)
-import           Database.PostgreSQL.Simple
 import           Network.HTTP.Types                  hiding (Header)
 import           Network.OAuth2.Server.Configuration as X
 import           Network.OAuth2.Server.Types         as X
@@ -135,11 +133,11 @@ throwOAuth2Error e =
                       }
 
 -- | Handler for 'TokenEndpoint', basically a wrapper for 'processTokenRequest'
-tokenEndpoint :: Pool Connection -> Server TokenEndpoint
+tokenEndpoint :: TokenStore ref => ref -> Server TokenEndpoint
 tokenEndpoint _ _ (Left e) = throwOAuth2Error e
-tokenEndpoint conf auth (Right req) = do
+tokenEndpoint ref auth (Right req) = do
     t <- liftIO getCurrentTime
-    res <- liftIO . runExceptT $ processTokenRequest conf t auth req
+    res <- liftIO . runExceptT $ processTokenRequest ref t auth req
     case res of
         Left e -> throwOAuth2Error e
         Right response -> do
@@ -337,8 +335,9 @@ authorizeEndpoint
     :: ( MonadIO m
        , MonadBaseControl IO m
        , MonadError ServantErr m
+       , TokenStore ref
        )
-    => Pool Connection
+    => ref
     -> UserID             -- ^ Authenticated user
     -> Scope              -- ^ Authenticated permissions
     -> Maybe ResponseType -- ^ Requested response type.
@@ -347,8 +346,8 @@ authorizeEndpoint
     -> Maybe Scope        -- ^ Requested scope.
     -> Maybe ClientState  -- ^ State from requesting client.
     -> m Html
-authorizeEndpoint pool user_id permissions response_type client_id' redirect scope' state = do
-    res <- runExceptT $ processAuthorizeGet pool user_id permissions response_type client_id' redirect scope' state
+authorizeEndpoint ref user_id permissions response_type client_id' redirect scope' state = do
+    res <- runExceptT $ processAuthorizeGet ref user_id permissions response_type client_id' redirect scope' state
     case res of
         Left (Nothing, e) -> throwOAuth2Error e
         Left (Just redirect', e) -> do
@@ -362,8 +361,9 @@ processAuthorizeGet
     :: ( MonadIO m
        , MonadBaseControl IO m
        , MonadError (Maybe RedirectURI, OAuth2Error) m
+       , TokenStore ref
        )
-    => Pool Connection
+    => ref
     -> UserID
     -> Scope
     -> Maybe ResponseType
@@ -372,11 +372,11 @@ processAuthorizeGet
     -> Maybe Scope
     -> Maybe ClientState
     -> m Html
-processAuthorizeGet pool user_id permissions response_type client_id' redirect scope' state = do
+processAuthorizeGet ref user_id permissions response_type client_id' redirect scope' state = do
     -- Required: a ClientID value, which identifies a client.
     ClientDetails{..} <- case client_id' of
         Just client_id -> do
-            client <- liftIO $ storeLookupClient pool client_id
+            client <- liftIO $ storeLookupClient ref client_id
             case client of
                 Nothing -> error $ "Could not find client with id: " <> show client_id
                 Just c -> return c
@@ -424,7 +424,7 @@ processAuthorizeGet pool user_id permissions response_type client_id' redirect s
                                 )
 
     -- Create a code for this request.
-    request_code <- liftIO $ storeCreateCode pool user_id clientClientId redirect_uri requested_scope state
+    request_code <- liftIO $ storeCreateCode ref user_id clientClientId redirect_uri requested_scope state
     return $ renderAuthorizePage request_code
 
 -- | Handle the approval or rejection, we get here from the page served in
@@ -433,14 +433,15 @@ authorizePost
     :: ( MonadIO m
        , MonadBaseControl IO m
        , MonadError ServantErr m
+       , TokenStore ref
        )
-    => Pool Connection
+    => ref
     -> UserID
     -> Scope
     -> Code
     -> m ()
-authorizePost pool user_id _scope code' = do
-    res <- liftIO $ storeActivateCode pool code' user_id
+authorizePost ref user_id _scope code' = do
+    res <- liftIO $ storeActivateCode ref code' user_id
     case res of
         Nothing -> error "NOOOO"
         Just uri -> do
@@ -504,14 +505,15 @@ serverDisplayToken
     :: ( MonadIO m
        , MonadBaseControl IO m
        , MonadError ServantErr m
+       , TokenStore ref
        )
-    => Pool Connection
+    => ref
     -> UserID
     -> Scope
     -> TokenID
     -> m Html
-serverDisplayToken pool u s t = do
-    res <- liftIO $ storeDisplayToken pool u t
+serverDisplayToken ref u s t = do
+    res <- liftIO $ storeDisplayToken ref u t
     case res of
         Nothing -> throwError err404{errBody = "There's nothing here! =("}
         Just x -> return $ renderTokensPage s 1 (Page 1) ([x], 1)
@@ -521,16 +523,17 @@ serverListTokens
     :: ( MonadIO m
        , MonadBaseControl IO m
        , MonadError ServantErr m
+       , TokenStore ref
        )
-    => Pool Connection
+    => ref
     -> Int
     -> UserID
     -> Scope
     -> Maybe Page
     -> m Html
-serverListTokens pool size u s p = do
+serverListTokens ref size u s p = do
     let p' = fromMaybe (Page 1) p
-    res <- liftIO $ storeListTokens pool size u p'
+    res <- liftIO $ storeListTokens ref size u p'
     return $ renderTokensPage s size p' res
 
 -- | Handle a token create/delete request.
@@ -538,45 +541,22 @@ serverPostToken
     :: ( MonadIO m
        , MonadBaseControl IO m
        , MonadError ServantErr m
+       , TokenStore ref
        )
-    => Pool Connection
+    => ref
     -> UserID
     -> Scope
     -> TokenRequest
     -> m Html
-serverPostToken pool u s (DeleteRequest t)  = serverRevokeToken pool u s t
-serverPostToken pool u s (CreateRequest rs) = serverCreateToken pool u s rs
-
 -- | Revoke a given token
-serverRevokeToken
-    :: ( MonadIO m
-       , MonadBaseControl IO m
-       , MonadError ServantErr m
-       )
-    => Pool Connection
-    -> UserID
-    -> Scope
-    -> TokenID
-    -> m Html
-serverRevokeToken pool u _ t = do
-    liftIO $ storeRevokeToken pool u t
+serverPostToken ref user_id _ (DeleteRequest token_id) = do
+    liftIO $ storeRevokeToken ref user_id token_id
     let link = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy ListTokens) (Page 1)
     throwError err302{errHeaders = [(hLocation, B.pack $ show link)]} --Redirect to tokens page
-
 -- | Create a new token
-serverCreateToken
-    :: ( MonadIO m
-       , MonadBaseControl IO m
-       , MonadError ServantErr m
-       )
-    => Pool Connection
-    -> UserID
-    -> Scope
-    -> Scope
-    -> m Html
-serverCreateToken pool user_id userScope reqScope = do
-    if compatibleScope reqScope userScope then do
-        TokenID t <- liftIO $ storeCreateToken pool user_id reqScope
+serverPostToken ref user_id user_scope (CreateRequest req_scope) =
+    if compatibleScope req_scope user_scope then do
+        TokenID t <- liftIO $ storeCreateToken ref user_id req_scope
         let link = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy DisplayToken) (TokenID t)
         throwError err302{errHeaders = [(hLocation, B.pack $ show link)]} --Redirect to tokens page
     else throwError err403{errBody = "Invalid requested token scope"}
