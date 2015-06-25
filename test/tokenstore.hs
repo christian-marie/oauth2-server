@@ -13,31 +13,25 @@ module Main where
 
 import           Control.Applicative
 import           Control.Lens.Operators
-import           Control.Monad
-import           Control.Monad.Error
 import           Data.ByteString             (ByteString)
 import qualified Data.ByteString.Char8       as B
+import           Data.ByteString.Lens        (packedChars)
 import           Data.Maybe
 import           Data.Pool
-import qualified Data.Text                   as T
+import           Data.Text.Lens              (packed)
 import           Data.Time.Calendar
 import           Data.Time.Clock
 import           Database.PostgreSQL.Simple
 import           Network.OAuth2.Server
 import           System.Process
 import           Test.Hspec
-import           Test.Hspec.Core             (SpecM)
+import           Test.Hspec.Core.Spec        (SpecM)
 import           Test.Hspec.QuickCheck
 import           Test.QuickCheck
 import           Test.QuickCheck.Monadic
-import Data.Text.Lens(packed)
-import Data.ByteString.Lens(packedChars)
 
 import           Network.OAuth2.Server.Store
 import           Network.OAuth2.Server.Types
-
-
-import Debug.Trace
 
 alphabet :: Gen Char
 alphabet = elements ['a'..'z']
