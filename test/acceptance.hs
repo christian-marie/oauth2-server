@@ -167,8 +167,9 @@ tests base_uri = do
             let Right page = resp
 
             -- 3. Check that the page describes the requested token.
-            page `shouldSatisfy` ("Client Name" `BC.isInfixOf`)
-            page `shouldSatisfy` ("Client Description" `BC.isInfixOf`)
+            page `shouldSatisfy` ("Name" `BC.isInfixOf`)
+            page `shouldSatisfy` ("ID" `BC.isInfixOf`)
+            page `shouldSatisfy` ("Description" `BC.isInfixOf`)
             page `shouldSatisfy` ("missiles:launch" `BC.isInfixOf`)
             page `shouldSatisfy` ("login" `BC.isInfixOf`)
 
