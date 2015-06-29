@@ -24,23 +24,25 @@ module Network.OAuth2.Server
     module Network.OAuth2.Server.Statistics,
 ) where
 
+import           Control.Applicative                    ((<$>))
 import           Control.Concurrent
 import           Control.Concurrent.Async
 import           Data.Pool
-import qualified Data.Streaming.Network              as N
+import qualified Data.Streaming.Network                 as N
 import           Database.PostgreSQL.Simple
-import qualified Network.Socket                      as S
-import           Network.Wai.Handler.Warp            hiding (Connection)
+import qualified Network.Socket                         as S
+import           Network.Wai.Handler.Warp               hiding (Connection)
 import           Pipes.Concurrent
 import           Servant.Server
 import           System.Log.Logger
-import qualified System.Remote.Monitoring            as EKG
+import qualified System.Remote.Monitoring               as EKG
 
 import           Network.OAuth2.Server.API
 import           Network.OAuth2.Server.Configuration
 import           Network.OAuth2.Server.Statistics
+import           Network.OAuth2.Server.Store.PostgreSQL
 
-import           Paths_oauth2_server                 as P
+import           Paths_oauth2_server                    as P
 
 
 logName :: String
@@ -49,14 +51,14 @@ logName = "Anchor.Tokens.Server"
 -- | Start the statistics-reporting thread.
 startStatistics
     :: ServerOptions
-    -> Pool Connection
+    -> PSQLConnPool
     -> GrantCounters
     -> IO (Output GrantEvent, IO ())
-startStatistics ServerOptions{..} connPool counters = do
+startStatistics ServerOptions{..} ref counters = do
     debugM logName $ "Starting EKG"
     srv <- EKG.forkServer optStatsHost optStatsPort
     (output, input, seal) <- spawn' (bounded 50)
-    registerOAuth2Metrics (EKG.serverMetricStore srv) connPool input counters
+    registerOAuth2Metrics (EKG.serverMetricStore srv) ref input counters
     let stop = do
             debugM logName $ "Stopping EKG"
             atomically seal
@@ -78,14 +80,14 @@ startServer serverOpts@ServerOptions{..} = do
         stripes = 1
         keep_alive = 10
         num_conns = 20
-    serverPGConnPool <-
+    ref@(PSQLConnPool pool) <- PSQLConnPool <$>
         createPool createConn destroyConn stripes keep_alive num_conns
     counters <- mkGrantCounters
-    (serverEventSink, serverEventStop) <- startStatistics serverOpts serverPGConnPool counters
+    (serverEventSink, serverEventStop) <- startStatistics serverOpts ref counters
     let settings = setPort optServicePort $ setHost optServiceHost $ defaultSettings
     apiSrv <- async $ do
         debugM logName $ "Starting API Server"
-        runSettingsSocket settings sock $ serve anchorOAuth2API (server ServerState{..})
+        runSettingsSocket settings sock $ serve anchorOAuth2API (server ref serverOpts)
     let serverServiceStop = do
             debugM logName $ "Closing API Socket"
             S.close sock
@@ -94,5 +96,5 @@ startServer serverOpts@ServerOptions{..} = do
                 debugM logName $ "Stopped API Server"
     return $ do
         serverEventStop
-        destroyAllResources serverPGConnPool
+        destroyAllResources pool
         serverServiceStop
