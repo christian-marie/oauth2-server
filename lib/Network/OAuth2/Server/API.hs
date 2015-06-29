@@ -300,15 +300,15 @@ anchorOAuth2API :: Proxy AnchorOAuth2API
 anchorOAuth2API = Proxy
 
 -- | Construct a server of the entire API from an initial state
-server :: ServerState -> Server AnchorOAuth2API
-server state@ServerState{..}
-       = tokenEndpoint serverPGConnPool
-    :<|> verifyEndpoint state
-    :<|> handleShib (authorizeEndpoint serverPGConnPool)
-    :<|> handleShib (authorizePost serverPGConnPool)
-    :<|> handleShib (serverListTokens serverPGConnPool (optUIPageSize serverOpts))
-    :<|> handleShib (serverDisplayToken serverPGConnPool)
-    :<|> handleShib (serverPostToken serverPGConnPool)
+server :: TokenStore ref => ref -> ServerOptions -> Server AnchorOAuth2API
+server ref serverOpts
+       = tokenEndpoint ref
+    :<|> verifyEndpoint ref serverOpts
+    :<|> handleShib (authorizeEndpoint ref)
+    :<|> handleShib (authorizePost ref)
+    :<|> handleShib (serverListTokens ref (optUIPageSize serverOpts))
+    :<|> handleShib (serverDisplayToken ref)
+    :<|> handleShib (serverPostToken ref)
 
 -- | Any shibboleth authed endpoint must have all relevant headers defined, and
 -- any other case is an internal error. handleShib consolidates checking these
@@ -456,20 +456,22 @@ verifyEndpoint
     :: ( MonadIO m
        , MonadBaseControl IO m
        , MonadError ServantErr m
+       , TokenStore ref
        )
-    => ServerState
+    => ref
+    -> ServerOptions
     -> Maybe AuthHeader
     -> Token
     -> m (Headers '[Header "Cache-Control" NoCache] AccessResponse)
-verifyEndpoint ServerState{..} Nothing _token =
+verifyEndpoint _ ServerOptions{..} Nothing _token =
     throwError login
   where
-    login = err401 { errHeaders = toHeaders $ BasicAuth (Realm $ optVerifyRealm serverOpts)
+    login = err401 { errHeaders = toHeaders $ BasicAuth (Realm optVerifyRealm)
                    , errBody = "Login to validate a token."
                    }
-verifyEndpoint ServerState{..} (Just auth) token' = do
+verifyEndpoint ref ServerOptions{..} (Just auth) token' = do
     -- 1. Check client authentication.
-    client_id' <- liftIO . runExceptT $ checkClientAuth serverPGConnPool auth
+    client_id' <- liftIO . runExceptT $ checkClientAuth ref auth
     client_id <- case client_id' of
         Left e -> do
             logE $ "Error verifying token: " <> show (e :: OAuth2Error)
@@ -480,7 +482,7 @@ verifyEndpoint ServerState{..} (Just auth) token' = do
         Right (Just cid) -> do
             return cid
     -- 2. Load token information.
-    tok <- liftIO $ storeLoadToken serverPGConnPool token'
+    tok <- liftIO $ storeLoadToken ref token'
     case tok of
         Nothing -> do
             logD $ "Cannot verify token: failed to lookup " <> show token'
@@ -495,7 +497,7 @@ verifyEndpoint ServerState{..} (Just auth) token' = do
             return . addHeader NoCache $ grantResponse now details (Just token')
   where
     denied = err404 { errBody = "This is not a valid token." }
-    login = err401 { errHeaders = toHeaders $ BasicAuth (Realm $ optVerifyRealm serverOpts)
+    login = err401 { errHeaders = toHeaders $ BasicAuth (Realm optVerifyRealm)
                    , errBody = "Login to validate a token."
                    }
     logD = liftIO . debugM (logName <> ".verifyEndpoint")

@@ -102,8 +102,8 @@ main = do
 dbname :: String
 dbname = "test_tokenstore"
 
-getPGPool :: IO (Pool Connection)
-getPGPool = do
+getPGPool :: IO PSQLConnPool
+getPGPool = PSQLConnPool <$> do
     callCommand $ concat
         [ " dropdb --if-exists ", dbname, " || true"
         , " && createdb ", dbname
@@ -111,7 +111,7 @@ getPGPool = do
     let db = B.pack $ "dbname=" ++ dbname
     createPool (connectPostgreSQL db) close 1 1 1
 
-suite :: Pool Connection -> Spec
+suite :: PSQLConnPool -> Spec
 suite pg_pool =
     describe "Postgres store" $ do
         testStore pg_pool

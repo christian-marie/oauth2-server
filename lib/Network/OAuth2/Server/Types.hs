@@ -25,6 +25,7 @@ module Network.OAuth2.Server.Types (
   addQueryParameters,
   OAuth2Error(..),
   AuthHeader(..),
+  authDetails,
   bsToScope,
   ClientDetails(..),
   ClientID,
@@ -58,7 +59,6 @@ module Network.OAuth2.Server.Types (
   ScopeToken,
   scopeToken,
   ServerOptions(..),
-  ServerState(..),
   ToHTTPHeaders(..),
   Token,
   token,
@@ -98,8 +98,8 @@ import           Data.Attoparsec.ByteString                 (endOfInput,
                                                              takeWhile1,
                                                              word8)
 import           Data.ByteString                            (ByteString)
-import qualified Data.ByteString                            as B (all,
-                                                                  null)
+import qualified Data.ByteString                            as B (all, null)
+import qualified Data.ByteString.Base64                     as B64 (decode)
 import qualified Data.ByteString.Char8                      as BC
 import qualified Data.ByteString.Lazy                       as BSL (fromStrict,
                                                                     toStrict)
@@ -141,8 +141,8 @@ import           URI.ByteString                             (URI, parseURI,
                                                              uriFragmentL,
                                                              uriQueryL)
 
-import Network.OAuth2.Server.Types.Common
-import Network.OAuth2.Server.Types.Scope
+import           Network.OAuth2.Server.Types.Common
+import           Network.OAuth2.Server.Types.Scope
 
 -- | Unique identifier for a user.
 newtype UserID = UserID
@@ -203,13 +203,6 @@ data ServerOptions = ServerOptions
     , optVerifyRealm :: ByteString
     }
   deriving (Eq, Show)
-
--- | State of the running server, including database connectioned, etc.
-data ServerState = ServerState
-    { serverPGConnPool :: Pool Connection
-    , serverEventSink  :: Output GrantEvent
-    , serverOpts       :: ServerOptions
-    }
 
 -- | Describes events which should be tracked by the monitoring statistics
 -- system.
@@ -702,6 +695,23 @@ data AuthHeader = AuthHeader
     , authParam  :: ByteString
     }
   deriving (Eq, Show, Typeable)
+
+authDetails :: Prism' AuthHeader (ClientID, Password)
+authDetails =
+    prism' fromPair toPair
+  where
+    toPair AuthHeader{..} = case authScheme of
+        "Basic" ->
+            case BC.split ':' <$> B64.decode authParam of
+                Right [client_id, secret] -> do
+                    client_id' <- preview clientID client_id
+                    secret' <- preview password $ T.decodeUtf8 secret
+                    return (client_id', secret')
+                _                         -> Nothing
+        _       -> Nothing
+
+    fromPair (client_id, secret) =
+        AuthHeader "Basic" $ (review clientID client_id) <> " " <> T.encodeUtf8 (review password secret)
 
 instance FromText AuthHeader where
     fromText t = do
