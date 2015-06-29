@@ -27,8 +27,8 @@ CREATE TABLE request_codes (
     authorized   BOOLEAN        NOT NULL DEFAULT FALSE,
     expires TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW() + '10 minutes',
 
-    user_id      VARCHAR(256),
-    client_id    VARCHAR(37),
+    user_id      VARCHAR(256)   NOT NULL,
+    client_id    VARCHAR(37)    NOT NULL,
     redirect_url VARCHAR(256)       NULL,
     scope        VARCHAR(512)[]     NULL,
     state        TEXT               NULL,
@@ -54,7 +54,7 @@ CREATE TABLE tokens (
     client_id     VARCHAR(37)                  NULL,
 
     -- Token identifies this user.
-    user_id   VARCHAR(256)   NOT NULL,
+    user_id       VARCHAR(256)                 NULL,
 
     PRIMARY KEY (token),
     FOREIGN KEY (client_id) REFERENCES clients (client_id)
