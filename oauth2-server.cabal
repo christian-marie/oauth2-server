@@ -25,6 +25,8 @@ Library
                      , Network.OAuth2.Server.Statistics
                      , Network.OAuth2.Server.Store
                      , Network.OAuth2.Server.Types
+                     , Network.OAuth2.Server.Types.Common
+                     , Network.OAuth2.Server.Types.Scope
                      , Network.OAuth2.Server.UI
   build-depends:       base >=4.7 && <4.9
                      , aeson
