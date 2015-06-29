@@ -14,40 +14,88 @@
 
 module Network.OAuth2.Server.UI where
 
+import           Blaze.ByteString.Builder    (toByteString)
 import           Control.Lens
 import           Control.Monad
 import qualified Data.ByteString.Char8       as BS
 import           Data.FileEmbed
+import           Data.Foldable               (traverse_)
 import           Data.Maybe
 import           Data.Monoid
 import qualified Data.Set                    as S
 import qualified Data.Text.Encoding          as T
+import           Data.Text.Strict.Lens       (packed, utf8)
+import           Network.OAuth2.Server.Types
 import           Prelude                     hiding (head)
 import           Prelude                     hiding (head)
 import           Text.Blaze.Html5            hiding (code, div, map, p)
 import           Text.Blaze.Html5.Attributes hiding (form, scope, size, style,
                                               title)
-
-import           Network.OAuth2.Server.Types
+import qualified Text.Blaze.Html5.Attributes as Blaze
+import           URI.ByteString              (serializeURI)
 
 stylesheet :: String
 stylesheet = BS.unpack $(embedFile "style.css")
 
-renderAuthorizePage :: ClientDetails -> RequestCode -> Html
-renderAuthorizePage client req@RequestCode{..} = docTypeHtml $ do
+-- | Helper for displaying client details
+partialClientDetails :: ClientDetails -> Html
+partialClientDetails client_details = do
+    table $
+        traverse_
+            (uncurry mkRow)
+            [ ("ID", to clientClientId . re clientID . utf8)
+            , ("Name", to clientName)
+            , ("Description", to clientDescription)
+            , ("App URL", to clientAppUrl . to serializeURI . to toByteString . utf8)
+            ]
+  where
+    mkRow hdr txt_lens =
+        -- If encoding goes bad, just leave the row out
+        case client_details ^? txt_lens of
+            Nothing -> return ()
+            Just txt -> do
+                tr $ do
+                    th hdr ! Blaze.scope "row"
+                    td (text txt)
+
+-- | Helper for displaying requset code details
+partialRequestCode :: RequestCode -> Html
+partialRequestCode request_code = do
+     table $
+        traverse_
+            (uncurry mkRow)
+            [ ("Expires", to requestCodeExpires . to show . packed)
+            , ("Requested scope", to requestCodeScope . _Just . to scopeToBs . utf8)
+            , ("Redirect URI", to requestCodeRedirectURI . re redirectURI . utf8)
+            ]
+  where
+    mkRow hdr txt_lens =
+        -- If encoding goes bad, just leave the row out
+        case request_code ^? txt_lens of
+            Nothing -> return ()
+            Just txt -> do
+                tr $ do
+                    th hdr ! Blaze.scope "row"
+                    td (text txt)
+
+renderAuthorizePage :: RequestCode -> ClientDetails -> Html
+renderAuthorizePage req@RequestCode{..} client_details = docTypeHtml $ do
     head $ do
-        title "Such Authorize"
+        title "Token authorization"
         style ! type_ "text/css" $ toHtml stylesheet
     body $ do
-        h1 "Authorize"
-        h2 $ toHtml (show req)
-        h3 $ toHtml (show client)
+        h2 "This client:"
+        partialClientDetails client_details
+
+        h2 "Is making the following request"
+        partialRequestCode req
+
         -- TODO(thsutton): base URL of server should be configurable.
         form ! method "POST" ! action "/oauth2/authorize" $ do
             br
             input ! type_ "hidden"
                   ! name "code"
-                  ! value (toValue . T.decodeUtf8 . review code $ requestCodeCode)
+                  ! value (toValue $ show requestCodeCode)
             -- Approve button is first and, therefore, the default action.
             input ! type_ "submit"
                   ! name "action"
