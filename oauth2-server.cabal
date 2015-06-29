@@ -26,6 +26,7 @@ Library
                      , Network.OAuth2.Server.Store
                      , Network.OAuth2.Server.Types
                      , Network.OAuth2.Server.UI
+                     , Network.Wai.Middleware.Shibboleth
   build-depends:       base >=4.7 && <4.9
                      , aeson
                      , async
@@ -66,6 +67,7 @@ Library
                      , uri-bytestring
                      , uuid
                      , vector
+                     , wai
                      , warp
 
   ghc-options: -Wall -fwarn-tabs -funbox-strict-fields
