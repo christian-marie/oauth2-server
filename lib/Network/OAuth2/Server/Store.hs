@@ -26,7 +26,7 @@ module Network.OAuth2.Server.Store where
 
 import           Control.Applicative
 import           Control.Exception
-import           Control.Lens                (preview, review, prism', Prism')
+import           Control.Lens                (Prism', preview, prism', review)
 import qualified Data.ByteString             as BS
 import qualified Data.ByteString.Base64      as B64
 import           Data.Char
@@ -181,11 +181,11 @@ instance TokenStore (Pool Connection) where
 
     storeActivateCode pool code' user_id = do
         withResource pool $ \conn -> do
-            debugM logName $ "Attempting storeActivateCode"
+            debugM logName $ "Attempting storeActivateCode with " <> show code'
             res <- query conn "UPDATE request_codes SET authorized = TRUE WHERE code = ? AND user_id = ? RETURNING redirect_url" (code', user_id)
             case res of
                 [] -> return Nothing
-                [Only uri] -> return uri
+                [Only uri] -> return (Just uri)
                 _ -> do
                     errorM logName $ "Consistency error: multiple redirect URLs found"
                     error "Consistency error: multiple redirect URLs found"
