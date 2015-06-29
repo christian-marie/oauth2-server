@@ -105,7 +105,6 @@ import qualified Data.ByteString.Lazy                       as BSL (fromStrict,
                                                                     toStrict)
 import           Data.CaseInsensitive                       (mk)
 import           Data.Monoid                                ((<>))
-import           Data.Pool
 import           Data.String
 import           Data.Text                                  (Text)
 import qualified Data.Text                                  as T (all, unpack)
@@ -128,7 +127,6 @@ import qualified Database.PostgreSQL.Simple.TypeInfo.Static as TI
 import           Network.HTTP.Types.Header                  as HTTP
 import           Network.Wai.Handler.Warp                   hiding
                                                              (Connection)
-import           Pipes.Concurrent
 import           Servant.API                                (FromFormUrlEncoded (..),
                                                              FromText (..),
                                                              MimeRender (..), MimeUnrender (..),
