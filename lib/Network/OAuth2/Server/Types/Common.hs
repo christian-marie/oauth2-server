@@ -17,8 +17,8 @@
 -- ABNF RFC is found here: https://tools.ietf.org/html/rfc5234
 module Network.OAuth2.Server.Types.Common where
 
-import Data.Char
-import Data.Word
+import           Data.Char
+import           Data.Word
 
 -- VSCHAR = %x20-7E
 vschar :: Word8 -> Bool
