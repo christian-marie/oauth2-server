@@ -1,3 +1,12 @@
+--
+-- Copyright © 2013-2015 Anchor Systems, Pty Ltd and Others
+--
+-- The code in this file, and the program it is a part of, is
+-- made available to you by its authors as open source software:
+-- you can redistribute it and/or modify it under the terms of
+-- the 3-clause BSD licence.
+--
+
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 
@@ -7,31 +16,35 @@ module Network.Wai.Middleware.Shibboleth where
 import           Data.Bits
 import qualified Data.ByteString      as BS
 import           Data.CaseInsensitive
+import           Data.Monoid
+import           Data.Text            (Text)
+import qualified Data.Text            as T
 import           Data.Word
 import           Network.HTTP.Types
 import           Network.Socket
 import           Network.Wai
+import           Text.Read
 
 -- | Shibboleth middleware configuration.
 --
 --   These details will be used to check requests to ensure that we only
 --   accept authentication details when accessed from trusted, authenticating
 --   upstream servers.
-data Config = Config
+data ShibConfig = ShibConfig
     { upstream :: [CIDR]    -- ^ Trusted upstream servers.
     , prefix   :: HeaderName  -- ^ Shibboleth-managed header prefix.
     }
 
 -- | A default configuration: trusts only connections from the local machine.
-defaultConfig :: Config
+defaultConfig :: ShibConfig
 defaultConfig =
     let upstream = [CIDR4 0x7f000001 32, CIDR6 (0,0,0,1) 128]
         prefix = "Identity-"
-    in Config{..}
+    in ShibConfig{..}
 
 -- | Strip Shibboleth headers unless from a trusted upstream.
-shibboleth :: Config -> Middleware
-shibboleth Config{..} app req =
+shibboleth :: ShibConfig -> Middleware
+shibboleth ShibConfig{..} app req =
     if req `fromUpstream` upstream
         then app req
         else app (filterHeaders prefix req)
@@ -99,3 +112,33 @@ mask6 (w1, w2, w3, w4) mask =
     part m = if m > 32
         then (32, m - 32)
         else (fromIntegral m, 0)
+
+parseCIDR :: Text -> Either String CIDR
+parseCIDR s = case parse4 s of
+    Left _ -> parse6 s
+    Right v -> Right v
+  where
+    r :: Read a => Text -> Maybe a
+    r = readMaybe . T.unpack
+    parse4 :: Text -> Either String CIDR
+    parse4 s = do
+        [addr, mask] <- return (T.splitOn "/" s)
+        n <- case r mask of
+            Nothing -> fail (T.unpack $ "Could not parse as mask: " <> mask)
+            Just v -> return v
+        [q1, q2, q3, q4] <- case (T.splitOn "." addr) of
+            v@[_,_,_,_] -> return v
+            _ -> Left (T.unpack $ "IPv4 address in dotted quad form please: " <> addr)
+        ip <- case (r q1, r q2, r q3, r q4) of
+            (Nothing, _, _, _) -> fail (T.unpack $ "Could not read: " <> q1)
+            (_, Nothing, _, _) -> fail (T.unpack $ "Could not read: " <> q2)
+            (_, _, Nothing, _) -> fail (T.unpack $ "Could not read: " <> q3)
+            (_, _, _, Nothing) -> fail (T.unpack $ "Could not read: " <> q4)
+            (Just a, Just b, Just c, Just d) ->
+                return ( (a `shiftL` 24)
+                       + (b `shiftL` 16)
+                       + (c `shiftL` 8)
+                       + d
+                       )
+        return (CIDR4 ip n)
+    parse6 _ = Left "IPv6 addresses are currently unsupported."

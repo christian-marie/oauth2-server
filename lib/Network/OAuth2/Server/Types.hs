@@ -138,6 +138,7 @@ import qualified Database.PostgreSQL.Simple.TypeInfo.Static as TI
 import           Network.HTTP.Types.Header                  as HTTP
 import           Network.Wai.Handler.Warp                   hiding
                                                              (Connection)
+import           Network.Wai.Middleware.Shibboleth
 import           Pipes.Concurrent
 import           Servant.API                                (FromFormUrlEncoded (..),
                                                              FromText (..),
@@ -208,8 +209,8 @@ data ServerOptions = ServerOptions
     , optServicePort :: Int
     , optUIPageSize  :: Int
     , optVerifyRealm :: ByteString
+    , optShibboleth  :: ShibConfig
     }
-  deriving (Eq, Show)
 
 -- | State of the running server, including database connectioned, etc.
 data ServerState = ServerState
