@@ -24,25 +24,25 @@ module Network.OAuth2.Server
     module Network.OAuth2.Server.Statistics,
 ) where
 
-import           Control.Applicative                    ((<$>))
+import           Control.Applicative                 ((<$>))
 import           Control.Concurrent
 import           Control.Concurrent.Async
 import           Data.Pool
-import qualified Data.Streaming.Network                 as N
+import qualified Data.Streaming.Network              as N
 import           Database.PostgreSQL.Simple
-import qualified Network.Socket                         as S
-import           Network.Wai.Handler.Warp               hiding (Connection)
+import qualified Network.Socket                      as S
+import           Network.Wai.Handler.Warp            hiding (Connection)
 import           Pipes.Concurrent
 import           Servant.Server
 import           System.Log.Logger
-import qualified System.Remote.Monitoring               as EKG
+import qualified System.Remote.Monitoring            as EKG
 
 import           Network.OAuth2.Server.API
 import           Network.OAuth2.Server.Configuration
 import           Network.OAuth2.Server.Statistics
-import           Network.OAuth2.Server.Store.PostgreSQL
+import           Network.OAuth2.Server.Store         hiding (logName)
 
-import           Paths_oauth2_server                    as P
+import           Paths_oauth2_server                 as P
 
 
 logName :: String
@@ -50,8 +50,9 @@ logName = "Anchor.Tokens.Server"
 
 -- | Start the statistics-reporting thread.
 startStatistics
-    :: ServerOptions
-    -> PSQLConnPool
+    :: TokenStore ref
+    => ServerOptions
+    -> ref
     -> GrantCounters
     -> IO (Output GrantEvent, IO ())
 startStatistics ServerOptions{..} ref counters = do

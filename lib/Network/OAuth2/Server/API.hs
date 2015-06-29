@@ -61,11 +61,11 @@ import           Servant.API                         ((:<|>) (..), (:>),
                                                       AddHeader (addHeader),
                                                       Capture, FormUrlEncoded,
                                                       FromFormUrlEncoded (..),
-                                                      ToFormUrlEncoded (..),
                                                       FromText (..), Get,
                                                       Header, Headers, JSON,
                                                       OctetStream, Post,
-                                                      QueryParam, ReqBody)
+                                                      QueryParam, ReqBody,
+                                                      ToFormUrlEncoded (..))
 import           Servant.HTML.Blaze
 import           Servant.Server                      (ServantErr (errBody, errHeaders),
                                                       Server, err302, err400,
