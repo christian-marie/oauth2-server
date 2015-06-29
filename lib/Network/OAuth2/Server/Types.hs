@@ -75,73 +75,59 @@ module Network.OAuth2.Server.Types (
   vschar,
 ) where
 
-import           Blaze.ByteString.Builder                   (toByteString)
-import           Control.Applicative                        (Applicative ((<*), (<*>), pure),
-                                                             (<$>), (<|>))
-import           Control.Error.Util                         (hush)
-import           Control.Lens.Fold                          (preview, (^?))
-import           Control.Lens.Operators                     ((%~), (&), (^.))
-import           Control.Lens.Prism                         (Prism', prism')
-import           Control.Lens.Review                        (re, review)
-import           Control.Monad                              (guard, join,
-                                                             mzero)
+import           Blaze.ByteString.Builder             (toByteString)
+import           Control.Applicative                  (Applicative ((<*), (<*>), pure),
+                                                       (<$>))
+import           Control.Error.Util                   (hush)
+import           Control.Lens.Fold                    (preview, (^?))
+import           Control.Lens.Operators               ((%~), (&), (^.))
+import           Control.Lens.Prism                   (Prism', prism')
+import           Control.Lens.Review                  (re, review)
+import           Control.Monad                        (guard, join)
 import           Crypto.Scrypt
-import           Data.Aeson                                 (FromJSON (..),
-                                                             ToJSON (..),
-                                                             Value (String),
-                                                             object,
-                                                             withObject,
-                                                             withText, (.:),
-                                                             (.:?), (.=))
-import qualified Data.Aeson.Types                           as Aeson (Parser)
-import           Data.Attoparsec.ByteString                 (endOfInput,
-                                                             parseOnly,
-                                                             takeWhile1,
-                                                             word8)
-import           Data.ByteString                            (ByteString)
-import qualified Data.ByteString                            as B (all, null)
-import qualified Data.ByteString.Base64                     as B64 (decode)
-import qualified Data.ByteString.Char8                      as BC
-import qualified Data.ByteString.Lazy                       as BSL (fromStrict,
-                                                                    toStrict)
-import           Data.CaseInsensitive                       (mk)
-import           Data.Monoid                                ((<>))
+import           Data.Aeson                           (FromJSON (..),
+                                                       ToJSON (..),
+                                                       Value (String), object,
+                                                       withObject, withText,
+                                                       (.:), (.:?), (.=))
+import qualified Data.Aeson.Types                     as Aeson (Parser)
+import           Data.Attoparsec.ByteString           (endOfInput, parseOnly,
+                                                       takeWhile1, word8)
+import           Data.ByteString                      (ByteString)
+import qualified Data.ByteString                      as B (all, null)
+import qualified Data.ByteString.Base64               as B64 (decode)
+import qualified Data.ByteString.Char8                as BC
+import           Data.Monoid                          ((<>))
 import           Data.String
-import           Data.Text                                  (Text)
-import qualified Data.Text                                  as T (all, unpack)
-import qualified Data.Text.Encoding                         as T (decodeUtf8,
-                                                                  decodeUtf8',
-                                                                  encodeUtf8)
-import           Data.Time.Clock                            (UTCTime,
-                                                             diffUTCTime)
-import           Data.Typeable                              (Typeable)
-import           Data.UUID                                  (UUID)
-import qualified Data.UUID                                  as U
-import qualified Data.Vector                                as V
+import           Data.Text                            (Text)
+import qualified Data.Text                            as T (all, unpack)
+import qualified Data.Text.Encoding                   as T (decodeUtf8,
+                                                            decodeUtf8',
+                                                            encodeUtf8)
+import           Data.Time.Clock                      (UTCTime, diffUTCTime)
+import           Data.Typeable                        (Typeable)
+import qualified Data.Vector                          as V
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.FromField
 import           Database.PostgreSQL.Simple.FromRow
 import           Database.PostgreSQL.Simple.ToField
 import           Database.PostgreSQL.Simple.ToRow
-import           Database.PostgreSQL.Simple.TypeInfo.Macro
-import qualified Database.PostgreSQL.Simple.TypeInfo.Static as TI
-import           Network.HTTP.Types.Header                  as HTTP
-import           Network.Wai.Handler.Warp                   hiding
-                                                             (Connection)
-import           Servant.API                                (FromFormUrlEncoded (..),
-                                                             FromText (..),
-                                                             MimeRender (..), MimeUnrender (..),
-                                                             OctetStream, ToFormUrlEncoded (..),
-                                                             ToText (..))
-import           Text.Blaze.Html5                           (ToValue, toValue)
-import           URI.ByteString                             (URI, parseURI,
-                                                             queryPairsL,
-                                                             serializeURI, strictURIParserOptions,
-                                                             uriFragmentL,
-                                                             uriQueryL)
+import           Network.HTTP.Types.Header            as HTTP
+import           Network.Wai.Handler.Warp             hiding (Connection)
+import           Servant.API                          (FromFormUrlEncoded (..),
+                                                       FromText (..),
+                                                       ToFormUrlEncoded (..),
+                                                       ToText (..))
+import           URI.ByteString                       (URI, parseURI,
+                                                       queryPairsL,
+                                                       serializeURI,
+                                                       strictURIParserOptions,
+                                                       uriFragmentL,
+                                                       uriQueryL)
 
 import           Network.OAuth2.Server.Types.Common
 import           Network.OAuth2.Server.Types.Scope
+import           Network.OAuth2.Server.Types.Token
 
 -- | Unique identifier for a user.
 newtype UserID = UserID
@@ -155,30 +141,6 @@ userid :: Prism' ByteString UserID
 userid = prism' (T.encodeUtf8 . unpackUserID)
                 (fmap UserID . hush . T.decodeUtf8')
 
-newtype TokenID = TokenID { unTokenID :: UUID }
-    deriving (Eq, Show, Ord)
-
-instance ToValue TokenID where
-    toValue = toValue . show . unTokenID
-
-instance FromText TokenID where
-    fromText t =  (fmap TokenID) $
-                  (U.fromASCIIBytes $ T.encodeUtf8 t)
-              <|> (U.fromString     $ T.unpack     t)
-
-instance ToText TokenID where
-    toText = T.decodeUtf8 . U.toASCIIBytes . unTokenID
-
-instance ToField TokenID where
-    toField = toField . unTokenID
-
-instance FromField TokenID where
-    fromField f bs = TokenID <$> fromField f bs
-
-instance FromField Token where
-    fromField f bs = do
-        rawToken <- fromField f bs
-        maybe mzero return (rawToken ^? token)
 
 -- | Page number for paginated user interfaces.
 --
@@ -260,36 +222,6 @@ data HTTPAuthChallenge
 instance ToHTTPHeaders HTTPAuthChallenge where
     toHeaders (BasicAuth (Realm realm)) =
         [ ("WWW-Authenticate", "Basic realm=" <> quotedString realm) ]
-
--- | A token is a unique piece of text.
-newtype Token = Token { unToken :: ByteString }
-  deriving (Eq, Ord, Typeable)
-
-instance Show Token where
-    show = show . review token
-
-instance Read Token where
-    readsPrec n s = [ (x,rest) | (b,rest) <- readsPrec n s, Just x <- [b ^? token]]
-
-instance MimeRender OctetStream Token where
-    mimeRender _ = BSL.fromStrict . review token
-
-instance MimeUnrender OctetStream Token where
-    mimeUnrender _ b =
-        case BSL.toStrict b ^? token of
-            Nothing -> Left "Invalid token"
-            Just t  -> Right t
-
-token :: Prism' ByteString Token
-token = prism' t2b b2t
-  where
-    t2b :: Token -> ByteString
-    t2b t = unToken t
-    b2t :: ByteString -> Maybe Token
-    b2t b = do
-        guard . not $ B.null b
-        guard $ B.all vschar b
-        return (Token b)
 
 newtype Username = Username { unUsername :: Text }
     deriving (Eq, Typeable)
@@ -574,24 +506,6 @@ instance ToFormUrlEncoded AccessRequest where
         ] <> [ ("scope", T.decodeUtf8 $ scopeToBs s)
              | Just s <- return requestScope ]
 
--- http://tools.ietf.org/html/rfc6749#section-7.1
-data TokenType
-    = Bearer
-    | Refresh
-  deriving (Eq, Show, Typeable)
-
-instance ToJSON TokenType where
-    toJSON t = String $ case t of
-        Bearer -> "bearer"
-        Refresh -> "refresh"
-
-instance FromJSON TokenType where
-    parseJSON = withText "TokenType" $ \t -> do
-        let b = mk (T.encodeUtf8 t)
-        if | b == "bearer" -> return Bearer
-           | b == "refresh" -> return Refresh
-           | otherwise -> fail $ "Invalid TokenType: " <> show t
-
 -- | A response containing an OAuth2 access token grant.
 data AccessResponse = AccessResponse
     { tokenType      :: TokenType
@@ -657,15 +571,6 @@ grantResponse t TokenDetails{..} refresh =
         , tokenClientID  = tokenDetailsClientID
         , tokenScope     = tokenDetailsScope
         }
-
-instance ToJSON Token where
-    toJSON t = String . T.decodeUtf8 $ t ^.re token
-
-instance FromJSON Token where
-    parseJSON = withText "Token" $ \t ->
-        case T.encodeUtf8 t ^? token of
-            Nothing -> fail $ T.unpack t <> " is not a valid Token."
-            Just s -> return s
 
 instance ToJSON AccessResponse where
     toJSON AccessResponse{..} =
@@ -924,27 +829,6 @@ instance ToField ClientID where
 instance ToRow ClientID where
     toRow client_id = toRow (Only (review clientID client_id))
 
-
-instance ToField Token where
-    toField tok = toField $ review token tok
-
-
-instance ToField TokenType where
-    toField Bearer = toField ("bearer" :: Text)
-    toField Refresh = toField ("refresh" :: Text)
-
-instance FromField TokenType where
-    fromField f bs
-        | typeOid f /= $(inlineTypoid TI.varchar) = returnError Incompatible f ""
-        | bs == bearer  = pure Bearer
-        | bs == refresh = pure Refresh
-        | bs == Nothing = returnError UnexpectedNull f $
-                              "Token type cannot be NULL."
-        | otherwise     = returnError ConversionFailed f $
-                              "Unknown token type: " <> show bs
-      where
-        bearer = Just "bearer"
-        refresh = Just "refresh"
 
 instance ToRow TokenGrant where
     toRow (TokenGrant ty ex uid cid sc) = toRow
