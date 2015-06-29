@@ -12,6 +12,7 @@
 module Main where
 
 import           Control.Applicative
+import           Control.Lens                (has, hasn't)
 import           Control.Lens.Operators
 import           Data.ByteString             (ByteString)
 import qualified Data.ByteString.Char8       as B
@@ -91,19 +92,16 @@ instance Arbitrary ByteString where
     arbitrary = B.pack <$> arbitrary
 
 instance Arbitrary UserID where
-    arbitrary = do
-        bs <- arbitrary
-        maybe arbitrary return (bs ^? userid)
+    arbitrary =
+        (^?! userid) <$> arbitrary `suchThat` has userid
 
 instance Arbitrary Page where
-    arbitrary = do
-        n <- (succ . abs) <$> arbitrary :: Gen Integer
-        maybe arbitrary return (n ^? page)
+    arbitrary =
+        (^?! page) <$> (arbitrary :: Gen Integer) `suchThat` has page
 
 instance Arbitrary Code where
-    arbitrary = do
-        bs <- B.pack <$> listOf alphabet
-        maybe arbitrary return (bs ^? code)
+    arbitrary =
+        (^?! code) <$> (B.pack <$> listOf alphabet) `suchThat` has code
 
 main :: IO ()
 main = do
