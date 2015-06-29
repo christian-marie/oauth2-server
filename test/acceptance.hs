@@ -23,9 +23,9 @@ import           Data.Monoid
 import qualified Data.Text.Encoding          as T
 import           Data.Text.Strict.Lens
 import           Network.HTTP.Client         (HttpException (..))
-import           Network.HTTP.Types          (Status (..))
+import           Network.HTTP.Types          (Header, Status (..), hLocation)
 import           Network.URI
-import           Network.Wreq
+import           Network.Wreq                hiding (statusCode)
 import           Servant.Common.Text
 import           System.Environment
 import           Test.Hspec
@@ -167,8 +167,8 @@ tests base_uri = do
             let Right page = resp
 
             -- 3. Check that the page describes the requested token.
-            page `shouldSatisfy` ("Client Name" `BC.isInfixOf`)
-            page `shouldSatisfy` ("Client Description" `BC.isInfixOf`)
+            page `shouldSatisfy` ("App 1" `BC.isInfixOf`)
+            page `shouldSatisfy` ("Application One" `BC.isInfixOf`)
             page `shouldSatisfy` ("missiles:launch" `BC.isInfixOf`)
             page `shouldSatisfy` ("login" `BC.isInfixOf`)
 
@@ -343,12 +343,26 @@ sendAuthorization
     :: URI
     -> Maybe (UserID, Scope)
     -> [(ByteString, ByteString)]
-    -> ExceptT String IO ByteString
+    -> ExceptT String IO URI
 sendAuthorization uri user_m fields = do
     let opts = defaults & header "Accept" .~ ["text/html"]
+                        & redirects .~ 0
                         & addAuthHeaders user_m
-    r <- liftIO . try $ postWith opts (show uri) fields
-    handleResponse r
+    res <- liftIO . try $ postWith opts (show uri) fields
+    case res of
+        Left e -> do
+            hs <- case e of
+                TooManyRedirects [r] -> return $ r ^. responseHeaders
+                StatusCodeException st hs _
+                    | statusCode st `elem` [301,302,303] -> return hs
+                _ -> throwError $ show e
+            redirect <- case lookup hLocation hs of
+                Nothing -> throwError "No Location header in redirect"
+                Just x' -> return x'
+            case parseURI $ BC.unpack redirect of
+                Nothing -> throwError $ "Invalid Location header in redirect: " <> show redirect
+                Just x -> return x
+        Right _ -> throwError "No redirect"
 
 -- * Fixtures
 --

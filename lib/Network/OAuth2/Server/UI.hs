@@ -33,20 +33,21 @@ import           Network.OAuth2.Server.Types
 stylesheet :: String
 stylesheet = BS.unpack $(embedFile "style.css")
 
-renderAuthorizePage :: RequestCode -> Html
-renderAuthorizePage req@RequestCode{..} = docTypeHtml $ do
+renderAuthorizePage :: ClientDetails -> RequestCode -> Html
+renderAuthorizePage client req@RequestCode{..} = docTypeHtml $ do
     head $ do
         title "Such Authorize"
         style ! type_ "text/css" $ toHtml stylesheet
     body $ do
         h1 "Authorize"
         h2 $ toHtml (show req)
+        h3 $ toHtml (show client)
         -- TODO(thsutton): base URL of server should be configurable.
         form ! method "POST" ! action "/oauth2/authorize" $ do
             br
             input ! type_ "hidden"
                   ! name "code"
-                  ! value (toValue $ show requestCodeCode)
+                  ! value (toValue . T.decodeUtf8 . review code $ requestCodeCode)
             -- Approve button is first and, therefore, the default action.
             input ! type_ "submit"
                   ! name "action"

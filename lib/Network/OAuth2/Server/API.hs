@@ -425,7 +425,8 @@ processAuthorizeGet ref user_id permissions response_type client_id' redirect sc
 
     -- Create a code for this request.
     request_code <- liftIO $ storeCreateCode ref user_id clientClientId redirect_uri requested_scope state
-    return $ renderAuthorizePage request_code
+    client <- liftIO $ storeLookupClient ref (requestCodeClientID request_code)
+    return $ renderAuthorizePage (fromJust client) request_code
 
 -- | Handle the approval or rejection, we get here from the page served in
 -- 'authorizeEndpoint'
