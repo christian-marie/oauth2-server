@@ -54,7 +54,7 @@ CREATE TABLE tokens (
     client_id     VARCHAR(37)                  NULL,
 
     -- Token identifies this user.
-    user_id   VARCHAR(256)   NOT NULL,
+    user_id       VARCHAR(256)                 NULL,
 
     PRIMARY KEY (token),
     FOREIGN KEY (client_id) REFERENCES clients (client_id)

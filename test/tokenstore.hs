@@ -12,6 +12,7 @@
 module Main where
 
 import           Control.Applicative
+import           Control.Lens                (has, hasn't)
 import           Control.Lens.Operators
 import           Data.ByteString             (ByteString)
 import qualified Data.ByteString.Char8       as B
@@ -60,12 +61,18 @@ instance Arbitrary Scope where
         fromJust . bsToScope . B.pack . unwords <$> listOf1 (listOf1 alphabet)
 
 instance Arbitrary ClientID where
-    arbitrary =
-        (^?! packedChars . clientID) <$> vectorOf 32 alphabet
+    arbitrary = do
+        -- Stores are is seeded with two clients, as there is not yet an
+        -- interface for creating them.
+        --
+        -- See: test/initial-data.sql for the postgresql store
+        uid <- elements [ "5641ea27-1111-1111-1111-8fc06b502be0"
+                        , "5641ea27-2222-2222-2222-8fc06b502be0" ]
+        return $ uid ^?! packedChars . clientID
 
 instance Arbitrary Token where
-  arbitrary =
-    (^?! packedChars . token) <$> vectorOf 63 alphabet
+    arbitrary =
+        (^?! packedChars . token) <$> vectorOf 63 alphabet
 
 instance Arbitrary TokenType where
     arbitrary = arbitraryBoundedEnum
@@ -79,20 +86,22 @@ instance Arbitrary TokenGrant where
                    <*> arbitrary
 
 instance Arbitrary TokenDetails where
-  arbitrary = tokenDetails <$> arbitrary <*> arbitrary
+    arbitrary = tokenDetails <$> arbitrary <*> arbitrary
 
 instance Arbitrary ByteString where
     arbitrary = B.pack <$> arbitrary
 
 instance Arbitrary UserID where
-    arbitrary = do
-        bs <- arbitrary
-        maybe arbitrary return (bs ^? userid)
+    arbitrary =
+        (^?! userid) <$> arbitrary `suchThat` has userid
 
 instance Arbitrary Page where
-    arbitrary = do
-        n <- (succ . abs) <$> arbitrary :: Gen Integer
-        maybe arbitrary return (n ^? page)
+    arbitrary =
+        (^?! page) <$> (arbitrary :: Gen Integer) `suchThat` has page
+
+instance Arbitrary Code where
+    arbitrary =
+        (^?! code) <$> (B.pack <$> listOf alphabet) `suchThat` has code
 
 main :: IO ()
 main = do
@@ -107,7 +116,8 @@ getPGPool = PSQLConnPool <$> do
     callCommand $ concat
         [ " dropdb --if-exists ", dbname, " || true"
         , " && createdb ", dbname
-        , " && psql --quiet --file=schema/postgresql.sql ", dbname ]
+        , " && psql --quiet --file=schema/postgresql.sql ", dbname
+        , " && psql --quiet --file=test/initial-data.sql ", dbname ]
     let db = B.pack $ "dbname=" ++ dbname
     createPool (connectPostgreSQL db) close 1 1 1
 
@@ -119,17 +129,42 @@ suite pg_pool =
 testStore :: TokenStore ref => ref -> SpecM () ()
 testStore ref = do
     prop "empty database props" (propEmpty ref)
+    prop "save then load token" (propSaveThenLoadToken ref)
 
 -- | Group props that rely on an empty DB together because maybe it's expensive
 -- to create an empty DB.
-propEmpty :: TokenStore ref => ref -> Token -> UserID -> Page -> Property
-propEmpty ref tok uid pg =
-    monadicIO $ do
-        -- There shouldn't be any tokens, so we shouldn't be able to load any.
-        no_token <- run $ storeLoadToken ref tok
-        assert (no_token == Nothing)
+propEmpty :: TokenStore ref => ref -> Token -> UserID -> Page -> Code -> Property
+propEmpty ref tok uid pg code' = monadicIO $ do
+    -- There shouldn't be any tokens, so we shouldn't be able to load any.
+    no_token <- run $ storeLoadToken ref tok
+    assert (no_token == Nothing)
 
-        (list, n_pages) <- run $ storeListTokens ref 100 uid pg
-        assert (null list)
-        assert (n_pages == 0)
+    no_code <- run $ storeLoadCode ref code'
+    assert (no_code == Nothing)
+
+    (list, n_pages) <- run $ storeListTokens ref 100 uid pg
+    assert (null list)
+    assert (n_pages == 0)
+
+-- | Saving a valid token grant, then trying to read it should always work,
+-- no matter what.
+propSaveThenLoadToken :: TokenStore ref => ref -> TokenGrant -> Property
+propSaveThenLoadToken ref arb_token_grant = monadicIO $ do
+    -- The arbitrary time could be in the past, so we make sure we only test
+    -- expiries in the future.
+    now <- run getCurrentTime
+    let token_grant = arb_token_grant { grantExpires = 30 `addUTCTime` now }
+
+    -- We first save the grant
+    details1 <- run $ storeSaveToken ref token_grant
+    -- Then try to read it back
+    maybe_details2 <- run $ storeLoadToken ref (tokenDetailsToken details1)
+
+    case maybe_details2 of
+        Nothing ->
+            error "Expected load to be Just for grant: " $ show token_grant
+        Just details2 ->
+            -- The thing we read should both exist and be the same
+            assert (details1 == details2)
+
 

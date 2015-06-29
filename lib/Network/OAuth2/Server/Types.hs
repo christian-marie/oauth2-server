@@ -83,7 +83,7 @@ import           Control.Lens.Fold                    (preview, (^?))
 import           Control.Lens.Operators               ((%~), (&), (^.))
 import           Control.Lens.Prism                   (Prism', prism')
 import           Control.Lens.Review                  (re, review)
-import           Control.Monad                        (guard)
+import           Control.Monad                        (guard, join)
 import           Crypto.Scrypt
 import           Data.Aeson                           (FromJSON (..),
                                                        ToJSON (..),
@@ -353,7 +353,7 @@ data RequestCode = RequestCode
     , requestCodeScope       :: Maybe Scope
     , requestCodeState       :: Maybe ClientState
     }
-  deriving (Typeable, Show)
+  deriving (Typeable, Show, Eq)
 
 -- | A request to the token endpoint.
 --
@@ -843,8 +843,8 @@ instance FromRow TokenDetails where
     fromRow = TokenDetails <$> field
                            <*> mebbeField (preview token)
                            <*> field
-                           <*> (preview username <$> field)
-                           <*> (preview clientID <$> field)
+                           <*> doublePlusFmapJoin (preview username) field
+                           <*> doublePlusFmapJoin (preview clientID) field
                            <*> field
 
 instance FromField RedirectURI where
@@ -902,6 +902,13 @@ instance FromRow RequestCode where
                           <*> field
                           <*> field
                           <*> field
+
+-- | For when you want to compose a result -> Maybe result' with a postgres
+-- RowParser thing, or whatever you want, I guess.
+doublePlusFmapJoin
+    ::  (Functor m, Functor f, Monad m)
+    => (a -> m b) -> f (m a) -> f (m b)
+doublePlusFmapJoin = (fmap join .) . fmap . fmap
 
 -- | Get a PostgreSQL field using a parsing function.
 --
