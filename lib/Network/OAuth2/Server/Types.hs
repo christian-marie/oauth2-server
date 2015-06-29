@@ -25,6 +25,7 @@ module Network.OAuth2.Server.Types (
   addQueryParameters,
   OAuth2Error(..),
   AuthHeader(..),
+  authDetails,
   bsToScope,
   ClientDetails(..),
   ClientID,
@@ -58,7 +59,6 @@ module Network.OAuth2.Server.Types (
   ScopeToken,
   scopeToken,
   ServerOptions(..),
-  ServerState(..),
   ToHTTPHeaders(..),
   Token,
   token,
@@ -93,28 +93,18 @@ import           Data.Aeson                                 (FromJSON (..),
                                                              withText, (.:),
                                                              (.:?), (.=))
 import qualified Data.Aeson.Types                           as Aeson (Parser)
-import           Data.Attoparsec.ByteString                 (Parser,
-                                                             endOfInput,
+import           Data.Attoparsec.ByteString                 (endOfInput,
                                                              parseOnly,
-                                                             sepBy1,
                                                              takeWhile1,
                                                              word8)
 import           Data.ByteString                            (ByteString)
-import qualified Data.ByteString                            as B (all,
-                                                                  intercalate,
-                                                                  null)
+import qualified Data.ByteString                            as B (all, null)
+import qualified Data.ByteString.Base64                     as B64 (decode)
 import qualified Data.ByteString.Char8                      as BC
 import qualified Data.ByteString.Lazy                       as BSL (fromStrict,
                                                                     toStrict)
 import           Data.CaseInsensitive                       (mk)
-import           Data.Char                                  (ord)
 import           Data.Monoid                                ((<>))
-import           Data.Pool
-import           Data.Set                                   (Set)
-import qualified Data.Set                                   as S (difference,
-                                                                  fromList,
-                                                                  null,
-                                                                  toList)
 import           Data.String
 import           Data.Text                                  (Text)
 import qualified Data.Text                                  as T (all, unpack)
@@ -127,7 +117,6 @@ import           Data.Typeable                              (Typeable)
 import           Data.UUID                                  (UUID)
 import qualified Data.UUID                                  as U
 import qualified Data.Vector                                as V
-import           Data.Word                                  (Word8)
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.FromField
 import           Database.PostgreSQL.Simple.FromRow
@@ -138,7 +127,6 @@ import qualified Database.PostgreSQL.Simple.TypeInfo.Static as TI
 import           Network.HTTP.Types.Header                  as HTTP
 import           Network.Wai.Handler.Warp                   hiding
                                                              (Connection)
-import           Pipes.Concurrent
 import           Servant.API                                (FromFormUrlEncoded (..),
                                                              FromText (..),
                                                              MimeRender (..), MimeUnrender (..),
@@ -150,6 +138,9 @@ import           URI.ByteString                             (URI, parseURI,
                                                              serializeURI, strictURIParserOptions,
                                                              uriFragmentL,
                                                              uriQueryL)
+
+import           Network.OAuth2.Server.Types.Common
+import           Network.OAuth2.Server.Types.Scope
 
 -- | Unique identifier for a user.
 newtype UserID = UserID
@@ -211,13 +202,6 @@ data ServerOptions = ServerOptions
     }
   deriving (Eq, Show)
 
--- | State of the running server, including database connectioned, etc.
-data ServerState = ServerState
-    { serverPGConnPool :: Pool Connection
-    , serverEventSink  :: Output GrantEvent
-    , serverOpts       :: ServerOptions
-    }
-
 -- | Describes events which should be tracked by the monitoring statistics
 -- system.
 data GrantEvent
@@ -275,79 +259,6 @@ data HTTPAuthChallenge
 instance ToHTTPHeaders HTTPAuthChallenge where
     toHeaders (BasicAuth (Realm realm)) =
         [ ("WWW-Authenticate", "Basic realm=" <> quotedString realm) ]
-
-vschar :: Word8 -> Bool
-vschar c = c>=0x20 && c<=0x7E
-
-nqchar :: Word8 -> Bool
-nqchar c = or
-    [ c==0x21
-    , c>=0x23 && c<=0x5B
-    , c>=0x5D && c<=0x7E
-    ]
-
-nqschar :: Word8 -> Bool
-nqschar c = or
-    [ c>=0x20 && c<=0x21
-    , c>=0x23 && c<=0x5B
-    , c>=0x5D && c<=0x7E
-    ]
-
-unicodecharnocrlf :: Char -> Bool
-unicodecharnocrlf (ord -> c) = or
-    [ c==0x09
-    , c>=0x20   && c<=0x7E
-    , c>=0x80   && c<=0xD7FF
-    , c>=0xE000 && c<=0xFFFD
-    ]
-
-newtype ScopeToken = ScopeToken { unScopeToken :: ByteString }
-  deriving (Eq, Ord, Typeable)
-
-instance Show ScopeToken where
-    show = show . review scopeToken
-
-instance Read ScopeToken where
-    readsPrec n s = [ (x,rest) | (b,rest) <- readsPrec n s, Just x <- [b ^? scopeToken]]
-
--- | A scope is a non-empty set of `ScopeToken`s
-newtype Scope = Scope { unScope :: Set ScopeToken }
-  deriving (Eq, Read, Show, Typeable)
-
-scope :: Prism' (Set ScopeToken) Scope
-scope = prism' unScope (\x -> (guard . not . S.null $ x) >> return (Scope x))
-
-scopeToBs :: Scope -> ByteString
-scopeToBs =
-    B.intercalate " " . fmap (review scopeToken) . S.toList .  unScope
-
-bsToScope :: ByteString -> Maybe Scope
-bsToScope b = either fail return $ parseOnly (scopeParser <* endOfInput) b
-  where
-    scopeParser :: Parser Scope
-    scopeParser = Scope . S.fromList <$> sepBy1 scopeTokenParser (word8 0x20 {- SP -})
-
-scopeToken :: Prism' ByteString ScopeToken
-scopeToken =
-    prism' s2b b2s
-  where
-    s2b :: ScopeToken -> ByteString
-    s2b s = unScopeToken s
-    b2s :: ByteString -> Maybe ScopeToken
-    b2s b = either fail return $ parseOnly (scopeTokenParser <* endOfInput) b
-
-scopeTokenParser :: Parser ScopeToken
-scopeTokenParser = ScopeToken <$> takeWhile1 nqchar
-
--- | Check that a 'Scope' is compatible with another.
---
--- Essentially, scope1 less scope2 is the empty set.
-compatibleScope
-    :: Scope
-    -> Scope
-    -> Bool
-compatibleScope (Scope s1) (Scope s2) =
-    S.null $ s1 `S.difference` s2
 
 -- | A token is a unique piece of text.
 newtype Token = Token { unToken :: ByteString }
@@ -746,15 +657,6 @@ grantResponse t TokenDetails{..} refresh =
         , tokenScope     = tokenDetailsScope
         }
 
-instance ToJSON Scope where
-    toJSON = String . T.decodeUtf8 . scopeToBs
-
-instance FromJSON Scope where
-    parseJSON = withText "Scope" $ \t ->
-        case bsToScope $ T.encodeUtf8 t of
-            Nothing -> fail $ T.unpack t <> " is not a valid Scope."
-            Just s -> return s
-
 instance ToJSON Token where
     toJSON t = String . T.decodeUtf8 $ t ^.re token
 
@@ -791,6 +693,23 @@ data AuthHeader = AuthHeader
     , authParam  :: ByteString
     }
   deriving (Eq, Show, Typeable)
+
+authDetails :: Prism' AuthHeader (ClientID, Password)
+authDetails =
+    prism' fromPair toPair
+  where
+    toPair AuthHeader{..} = case authScheme of
+        "Basic" ->
+            case BC.split ':' <$> B64.decode authParam of
+                Right [client_id, secret] -> do
+                    client_id' <- preview clientID client_id
+                    secret' <- preview password $ T.decodeUtf8 secret
+                    return (client_id', secret')
+                _                         -> Nothing
+        _       -> Nothing
+
+    fromPair (client_id, secret) =
+        AuthHeader "Basic" $ (review clientID client_id) <> " " <> T.encodeUtf8 (review password secret)
 
 instance FromText AuthHeader where
     fromText t = do
@@ -983,11 +902,7 @@ instance FromFormUrlEncoded OAuth2Error where
                      Right res -> Right $ Just res
             )
 
-instance FromText Scope where
-    fromText = bsToScope . T.encodeUtf8
 
-instance ToText Scope where
-    toText = T.decodeUtf8 . scopeToBs
 
 -- * Database Instances
 
@@ -1008,27 +923,10 @@ instance ToField ClientID where
 instance ToRow ClientID where
     toRow client_id = toRow (Only (review clientID client_id))
 
-instance FromField ScopeToken where
-    fromField f bs = do
-        x <- fromField f bs
-        case x ^? scopeToken of
-            Just s  -> pure s
-            Nothing -> returnError ConversionFailed f $
-                           "Failed to convert with scopeToken: " <> show x
-
-instance FromField Scope where
-    fromField f bs = do
-        (v :: V.Vector ScopeToken) <- fromField f bs
-        case S.fromList (V.toList v) ^? scope of
-            Just s  -> pure s
-            Nothing -> returnError ConversionFailed f $
-                            "Failed to convert with scope."
 
 instance ToField Token where
     toField tok = toField $ review token tok
 
-instance ToField Scope where
-    toField s = toField $ V.fromList $ fmap (review scopeToken) $ S.toList $ s ^.re scope
 
 instance ToField TokenType where
     toField Bearer = toField ("bearer" :: Text)

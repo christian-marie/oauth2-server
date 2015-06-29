@@ -23,9 +23,9 @@ import           Data.Monoid
 import qualified Data.Text.Encoding          as T
 import           Data.Text.Strict.Lens
 import           Network.HTTP.Client         (HttpException (..))
-import           Network.HTTP.Types          (Status (..))
+import           Network.HTTP.Types          (Status (..), hLocation)
 import           Network.URI
-import           Network.Wreq
+import           Network.Wreq                hiding (statusCode)
 import           Servant.Common.Text
 import           System.Environment
 import           Test.Hspec
@@ -156,7 +156,7 @@ tests base_uri = do
                 Left _ -> error "No fields"
                 Right (uri, fields) -> do
                     resp <- runExceptT $ sendAuthorization uri (Just user2) fields
-                    resp `shouldBe` (Left "403 Unauthorized - You are not authorized to approve this request.")
+                    resp `shouldBe` (Left "401 Unauthorized - You are not authorized to approve this request.")
 
         it "the redirect contains a code which can be used to request a token" $ do
             -- 1. Get the page.
@@ -167,8 +167,11 @@ tests base_uri = do
             let Right page = resp
 
             -- 3. Check that the page describes the requested token.
-            page `shouldSatisfy` ("Client Name" `BC.isInfixOf`)
-            page `shouldSatisfy` ("Client Description" `BC.isInfixOf`)
+            page `shouldSatisfy` ("Name" `BC.isInfixOf`)
+            page `shouldSatisfy` ("ID" `BC.isInfixOf`)
+            page `shouldSatisfy` ("Description" `BC.isInfixOf`)
+            page `shouldSatisfy` ("App 1" `BC.isInfixOf`)
+            page `shouldSatisfy` ("Application One" `BC.isInfixOf`)
             page `shouldSatisfy` ("missiles:launch" `BC.isInfixOf`)
             page `shouldSatisfy` ("login" `BC.isInfixOf`)
 
@@ -343,12 +346,29 @@ sendAuthorization
     :: URI
     -> Maybe (UserID, Scope)
     -> [(ByteString, ByteString)]
-    -> ExceptT String IO ByteString
+    -> ExceptT String IO URI
 sendAuthorization uri user_m fields = do
     let opts = defaults & header "Accept" .~ ["text/html"]
+                        & redirects .~ 0
                         & addAuthHeaders user_m
-    r <- liftIO . try $ postWith opts (show uri) fields
-    handleResponse r
+    res <- liftIO . try $ postWith opts (show uri) fields
+    case res of
+        Left e -> do
+            hs <- case e of
+                TooManyRedirects [r] -> return $ r ^. responseHeaders
+                StatusCodeException st hs _
+                    | statusCode st `elem` [301,302,303] -> return hs
+                StatusCodeException (Status c m) h _ -> do
+                    let b = BC.unpack <$> lookup "X-Response-Body-Start" h
+                    throwError $ show c <> " " <> BC.unpack m <> " - " <> fromMaybe "" b
+                _ -> throwError $ show e
+            redirect <- case lookup hLocation hs of
+                Nothing -> throwError "No Location header in redirect"
+                Just x' -> return x'
+            case parseURI $ BC.unpack redirect of
+                Nothing -> throwError $ "Invalid Location header in redirect: " <> show redirect
+                Just x -> return x
+        Right _ -> throwError "No redirect"
 
 -- * Fixtures
 --

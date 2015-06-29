@@ -61,11 +61,11 @@ import           Servant.API                         ((:<|>) (..), (:>),
                                                       AddHeader (addHeader),
                                                       Capture, FormUrlEncoded,
                                                       FromFormUrlEncoded (..),
-                                                      ToFormUrlEncoded (..),
                                                       FromText (..), Get,
                                                       Header, Headers, JSON,
                                                       OctetStream, Post,
-                                                      QueryParam, ReqBody)
+                                                      QueryParam, ReqBody,
+                                                      ToFormUrlEncoded (..))
 import           Servant.HTML.Blaze
 import           Servant.Server                      (ServantErr (errBody, errHeaders),
                                                       Server, err302, err400,
@@ -300,15 +300,15 @@ anchorOAuth2API :: Proxy AnchorOAuth2API
 anchorOAuth2API = Proxy
 
 -- | Construct a server of the entire API from an initial state
-server :: ServerState -> Server AnchorOAuth2API
-server state@ServerState{..}
-       = tokenEndpoint serverPGConnPool
-    :<|> verifyEndpoint state
-    :<|> handleShib (authorizeEndpoint serverPGConnPool)
-    :<|> handleShib (authorizePost serverPGConnPool)
-    :<|> handleShib (serverListTokens serverPGConnPool (optUIPageSize serverOpts))
-    :<|> handleShib (serverDisplayToken serverPGConnPool)
-    :<|> handleShib (serverPostToken serverPGConnPool)
+server :: TokenStore ref => ref -> ServerOptions -> Server AnchorOAuth2API
+server ref serverOpts
+       = tokenEndpoint ref
+    :<|> verifyEndpoint ref serverOpts
+    :<|> handleShib (authorizeEndpoint ref)
+    :<|> handleShib (authorizePost ref)
+    :<|> handleShib (serverListTokens ref (optUIPageSize serverOpts))
+    :<|> handleShib (serverDisplayToken ref)
+    :<|> handleShib (serverPostToken ref)
 
 -- | Any shibboleth authed endpoint must have all relevant headers defined, and
 -- any other case is an internal error. handleShib consolidates checking these
@@ -374,7 +374,7 @@ processAuthorizeGet
     -> m Html
 processAuthorizeGet ref user_id permissions response_type client_id' redirect scope' state = do
     -- Required: a ClientID value, which identifies a client.
-    ClientDetails{..} <- case client_id' of
+    client_details@ClientDetails{..} <- case client_id' of
         Just client_id -> do
             client <- liftIO $ storeLookupClient ref client_id
             case client of
@@ -425,7 +425,8 @@ processAuthorizeGet ref user_id permissions response_type client_id' redirect sc
 
     -- Create a code for this request.
     request_code <- liftIO $ storeCreateCode ref user_id clientClientId redirect_uri requested_scope state
-    return $ renderAuthorizePage request_code
+
+    return $ renderAuthorizePage request_code client_details
 
 -- | Handle the approval or rejection, we get here from the page served in
 -- 'authorizeEndpoint'
@@ -443,7 +444,7 @@ authorizePost
 authorizePost ref user_id _scope code' = do
     res <- liftIO $ storeActivateCode ref code' user_id
     case res of
-        Nothing -> error "NOOOO"
+        Nothing -> throwError err401{ errBody = "You are not authorized to approve this request." }
         Just uri -> do
             let uri' = addQueryParameters uri [("code", code' ^.re code)]
             throwError err302{ errHeaders = [(hLocation, uri' ^.re redirectURI)] }
@@ -455,20 +456,22 @@ verifyEndpoint
     :: ( MonadIO m
        , MonadBaseControl IO m
        , MonadError ServantErr m
+       , TokenStore ref
        )
-    => ServerState
+    => ref
+    -> ServerOptions
     -> Maybe AuthHeader
     -> Token
     -> m (Headers '[Header "Cache-Control" NoCache] AccessResponse)
-verifyEndpoint ServerState{..} Nothing _token =
+verifyEndpoint _ ServerOptions{..} Nothing _token =
     throwError login
   where
-    login = err401 { errHeaders = toHeaders $ BasicAuth (Realm $ optVerifyRealm serverOpts)
+    login = err401 { errHeaders = toHeaders $ BasicAuth (Realm optVerifyRealm)
                    , errBody = "Login to validate a token."
                    }
-verifyEndpoint ServerState{..} (Just auth) token' = do
+verifyEndpoint ref ServerOptions{..} (Just auth) token' = do
     -- 1. Check client authentication.
-    client_id' <- liftIO . runExceptT $ checkClientAuth serverPGConnPool auth
+    client_id' <- liftIO . runExceptT $ checkClientAuth ref auth
     client_id <- case client_id' of
         Left e -> do
             logE $ "Error verifying token: " <> show (e :: OAuth2Error)
@@ -479,7 +482,7 @@ verifyEndpoint ServerState{..} (Just auth) token' = do
         Right (Just cid) -> do
             return cid
     -- 2. Load token information.
-    tok <- liftIO $ storeLoadToken serverPGConnPool token'
+    tok <- liftIO $ storeLoadToken ref token'
     case tok of
         Nothing -> do
             logD $ "Cannot verify token: failed to lookup " <> show token'
@@ -494,7 +497,7 @@ verifyEndpoint ServerState{..} (Just auth) token' = do
             return . addHeader NoCache $ grantResponse now details (Just token')
   where
     denied = err404 { errBody = "This is not a valid token." }
-    login = err401 { errHeaders = toHeaders $ BasicAuth (Realm $ optVerifyRealm serverOpts)
+    login = err401 { errHeaders = toHeaders $ BasicAuth (Realm optVerifyRealm)
                    , errBody = "Login to validate a token."
                    }
     logD = liftIO . debugM (logName <> ".verifyEndpoint")
