@@ -444,7 +444,7 @@ authorizePost
 authorizePost ref user_id _scope code' = do
     res <- liftIO $ storeActivateCode ref code' user_id
     case res of
-        Nothing -> error "NOOOO"
+        Nothing -> throwError err401{ errBody = "You are not authorized to approve this request." }
         Just uri -> do
             let uri' = addQueryParameters uri [("code", code' ^.re code)]
             throwError err302{ errHeaders = [(hLocation, uri' ^.re redirectURI)] }
