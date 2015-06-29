@@ -77,7 +77,7 @@ instance Arbitrary TokenType where
     arbitrary = arbitraryBoundedEnum
 
 instance Arbitrary TokenGrant where
-    arbitrary = do
+    arbitrary =
         TokenGrant <$> arbitrary
                    <*> arbitrary
                    <*> arbitrary
