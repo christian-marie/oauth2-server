@@ -26,6 +26,7 @@ module Network.OAuth2.Server.Types (
   OAuth2Error(..),
   AuthHeader(..),
   authDetails,
+  belongsToUser,
   bsToScope,
   ClientDetails(..),
   ClientID,
@@ -48,8 +49,10 @@ module Network.OAuth2.Server.Types (
   nqschar,
   Page,
   page,
+  PageSize,
+  pageSize,
   Password,
-  password,
+  password,  
   RequestCode(..),
   RedirectURI,
   redirectURI,
@@ -70,8 +73,6 @@ module Network.OAuth2.Server.Types (
   unicodecharnocrlf,
   UserID,
   userID,
-  Username,
-  username,
   vschar,
 ) where
 
@@ -134,6 +135,17 @@ page :: Integral n => Prism' n Page
 page = prism' (fromIntegral . unpackPage)
               (\(toInteger -> i) -> guard (i > 0) >> return (Page i))
 
+-- | Page size for paginated user interfaces.
+--
+-- Page sizes must be positive integers
+newtype PageSize = PageSize { unpackPageSize :: Integer }
+  deriving (Eq, Ord, Show, FromText, ToText)
+
+-- | Prism for constructing a pagesize, must be > 0
+pageSize :: Integral n => Prism' n PageSize
+pageSize = prism' (fromIntegral . unpackPageSize)
+                  (\(toInteger -> i) -> guard (i > 0) >> return (PageSize i))
+
 -- | Configuration options for the server.
 data ServerOptions = ServerOptions
     { optDBString    :: ByteString
@@ -141,7 +153,7 @@ data ServerOptions = ServerOptions
     , optStatsPort   :: Int
     , optServiceHost :: HostPreference
     , optServicePort :: Int
-    , optUIPageSize  :: Int
+    , optUIPageSize  :: PageSize
     , optVerifyRealm :: ByteString
     , optShibboleth  :: ShibConfig
     }
@@ -264,13 +276,6 @@ data AccessRequest
         , requestRedirectURI :: Maybe RedirectURI
         , requestClientID    :: Maybe ClientID
         }
-    -- | grant_type=password
-    --   http://tools.ietf.org/html/rfc6749#section-4.3.2
-    | RequestPassword
-        { requestUsername :: Username
-        , requestPassword :: Password
-        , requestScope    :: Maybe Scope
-        }
     -- | grant_type=client_credentials
     --   http://tools.ietf.org/html/rfc6749#section-4.4.2
     | RequestClientCredentials
@@ -315,27 +320,6 @@ instance FromFormUrlEncoded (Either OAuth2Error AccessRequest) where
                                                       Nothing
                         Just x -> return $ Just x
                 return $ RequestAuthorizationCode{..}
-            "password" -> do
-                u <- lookupEither "username" xs
-                requestUsername <- case u ^? username of
-                    Nothing -> Left $ OAuth2Error InvalidRequest
-                                                      (preview errorDescription $ "invalid username " <> T.encodeUtf8 u)
-                                                      Nothing
-                    Just x -> return $ x
-                p <- lookupEither "password" xs
-                requestPassword <- case p ^? password of
-                    Nothing -> Left $ OAuth2Error InvalidRequest
-                                                      (preview errorDescription $ "invalid password")
-                                                      Nothing
-                    Just x -> return $ x
-                requestScope <- case lookup "scope" xs of
-                    Nothing -> return Nothing
-                    Just x -> case bsToScope $ T.encodeUtf8 x of
-                        Nothing -> Left $ OAuth2Error InvalidRequest
-                                                      (preview errorDescription $ "invalid scope " <> T.encodeUtf8 x)
-                                                      Nothing
-                        Just x' -> return $ Just x'
-                return $ RequestPassword{..}
             "client_credentials" -> do
                 requestScope <- case lookup "scope" xs of
                     Nothing -> return Nothing
@@ -386,12 +370,6 @@ instance ToFormUrlEncoded AccessRequest where
           | Just r <- return requestRedirectURI ] <>
         [ ("client_id", T.decodeUtf8 $ c ^.re clientID)
           | Just c <- return requestClientID ]
-    toFormUrlEncoded RequestPassword{..} =
-        [ ("grant_type", "password")
-        , ("username", requestUsername ^.re username)
-        , ("password", requestPassword ^.re password)
-        ] <> [ ("scope", T.decodeUtf8 $ scopeToBs s)
-             | Just s <- return requestScope ]
     toFormUrlEncoded RequestClientCredentials{..} =
         [("grant_type", "client_credentials")
         ] <> [ ("scope", T.decodeUtf8 $ scopeToBs s)
@@ -407,8 +385,8 @@ data AccessResponse = AccessResponse
     { tokenType      :: TokenType
     , accessToken    :: Token
     , refreshToken   :: Maybe Token
-    , tokenExpiresIn :: Int
-    , tokenUsername  :: Maybe Username
+    , tokenExpiresIn :: Maybe Int
+    , tokenUserID    :: Maybe UserID
     , tokenClientID  :: Maybe ClientID
     , tokenScope     :: Scope
     }
@@ -418,8 +396,8 @@ data AccessResponse = AccessResponse
 --
 data TokenGrant = TokenGrant
     { grantTokenType :: TokenType
-    , grantExpires   :: UTCTime
-    , grantUsername  :: Maybe Username
+    , grantExpires   :: Maybe UTCTime
+    , grantUserID    :: Maybe UserID
     , grantClientID  :: Maybe ClientID
     , grantScope     :: Scope
     }
@@ -432,8 +410,8 @@ data TokenGrant = TokenGrant
 data TokenDetails = TokenDetails
     { tokenDetailsTokenType :: TokenType
     , tokenDetailsToken     :: Token
-    , tokenDetailsExpires   :: UTCTime
-    , tokenDetailsUsername  :: Maybe Username
+    , tokenDetailsExpires   :: Maybe UTCTime
+    , tokenDetailsUserID    :: Maybe UserID
     , tokenDetailsClientID  :: Maybe ClientID
     , tokenDetailsScope     :: Scope
     }
@@ -445,10 +423,15 @@ tokenDetails tok TokenGrant{..}
   { tokenDetailsTokenType = grantTokenType
   , tokenDetailsToken     = tok
   , tokenDetailsExpires   = grantExpires
-  , tokenDetailsUsername  = grantUsername
+  , tokenDetailsUserID    = grantUserID
   , tokenDetailsClientID  = grantClientID
   , tokenDetailsScope     = grantScope
   }
+-- | Whether or not a token belongs to a User
+belongsToUser :: TokenDetails -> UserID -> Bool
+belongsToUser TokenDetails{..} uid = case tokenDetailsUserID of
+    Nothing   -> False
+    Just uid' -> uid == uid'
 
 -- | Convert a 'TokenGrant' into an 'AccessResponse'.
 grantResponse
@@ -457,13 +440,13 @@ grantResponse
     -> Maybe Token  -- ^ Associated refresh token.
     -> AccessResponse
 grantResponse t TokenDetails{..} refresh =
-    let expires_in = truncate $ diffUTCTime tokenDetailsExpires t
+    let expires_in = fmap (\t' -> truncate $ diffUTCTime t' t) tokenDetailsExpires
     in AccessResponse
         { tokenType      = tokenDetailsTokenType
         , accessToken    = tokenDetailsToken
         , refreshToken   = refresh
         , tokenExpiresIn = expires_in
-        , tokenUsername  = tokenDetailsUsername
+        , tokenUserID    = tokenDetailsUserID
         , tokenClientID  = tokenDetailsClientID
         , tokenScope     = tokenDetailsScope
         }
@@ -476,9 +459,9 @@ instance ToJSON AccessResponse where
                   , "scope" .= tokenScope
                   ]
             ref = maybe [] (\t -> ["refresh_token" .= T.decodeUtf8 (unToken t)]) refreshToken
-            uname = maybe [] (\s -> ["username" .= toJSON s]) tokenUsername
+            uid = maybe [] (\s -> ["user_id" .= toJSON s]) tokenUserID
             client = maybe [] (\s -> ["client_id" .= toJSON s]) tokenClientID
-        in object . concat $ [tok, ref, uname, client]
+        in object . concat $ [tok, ref, uid, client]
 
 instance FromJSON AccessResponse where
     parseJSON = withObject "AccessResponse" $ \o -> AccessResponse
@@ -486,7 +469,7 @@ instance FromJSON AccessResponse where
         <*> o .: "access_token"
         <*> o .:? "refresh_token"
         <*> o .: "expires_in"
-        <*> o .:? "username"
+        <*> o .:? "user_id"
         <*> o .:? "client_id"
         <*> o .: "scope"
 

@@ -15,6 +15,7 @@
 module Network.OAuth2.Server.Configuration where
 
 import           Control.Applicative
+import           Control.Lens.Operators            ((^?), (^?!))
 import qualified Data.CaseInsensitive              as CI
 import           Data.Configurator                 as C
 import           Data.Configurator.Types           as C
@@ -38,7 +39,7 @@ defaultServerOptions =
         optStatsPort = 8888
         optServiceHost = "*"
         optServicePort = 8080
-        optUIPageSize = 10
+        optUIPageSize = (10 :: Integer) ^?! pageSize
         optVerifyRealm = "verify-token"
         optShibboleth = S.defaultConfig
     in ServerOptions{..}
@@ -51,7 +52,7 @@ loadOptions conf = do
     optStatsPort <- ldef optStatsPort "stats.port"
     optServiceHost <- maybe (optServiceHost defaultServerOptions) fromString <$> C.lookup conf "api.host"
     optServicePort <- ldef optServicePort "api.port"
-    optUIPageSize <- ldef optUIPageSize "ui.page_size"
+    optUIPageSize <- maybe (optUIPageSize defaultServerOptions) unwrapNonOrphan <$>  C.lookup conf "ui.page_size"
     optVerifyRealm <- ldef optVerifyRealm "api.verify_realm"
     shibhdr <- ldef (CI.foldedCase . S.prefix . optShibboleth) "shibboleth.header_prefix"
     upstream <- C.lookup conf "shibboleth.upstream"
@@ -68,3 +69,7 @@ data NotOrphan a = NotOrphan { unwrapNonOrphan :: a }
 instance Configured (NotOrphan IPRange) where
     convert (C.String t) = NotOrphan <$> readMaybe (T.unpack t)
     convert _ = Nothing
+
+instance Configured (NotOrphan PageSize) where
+    convert (C.Number x) = NotOrphan <$> (floor x :: Integer) ^? pageSize
+    convert _            = Nothing

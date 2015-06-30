@@ -107,8 +107,8 @@ renderAuthorizePage req@RequestCode{..} client_details = docTypeHtml $ do
                   ! value "Decline"
                   ! alt "No, do not issue this token."
 
-renderTokensPage :: Scope -> Int -> Page -> ([(Maybe ClientID, Scope, Token, TokenID)], Int) -> Html
-renderTokensPage userScope size (review page -> p) (ts, numTokens) = docTypeHtml $ do
+renderTokensPage :: Scope -> PageSize -> Page -> ([(TokenID, TokenDetails)], Int) -> Html
+renderTokensPage userScope (review pageSize -> size) (review page -> p) (ts, numTokens) = docTypeHtml $ do
     head $ do
         title "Such Token"
         style ! type_ "text/css" $ toHtml stylesheet
@@ -143,7 +143,7 @@ htmlCreateTokenForm s = do
         br
         input ! type_ "submit" ! value "Create Token"
 
-htmlTokens :: [(Maybe ClientID, Scope, Token, TokenID)] -> Html
+htmlTokens :: [(TokenID, TokenDetails)] -> Html
 htmlTokens [] = h2 "You have no tokens!"
 htmlTokens ts = do
     br
@@ -160,16 +160,16 @@ htmlTokens ts = do
         th "token"
         th ""
 
-htmlToken :: (Maybe ClientID, Scope, Token, TokenID) -> Html
-htmlToken (cid, token_scope, t, tid) = tr $ do
+htmlToken :: (TokenID, TokenDetails) -> Html
+htmlToken (tid, TokenDetails{..}) = tr $ do
     td htmlCid
     td htmlScope
     td htmlToken'
     td htmlRevokeButton
   where
-    htmlCid    = toHtml $ T.decodeUtf8 $ maybe "None" (review clientID) cid
-    htmlScope  = toHtml $ T.decodeUtf8 $ scopeToBs token_scope
-    htmlToken' = toHtml $ T.decodeUtf8 $ token # t
+    htmlCid    = toHtml $ T.decodeUtf8 $ maybe "None" (review clientID) tokenDetailsClientID
+    htmlScope  = toHtml $ T.decodeUtf8 $ scopeToBs tokenDetailsScope
+    htmlToken' = toHtml $ T.decodeUtf8 $ token # tokenDetailsToken
     htmlRevokeButton =
         form ! method "POST" ! action "/tokens" $ do
             input ! type_ "hidden" ! name "method" ! value "delete"

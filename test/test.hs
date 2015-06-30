@@ -58,17 +58,17 @@ instance CoArbitrary Password where
 instance Function Password where
     function = functionShow
 
-instance Arbitrary Username where
+instance Arbitrary UserID where
     arbitrary = do
-        t <- T.pack <$> listOf (arbitrary `suchThat` unicodecharnocrlf)
-        case t ^? username of
-            Nothing -> fail $ "instance Arbitrary Username is broken" <> show t
+        t <- B.pack <$> listOf (arbitrary `suchThat` nqchar)
+        case t ^? userID of
+            Nothing -> fail $ "instance Arbitrary UserID is broken" <> show t
             Just x -> return x
 
-instance CoArbitrary Username where
-    coarbitrary = coarbitrary . review username
+instance CoArbitrary UserID where
+    coarbitrary = coarbitrary . review userID
 
-instance Function Username where
+instance Function UserID where
     function = functionShow
 
 instance Arbitrary ClientID where
@@ -110,7 +110,6 @@ instance Arbitrary RedirectURI where
 instance Arbitrary AccessRequest where
     arbitrary = oneof
         [ RequestAuthorizationCode <$> arbitrary <*> arbitrary <*> arbitrary
-        , RequestPassword <$> arbitrary <*> arbitrary <*> arbitrary
         , RequestClientCredentials <$> arbitrary
         , RequestRefreshToken <$> arbitrary <*> arbitrary
         ]
@@ -251,8 +250,8 @@ suite = do
         prop "isPrism token" $
             isPrism token
 
-        prop "isPrism username" $
-            isPrism username
+        prop "isPrism userID" $
+            isPrism userID
 
         prop "isPrism password" $
             isPrism password

@@ -52,10 +52,6 @@ instance Arbitrary Day where
     arbitrary =
         ModifiedJulianDay <$> arbitrary
 
-instance Arbitrary Username where
-    arbitrary =
-        (^?! packed . username) <$> vectorOf 32 alphabet
-
 instance Arbitrary Scope where
     arbitrary =
         fromJust . bsToScope . B.pack . unwords <$> listOf1 (listOf1 alphabet)
@@ -136,13 +132,13 @@ testStore ref = do
 propEmpty :: TokenStore ref => ref -> Token -> UserID -> Page -> Code -> Property
 propEmpty ref tok uid pg code' = monadicIO $ do
     -- There shouldn't be any tokens, so we shouldn't be able to load any.
-    no_token <- run $ storeLoadToken ref tok
+    no_token <- run $ storeReadToken ref (Left tok)
     assert (no_token == Nothing)
 
-    no_code <- run $ storeLoadCode ref code'
+    no_code <- run $ storeReadCode ref code'
     assert (no_code == Nothing)
 
-    (list, n_pages) <- run $ storeListTokens ref 100 uid pg
+    (list, n_pages) <- run $ storeListTokens ref uid ((100 :: Integer) ^?! pageSize) pg
     assert (null list)
     assert (n_pages == 0)
 
@@ -153,18 +149,16 @@ propSaveThenLoadToken ref arb_token_grant = monadicIO $ do
     -- The arbitrary time could be in the past, so we make sure we only test
     -- expiries in the future.
     now <- run getCurrentTime
-    let token_grant = arb_token_grant { grantExpires = 30 `addUTCTime` now }
+    let token_grant = arb_token_grant { grantExpires = Just $ 30 `addUTCTime` now }
 
     -- We first save the grant
-    details1 <- run $ storeSaveToken ref token_grant
+    (_, details1) <- run $ storeCreateToken ref token_grant
     -- Then try to read it back
-    maybe_details2 <- run $ storeLoadToken ref (tokenDetailsToken details1)
+    maybe_result <- run $ storeReadToken ref (Left $ tokenDetailsToken details1)
 
-    case maybe_details2 of
+    case maybe_result of
         Nothing ->
             error "Expected load to be Just for grant: " $ show token_grant
-        Just details2 ->
+        Just (_, details2) ->
             -- The thing we read should both exist and be the same
             assert (details1 == details2)
-
-

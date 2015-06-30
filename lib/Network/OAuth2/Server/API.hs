@@ -69,7 +69,8 @@ import           Servant.API                         ((:<|>) (..), (:>),
 import           Servant.HTML.Blaze
 import           Servant.Server                      (ServantErr (errBody, errHeaders),
                                                       Server, err302, err400,
-                                                      err401, err403, err404)
+                                                      err401, err403, err404,
+                                                      err500)
 import           Servant.Utils.Links
 import           System.Log.Logger
 import           Text.Blaze.Html5                    (Html)
@@ -164,28 +165,27 @@ processTokenRequest ref t (Just client_auth) req = do
     (client_id, modified_scope) <- checkCredentials ref client_auth req
     user <- case req of
         RequestAuthorizationCode{} -> return Nothing
-        RequestPassword{..} -> return $ Just requestUsername
         RequestClientCredentials{} -> return Nothing
         RequestRefreshToken{..} -> do
                 -- Decode previous token so we can copy details across.
-                previous <- liftIO $ storeLoadToken ref requestRefreshToken
-                return $ tokenDetailsUsername =<< previous
-    let expires = addUTCTime 1800 t
+                previous <- liftIO $ storeReadToken ref (Left requestRefreshToken)
+                return $ tokenDetailsUserID . snd =<< previous
+    let expires = Just $ addUTCTime 1800 t
         access_grant = TokenGrant
             { grantTokenType = Bearer
             , grantExpires = expires
-            , grantUsername = user
+            , grantUserID = user
             , grantClientID = client_id
             , grantScope = modified_scope
             }
         -- Create a refresh token with these details.
-        refresh_expires = addUTCTime (3600 * 24 * 7) t
+        refresh_expires = Just $ addUTCTime (3600 * 24 * 7) t
         refresh_grant = access_grant
             { grantTokenType = Refresh
             , grantExpires = refresh_expires
             }
-    access_details <- liftIO $ storeSaveToken ref access_grant
-    refresh_details <- liftIO $ storeSaveToken ref refresh_grant
+    (_, access_details)  <- liftIO $ storeCreateToken ref access_grant
+    (_, refresh_details) <- liftIO $ storeCreateToken ref refresh_grant
     return $ grantResponse t access_details (Just $ tokenDetailsToken refresh_details)
 
 -- | Headers for Shibboleth, this tells us who the user is and what they're
@@ -445,8 +445,8 @@ authorizePost ref user_id _scope code' = do
     res <- liftIO $ storeActivateCode ref code' user_id
     case res of
         Nothing -> throwError err401{ errBody = "You are not authorized to approve this request." }
-        Just uri -> do
-            let uri' = addQueryParameters uri [("code", code' ^.re code)]
+        Just RequestCode{..} -> do
+            let uri' = addQueryParameters requestCodeRedirectURI [("code", code' ^.re code)]
             throwError err302{ errHeaders = [(hLocation, uri' ^.re redirectURI)] }
 
 -- | Verify a token and return information about the principal and grant.
@@ -482,12 +482,12 @@ verifyEndpoint ref ServerOptions{..} (Just auth) token' = do
         Right (Just cid) -> do
             return cid
     -- 2. Load token information.
-    tok <- liftIO $ storeLoadToken ref token'
+    tok <- liftIO $ storeReadToken ref (Left token')
     case tok of
         Nothing -> do
             logD $ "Cannot verify token: failed to lookup " <> show token'
             throwError denied
-        Just details -> do
+        Just (_, details) -> do
             -- 3. Check client authorization.
             when (Just client_id /= tokenDetailsClientID details) $ do
                 logD $ "Client " <> show client_id <> " attempted to verify someone elses token: " <> show token'
@@ -507,6 +507,10 @@ verifyEndpoint ref ServerOptions{..} (Just auth) token' = do
 page1 :: Page
 page1 = (1 :: Integer) ^?! page
 
+-- | Page sizes of 1 are totally valid, promise.
+pageSize1 :: PageSize
+pageSize1 = (1 :: Integer) ^?! pageSize
+
 -- | Display a given token, if the user is allowed to do so.
 serverDisplayToken
     :: ( MonadIO m
@@ -519,11 +523,16 @@ serverDisplayToken
     -> Scope
     -> TokenID
     -> m Html
-serverDisplayToken ref u s t = do
-    res <- liftIO $ storeDisplayToken ref u t
-    case res of
-        Nothing -> throwError err404{errBody = "There's nothing here! =("}
-        Just x -> return $ renderTokensPage s 1 page1 ([x], 1)
+serverDisplayToken ref uid s tid = do
+    res <- liftIO $ storeReadToken ref (Right tid)
+    maybe nothingHere renderPage $ do
+        (_, token_details) <- res
+        guard (token_details `belongsToUser` uid)
+        return token_details
+  where
+    nothingHere = throwError err404{errBody = "There's nothing here! =("}
+    renderPage token_details = return $
+        renderTokensPage s pageSize1 page1 ([(tid, token_details)], 1)
 
 -- | List all tokens for a given user, paginated.
 serverListTokens
@@ -533,14 +542,14 @@ serverListTokens
        , TokenStore ref
        )
     => ref
-    -> Int
+    -> PageSize
     -> UserID
     -> Scope
     -> Maybe Page
     -> m Html
 serverListTokens ref size u s p = do
     let p' = fromMaybe page1 p
-    res <- liftIO $ storeListTokens ref size u p'
+    res <- liftIO $ storeListTokens ref u size p'
     return $ renderTokensPage s size p' res
 
 -- | Handle a token create/delete request.
@@ -557,13 +566,21 @@ serverPostToken
     -> m Html
 -- | Revoke a given token
 serverPostToken ref user_id _ (DeleteRequest token_id) = do
-    liftIO $ storeRevokeToken ref user_id token_id
-    let link = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy ListTokens) page1
-    throwError err302{errHeaders = [(hLocation, B.pack $ show link)]} --Redirect to tokens page
+    success <- liftIO $ storeRevokeToken ref user_id token_id
+    if success then
+        let link = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy ListTokens) page1
+        in throwError err302{errHeaders = [(hLocation, B.pack $ show link)]} --Redirect to tokens page
+    else
+        throwError err500{errBody = "Something quite horrible has happened"}
 -- | Create a new token
 serverPostToken ref user_id user_scope (CreateRequest req_scope) =
     if compatibleScope req_scope user_scope then do
-        TokenID t <- liftIO $ storeCreateToken ref user_id req_scope
+        let grantTokenType = Bearer
+            grantExpires   = Nothing
+            grantUserID    = Just user_id
+            grantClientID  = Nothing
+            grantScope     = req_scope
+        (TokenID t, _) <- liftIO $ storeCreateToken ref TokenGrant{..}
         let link = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy DisplayToken) (TokenID t)
         throwError err302{errHeaders = [(hLocation, B.pack $ show link)]} --Redirect to tokens page
     else throwError err403{errBody = "Invalid requested token scope"}
@@ -587,9 +604,6 @@ checkCredentials ref auth req = do
             -- https://tools.ietf.org/html/rfc6749#section-4.1.3
             RequestAuthorizationCode auth_code uri client ->
                 checkClientAuthCode client_id' auth_code uri client
-            -- https://tools.ietf.org/html/rfc6749#section-4.3.2
-            RequestPassword request_username request_password request_scope ->
-                checkPassword client_id' request_username request_password request_scope
             -- http://tools.ietf.org/html/rfc6749#section-4.4.2
             RequestClientCredentials request_scope ->
                 checkClientCredentials client_id' request_scope
@@ -609,7 +623,7 @@ checkCredentials ref auth req = do
             OAuth2Error UnauthorizedClient
                         (preview errorDescription "Invalid client credentials")
                         Nothing
-        codes <- liftIO $ storeLoadCode ref request_code
+        codes <- liftIO $ storeReadCode ref request_code
         case codes of
             Nothing -> throwError $ OAuth2Error InvalidGrant
                                                 (preview errorDescription "Request code not found")
@@ -636,14 +650,6 @@ checkCredentials ref auth req = do
                     Just code_scope -> return (Just client_id, code_scope)
 
     --
-    -- Check nothing and fail; we don't support password grants.
-    --
-    checkPassword :: ClientID -> Username -> Password -> Maybe Scope -> m (Maybe ClientID, Scope)
-    checkPassword _ _ _ _ = throwError $ OAuth2Error UnsupportedGrantType
-                                                     (preview errorDescription "password grants not supported")
-                                                     Nothing
-
-    --
     -- Client has been verified and there's nothing to verify for the
     -- scope, so this will always succeed unless we get no scope at all.
     --
@@ -658,7 +664,7 @@ checkCredentials ref auth req = do
     --
     checkRefreshToken :: ClientID -> Token -> Maybe Scope -> m (Maybe ClientID, Scope)
     checkRefreshToken client_id tok scope' = do
-            details <- liftIO $ storeLoadToken ref tok
+            details <- liftIO $ storeReadToken ref (Left tok)
             case details of
                 -- The old token is dead.
                 Nothing -> do
@@ -666,7 +672,7 @@ checkCredentials ref auth req = do
                     throwError $ OAuth2Error InvalidRequest
                                              (preview errorDescription "Invalid token")
                                              Nothing
-                Just details' -> do
+                Just (_, details') -> do
                     -- Check the ClientIDs match.
                     when (Just client_id /= tokenDetailsClientID details') $ do
                         liftIO . errorM logName $ "Refresh requested with "

@@ -58,26 +58,36 @@ class TokenStore ref where
         :: ref
         -> Code
         -> UserID
-        -> IO (Maybe RedirectURI)
+        -> IO (Maybe RequestCode)
 
-    storeLoadCode
+    -- | Read a previously requested Authorization Code Grant
+    storeReadCode
         :: ref
         -> Code
         -> IO (Maybe RequestCode)
 
+    -- * CRUD for Tokens
+
     -- | Record a new token grant in the database.
-    storeSaveToken
+    storeCreateToken
         :: ref
         -> TokenGrant
-        -> IO TokenDetails
+        -> IO (TokenID, TokenDetails)
 
     -- | Retrieve the details of a previously issued token from the database.
     --
     --   Returns only tokens which are currently valid.
-    storeLoadToken
+    storeReadToken
         :: ref
-        -> Token
-        -> IO (Maybe TokenDetails)
+        -> Either Token TokenID
+        -> IO (Maybe (TokenID, TokenDetails))
+
+    -- | Revoke a previously issued token
+    storeRevokeToken
+        :: ref
+        -> UserID
+        -> TokenID
+        -> IO Bool
 
     -- * User Interface operations
 
@@ -87,32 +97,10 @@ class TokenStore ref where
     -- pages.
     storeListTokens
         :: ref
-        -> Int
         -> UserID
+        -> PageSize
         -> Page
-        -> IO ([(Maybe ClientID, Scope, Token, TokenID)], Int)
-
-    -- | Retrieve information for a single token for a user.
-    --
-    storeDisplayToken
-        :: ref
-        -> UserID
-        -> TokenID
-        -> IO (Maybe (Maybe ClientID, Scope, Token, TokenID))
-
-    -- | TODO document me
-    storeCreateToken
-        :: ref
-        -> UserID
-        -> Scope
-        -> IO TokenID
-
-    -- | TODO document me
-    storeRevokeToken
-        :: ref
-        -> UserID
-        -> TokenID
-        -> IO ()
+        -> IO ([(TokenID, TokenDetails)], Int)
 
     -- | (Optionally) gather EKG stats
     storeGatherStats
