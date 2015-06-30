@@ -145,7 +145,7 @@ instance FromField Username where
         case u ^? username of
             Just u_name -> pure u_name
             Nothing   -> returnError ConversionFailed f $
-                            "Failed to convert with clientID: " <> show u
+                            "Failed to convert with username: " <> show u
 instance ToField UserID where
     toField = toField . unpackUserID
 
