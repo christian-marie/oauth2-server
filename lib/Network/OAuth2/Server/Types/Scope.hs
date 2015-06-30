@@ -87,7 +87,7 @@ scopeToken =
     b2s :: ByteString -> Maybe ScopeToken
     b2s b = either fail return $ parseOnly (scopeTokenParser <* endOfInput) b
 
--- A scope token is a non-empty, case-sensitive string
+-- | A scope token is a non-empty, case-sensitive string
 -- scope-token = 1*nqchar
 scopeTokenParser :: Parser ScopeToken
 scopeTokenParser = ScopeToken <$> takeWhile1 nqchar

@@ -69,39 +69,32 @@ module Network.OAuth2.Server.Types (
   tokenDetails,
   unicodecharnocrlf,
   UserID,
-  userid,
+  userID,
   Username,
   username,
   vschar,
 ) where
 
 import           Blaze.ByteString.Builder             (toByteString)
-import           Control.Applicative                  (Applicative ((<*), (<*>), pure),
+import           Control.Applicative                  (Applicative ((<*>), pure),
                                                        (<$>))
-import           Control.Error.Util                   (hush)
 import           Control.Lens.Fold                    (preview, (^?))
 import           Control.Lens.Operators               ((%~), (&), (^.))
 import           Control.Lens.Prism                   (Prism', prism')
 import           Control.Lens.Review                  (re, review)
-import           Control.Monad                        (guard, join)
+import           Control.Monad                        (guard)
 import           Crypto.Scrypt
 import           Data.Aeson                           (FromJSON (..),
                                                        ToJSON (..),
                                                        Value (String), object,
                                                        withObject, withText,
                                                        (.:), (.:?), (.=))
-import           Data.Attoparsec.ByteString           (endOfInput, parseOnly,
-                                                       takeWhile1, word8)
 import           Data.ByteString                      (ByteString)
 import qualified Data.ByteString                      as B (all)
-import qualified Data.ByteString.Base64               as B64 (decode)
-import qualified Data.ByteString.Char8                as BC
 import           Data.Monoid                          ((<>))
-import           Data.String
 import           Data.Text                            (Text)
-import qualified Data.Text                            as T (all, unpack)
+import qualified Data.Text                            as T (unpack)
 import qualified Data.Text.Encoding                   as T (decodeUtf8,
-                                                            decodeUtf8',
                                                             encodeUtf8)
 import           Data.Time.Clock                      (UTCTime, diffUTCTime)
 import           Data.Typeable                        (Typeable)
@@ -111,7 +104,6 @@ import           Database.PostgreSQL.Simple.FromField
 import           Database.PostgreSQL.Simple.FromRow
 import           Database.PostgreSQL.Simple.ToField
 import           Database.PostgreSQL.Simple.ToRow
-import           Network.HTTP.Types.Header            as HTTP
 import           Network.Wai.Handler.Warp             hiding (Connection)
 import           Servant.API                          (FromFormUrlEncoded (..),
                                                        FromText (..),
@@ -124,22 +116,11 @@ import           URI.ByteString                       (URI, parseURI,
                                                        uriFragmentL,
                                                        uriQueryL)
 
+import           Network.OAuth2.Server.Types.Auth
 import           Network.OAuth2.Server.Types.Common
 import           Network.OAuth2.Server.Types.Error
 import           Network.OAuth2.Server.Types.Scope
 import           Network.OAuth2.Server.Types.Token
-
--- | Unique identifier for a user.
-newtype UserID = UserID
-    { unpackUserID :: Text }
-  deriving (Eq, Show, Ord, FromText)
-
-instance ToField UserID where
-    toField = toField . unpackUserID
-
-userid :: Prism' ByteString UserID
-userid = prism' (T.encodeUtf8 . unpackUserID)
-                (fmap UserID . hush . T.decodeUtf8')
 
 
 -- | Page number for paginated user interfaces.
@@ -191,91 +172,6 @@ instance FromFormUrlEncoded Code where
         Just x -> case T.encodeUtf8 x ^? code of
             Nothing -> Left "Invalid Code Syntax"
             Just c -> Right c
-
--- * Just HTTPy Things - justhttpythings.tumblr.com
---
--- $ Here are some things to support various HTTP functionality in the
---   application. Tumblr pictures with embedded captions to follow.
-
--- | Quote a string, as described in the RFC2616 HTTP/1.1
---
---   Assumes that the string contains only legitimate characters (i.e. no
---   controls).
-quotedString :: ByteString -> ByteString
-quotedString s = "\"" <> escape s <> "\""
-  where
-    escape = BC.intercalate "\\\"" . BC.split '"'
-
--- | Produce headers to be included in a request.
-class ToHTTPHeaders a where
-    -- | Generate headers to be included in a HTTP request/response.
-    toHeaders :: a -> [HTTP.Header]
-
--- | Realm for HTTP authentication.
-newtype HTTPAuthRealm = Realm { unpackRealm :: ByteString }
-  deriving (Eq, IsString)
-
--- | HTTP authentication challenge to send to a client.
-data HTTPAuthChallenge
-    = BasicAuth { authRealm :: HTTPAuthRealm }
-
-instance ToHTTPHeaders HTTPAuthChallenge where
-    toHeaders (BasicAuth (Realm realm)) =
-        [ ("WWW-Authenticate", "Basic realm=" <> quotedString realm) ]
-
-newtype Username = Username { unUsername :: Text }
-    deriving (Eq, Typeable)
-
-username :: Prism' Text Username
-username =
-    prism' unUsername (\t -> guard (T.all unicodecharnocrlf t) >> return (Username t))
-
-instance Show Username where
-    show = show . review username
-
-instance Read Username where
-    readsPrec n s = [ (x,rest) | (t,rest) <- readsPrec n s, Just x <- [t ^? username]]
-
-instance ToJSON Username where
-    toJSON = String . review username
-
-instance FromJSON Username where
-    parseJSON = withText "Username" $ \t ->
-        case t ^? username of
-            Nothing -> fail $ show t <> " is not a valid Username."
-            Just s -> return s
-
-newtype Password = Password { unPassword :: Text }
-    deriving (Eq, Typeable)
-
-password :: Prism' Text Password
-password =
-    prism' unPassword (\t -> guard (T.all unicodecharnocrlf t) >> return (Password t))
-
-newtype ClientID = ClientID { unClientID :: ByteString }
-    deriving (Eq, Typeable)
-
-clientID :: Prism' ByteString ClientID
-clientID =
-    prism' unClientID (\t -> guard (B.all vschar t) >> return (ClientID t))
-
-instance Show ClientID where
-    show = show . review clientID
-
-instance Read ClientID where
-    readsPrec n s = [ (x,rest) | (t,rest) <- readsPrec n s, Just x <- [t ^? clientID]]
-
-instance ToJSON ClientID where
-    toJSON c = String . T.decodeUtf8 $ c ^.re clientID
-
-instance FromJSON ClientID where
-    parseJSON = withText "ClientID" $ \t ->
-        case T.encodeUtf8 t ^? clientID of
-            Nothing -> fail $ T.unpack t <> " is not a valid ClientID."
-            Just s -> return s
-
-instance FromText ClientID where
-    fromText t = T.encodeUtf8 t ^? clientID
 
 -- | Response type requested by client when using the authorize endpoint.
 --
@@ -594,40 +490,6 @@ instance FromJSON AccessResponse where
         <*> o .:? "client_id"
         <*> o .: "scope"
 
-data AuthHeader = AuthHeader
-    { authScheme :: ByteString
-    , authParam  :: ByteString
-    }
-  deriving (Eq, Show, Typeable)
-
-authDetails :: Prism' AuthHeader (ClientID, Password)
-authDetails =
-    prism' fromPair toPair
-  where
-    toPair AuthHeader{..} = case authScheme of
-        "Basic" ->
-            case BC.split ':' <$> B64.decode authParam of
-                Right [client_id, secret] -> do
-                    client_id' <- preview clientID client_id
-                    secret' <- preview password $ T.decodeUtf8 secret
-                    return (client_id', secret')
-                _                         -> Nothing
-        _       -> Nothing
-
-    fromPair (client_id, secret) =
-        AuthHeader "Basic" $ (review clientID client_id) <> " " <> T.encodeUtf8 (review password secret)
-
-instance FromText AuthHeader where
-    fromText t = do
-        let b = T.encodeUtf8 t
-        either fail return $ flip parseOnly b $ AuthHeader
-            <$> takeWhile1 nqchar <* word8 0x20
-            <*> takeWhile1 nqschar <* endOfInput
-
-instance ToText AuthHeader where
-    toText AuthHeader {..} = T.decodeUtf8 $ authScheme <> " " <> authParam
-
-
 -- | Redirect URIs as used in the OAuth2 RFC.
 --
 -- @TODO(thsutton): The RFC requires that they be absolute and also not include
@@ -663,36 +525,23 @@ instance ToText RedirectURI where
 -- $ Here we implement support for, e.g., sorting oauth2-server types in
 -- PostgreSQL databases.
 --
-instance FromField ClientID where
-    fromField f bs = do
-        c <- fromField f bs
-        case c ^? clientID of
-            Just c_id -> pure c_id
-            Nothing   -> returnError ConversionFailed f $
-                            "Failed to convert with clientID: " <> show c
-
-instance ToField ClientID where
-    toField c_id = toField $ c_id ^.re clientID
-
-instance ToRow ClientID where
-    toRow client_id = toRow (Only (review clientID client_id))
 
 
 instance ToRow TokenGrant where
     toRow (TokenGrant ty ex uid cid sc) = toRow
         ( ty
         , ex
-        , review username <$> uid
-        , review clientID <$> cid
+        , uid
+        , cid
         , sc
         )
 
 instance FromRow TokenDetails where
     fromRow = TokenDetails <$> field
-                           <*> mebbeField (preview token)
                            <*> field
-                           <*> doublePlusFmapJoin (preview username) field
-                           <*> doublePlusFmapJoin (preview clientID) field
+                           <*> field
+                           <*> field
+                           <*> field
                            <*> field
 
 instance FromField RedirectURI where
@@ -750,23 +599,3 @@ instance FromRow RequestCode where
                           <*> field
                           <*> field
                           <*> field
-
--- | For when you want to compose a result -> Maybe result' with a postgres
--- RowParser thing, or whatever you want, I guess.
-doublePlusFmapJoin
-    ::  (Functor m, Functor f, Monad m)
-    => (a -> m b) -> f (m a) -> f (m b)
-doublePlusFmapJoin = (fmap join .) . fmap . fmap
-
--- | Get a PostgreSQL field using a parsing function.
---
--- Fails when given a NULL or if the parsing function fails.
-mebbeField
-    :: forall a b. (Typeable a, FromField b)
-    => (b -> Maybe a)
-    -> RowParser a
-mebbeField parse = fieldWith fld
-  where
-    fld :: Field -> Maybe ByteString -> Conversion a
-    fld f mbs = (parse <$> fromField f mbs) >>=
-        maybe (returnError ConversionFailed f "") return

@@ -12,14 +12,15 @@
 -- | Common types and encoding for OAuth2 Types
 module Network.OAuth2.Server.Types.Common where
 
-import           Blaze.ByteString.Builder (toByteString)
-import           Data.Aeson               (ToJSON (..), Value, withText)
-import qualified Data.Aeson.Types         as Aeson (Parser)
-import           Data.Char                (ord)
-import qualified Data.Text.Encoding       as T (decodeUtf8, encodeUtf8)
-import           Data.Word                (Word8)
-import           URI.ByteString           (URI, parseURI, serializeURI,
-                                           strictURIParserOptions)
+import           Blaze.ByteString.Builder  (toByteString)
+import           Data.Aeson                (ToJSON (..), Value, withText)
+import qualified Data.Aeson.Types          as Aeson (Parser)
+import           Data.Char                 (ord)
+import qualified Data.Text.Encoding        as T (decodeUtf8, encodeUtf8)
+import           Data.Word                 (Word8)
+import           Network.HTTP.Types.Header as HTTP
+import           URI.ByteString            (URI, parseURI, serializeURI,
+                                            strictURIParserOptions)
 
 --------------------------------------------------------------------------------
 
@@ -75,3 +76,8 @@ uriFromJSON = withText "URI" $ \t ->
         Right u -> return u
 
 --------------------------------------------------------------------------------
+
+-- | Produce headers to be included in a request.
+class ToHTTPHeaders a where
+    -- | Generate headers to be included in a HTTP request/response.
+    toHeaders :: a -> [HTTP.Header]

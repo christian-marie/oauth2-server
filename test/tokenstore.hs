@@ -93,7 +93,7 @@ instance Arbitrary ByteString where
 
 instance Arbitrary UserID where
     arbitrary =
-        (^?! userid) <$> arbitrary `suchThat` has userid
+        (^?! userID) <$> arbitrary `suchThat` has userID
 
 instance Arbitrary Page where
     arbitrary =
