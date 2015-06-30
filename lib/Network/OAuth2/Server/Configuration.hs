@@ -7,6 +7,7 @@
 -- the 3-clause BSD licence.
 --
 
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 
@@ -16,8 +17,12 @@ module Network.OAuth2.Server.Configuration where
 import           Control.Applicative
 import qualified Data.CaseInsensitive              as CI
 import           Data.Configurator                 as C
-import           Data.Configurator.Types
+import           Data.Configurator.Types           as C
+import           Data.IP
+import           Data.Maybe
 import           Data.String
+import qualified Data.Text                         as T
+import           Text.Read
 
 import           Network.OAuth2.Server.Types
 import           Network.Wai.Middleware.Shibboleth as S
@@ -49,14 +54,17 @@ loadOptions conf = do
     optUIPageSize <- ldef optUIPageSize "ui.page_size"
     optVerifyRealm <- ldef optVerifyRealm "api.verify_realm"
     shibhdr <- ldef (CI.foldedCase . S.prefix . optShibboleth) "shibboleth.header_prefix"
-    upstream <- ldef (S.upstream . optShibboleth) "shibboleth.upstream"
-    let optShibboleth = ShibConfig (upstream `seq` upstream) (CI.mk shibhdr)
+    upstream <- C.lookup conf "shibboleth.upstream"
+    let optShibboleth = ShibConfig (fromMaybe (S.upstream S.defaultConfig) (map unwrapNonOrphan <$> upstream))
+                                   (CI.mk shibhdr)
     return ServerOptions{..}
   where
     ldef f k = lookupDefault (f defaultServerOptions) conf k
 
-instance Configured CIDR where
-    convert (String s) = case parseCIDR s of
-        Left _  -> Nothing
-        Right v -> Just v
+-- | Avoid making orphan instances by wrapping with this.
+data NotOrphan a = NotOrphan { unwrapNonOrphan :: a }
+
+-- | Configure 'IPRange's by using 'readMaybe'.
+instance Configured (NotOrphan IPRange) where
+    convert (C.String t) = NotOrphan <$> readMaybe (T.unpack t)
     convert _ = Nothing

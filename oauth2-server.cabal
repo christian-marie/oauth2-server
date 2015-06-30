@@ -45,6 +45,7 @@ Library
                      , file-embed
                      , hslogger
                      , http-types
+                     , iproute
                      , lens
                      , monad-control
                      , mtl
