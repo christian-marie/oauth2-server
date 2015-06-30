@@ -121,7 +121,7 @@ import           Network.OAuth2.Server.Types.Common
 import           Network.OAuth2.Server.Types.Error
 import           Network.OAuth2.Server.Types.Scope
 import           Network.OAuth2.Server.Types.Token
-
+import           Network.Wai.Middleware.Shibboleth
 
 -- | Page number for paginated user interfaces.
 --
@@ -143,8 +143,8 @@ data ServerOptions = ServerOptions
     , optServicePort :: Int
     , optUIPageSize  :: Int
     , optVerifyRealm :: ByteString
+    , optShibboleth  :: ShibConfig
     }
-  deriving (Eq, Show)
 
 -- | Describes events which should be tracked by the monitoring statistics
 -- system.

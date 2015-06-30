@@ -41,6 +41,7 @@ import           Network.OAuth2.Server.API
 import           Network.OAuth2.Server.Configuration
 import           Network.OAuth2.Server.Statistics
 import           Network.OAuth2.Server.Store         hiding (logName)
+import           Network.Wai.Middleware.Shibboleth
 
 import           Paths_oauth2_server                 as P
 
@@ -88,7 +89,7 @@ startServer serverOpts@ServerOptions{..} = do
     let settings = setPort optServicePort $ setHost optServiceHost $ defaultSettings
     apiSrv <- async $ do
         debugM logName $ "Starting API Server"
-        runSettingsSocket settings sock $ serve anchorOAuth2API (server ref serverOpts)
+        runSettingsSocket settings sock . shibboleth optShibboleth $ serve anchorOAuth2API (server ref serverOpts)
     let serverServiceStop = do
             debugM logName $ "Closing API Socket"
             S.close sock

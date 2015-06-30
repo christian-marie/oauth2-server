@@ -33,6 +33,7 @@ Library
                      , Network.OAuth2.Server.Types.Scope
                      , Network.OAuth2.Server.Types.Token
                      , Network.OAuth2.Server.UI
+                     , Network.Wai.Middleware.Shibboleth
   build-depends:       base >=4.7 && <4.9
                      , aeson
                      , async
@@ -51,6 +52,7 @@ Library
                      , file-embed
                      , hslogger
                      , http-types
+                     , iproute
                      , lens
                      , monad-control
                      , mtl
@@ -73,6 +75,7 @@ Library
                      , uri-bytestring
                      , uuid
                      , vector
+                     , wai
                      , warp
 
   ghc-options: -Wall -fwarn-tabs -funbox-strict-fields
