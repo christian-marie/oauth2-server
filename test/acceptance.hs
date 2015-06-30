@@ -315,7 +315,7 @@ handleResponse r =
 addAuthHeaders :: Maybe (UserID, Scope) -> Options -> Options
 addAuthHeaders Nothing = id
 addAuthHeaders (Just (user, perms)) =
-    (header "Identity-OAuthUser" .~ [review userid user])
+    (header "Identity-OAuthUser" .~ [review userID user])
     . (header "Identity-OAuthUserScopes" .~ [scopeToBs perms])
 
 -- | Helper for string -> bytestring conversion and lifting IO

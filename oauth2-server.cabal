@@ -27,6 +27,7 @@ Library
                      , Network.OAuth2.Server.Store.Base
                      , Network.OAuth2.Server.Store.PostgreSQL
                      , Network.OAuth2.Server.Types
+                     , Network.OAuth2.Server.Types.Auth
                      , Network.OAuth2.Server.Types.Common
                      , Network.OAuth2.Server.Types.Error
                      , Network.OAuth2.Server.Types.Scope
