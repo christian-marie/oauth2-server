@@ -24,7 +24,14 @@ Library
                      , Network.OAuth2.Server.Configuration
                      , Network.OAuth2.Server.Statistics
                      , Network.OAuth2.Server.Store
+                     , Network.OAuth2.Server.Store.Base
+                     , Network.OAuth2.Server.Store.PostgreSQL
                      , Network.OAuth2.Server.Types
+                     , Network.OAuth2.Server.Types.Auth
+                     , Network.OAuth2.Server.Types.Common
+                     , Network.OAuth2.Server.Types.Error
+                     , Network.OAuth2.Server.Types.Scope
+                     , Network.OAuth2.Server.Types.Token
                      , Network.OAuth2.Server.UI
                      , Network.Wai.Middleware.Shibboleth
   build-depends:       base >=4.7 && <4.9

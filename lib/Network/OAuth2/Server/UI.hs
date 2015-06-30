@@ -95,7 +95,7 @@ renderAuthorizePage req@RequestCode{..} client_details = docTypeHtml $ do
             br
             input ! type_ "hidden"
                   ! name "code"
-                  ! value (toValue $ show requestCodeCode)
+                  ! value (toValue . T.decodeUtf8 . review code $ requestCodeCode)
             -- Approve button is first and, therefore, the default action.
             input ! type_ "submit"
                   ! name "action"
