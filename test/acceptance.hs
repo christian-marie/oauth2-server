@@ -76,7 +76,7 @@ tests base_uri = do
             -- (shouldBe `on` accessToken) t1 t2
             -- (shouldBe `on` refreshToken) t1 t2
             -- (shouldBe `on` tokenExpiresIn) t1 t2
-            (shouldBe `on` tokenUsername) t1 t2
+            (shouldBe `on` tokenUserID) t1 t2
             (shouldBe `on` tokenClientID) t1 t2
             (shouldBe `on` tokenScope) t1 t2
 

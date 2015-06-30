@@ -50,16 +50,13 @@ import           Network.OAuth2.Server.Types.Common
 
 -- Types
 
-newtype Username = Username { unUsername :: Text }
-    deriving (Eq, Typeable)
-
 newtype Password = Password { unPassword :: Text }
     deriving (Eq, Typeable)
 
 -- | Unique identifier for a user.
 newtype UserID = UserID
     { unpackUserID :: ByteString }
-  deriving (Eq, Show, Ord)
+  deriving (Eq, Ord, Typeable)
 
 newtype ClientID = ClientID { unClientID :: ByteString }
     deriving (Eq, Typeable)
@@ -83,10 +80,6 @@ data AuthHeader = AuthHeader
 
 -- ByteString Encoding and Decoding
 
-username :: Prism' Text Username
-username =
-    prism' unUsername (\t -> guard (T.all unicodecharnocrlf t) >> return (Username t))
-
 password :: Prism' Text Password
 password =
     prism' unPassword (\t -> guard (T.all unicodecharnocrlf t) >> return (Password t))
@@ -103,11 +96,11 @@ clientID =
 
 -- String Encoding and Decoding
 
-instance Show Username where
-    show = show . review username
+instance Show UserID where
+    show = show . review userID
 
-instance Read Username where
-    readsPrec n s = [ (x,rest) | (t,rest) <- readsPrec n s, Just x <- [t ^? username]]
+instance Read UserID where
+    readsPrec n s = [ (x,rest) | (t,rest) <- readsPrec n s, Just x <- [t ^? userID]]
 
 instance Show ClientID where
     show = show . review clientID
@@ -139,13 +132,15 @@ instance ToText AuthHeader where
 
 -- Postgres Encoding and Decoding
 
-instance FromField Username where
+instance FromField UserID where
     fromField f bs = do
         u <- fromField f bs
-        case u ^? username of
-            Just u_name -> pure u_name
+        case u ^? userID of
+            Just u_id -> pure u_id
             Nothing   -> returnError ConversionFailed f $
-                            "Failed to convert with username: " <> show u
+                            "Failed to convert with userID: " <> show u
+
+
 instance ToField UserID where
     toField = toField . unpackUserID
 
@@ -160,20 +155,17 @@ instance FromField ClientID where
 instance ToField ClientID where
     toField c_id = toField $ c_id ^.re clientID
 
-instance ToField Username where
-    toField c_id = toField $ c_id ^.re username
-
 --------------------------------------------------------------------------------
 
 -- JSON/Aeson Encoding and Decoding
 
-instance ToJSON Username where
-    toJSON = String . review username
+instance ToJSON UserID where
+    toJSON = String . T.decodeUtf8 . review userID
 
-instance FromJSON Username where
-    parseJSON = withText "Username" $ \t ->
-        case t ^? username of
-            Nothing -> fail $ show t <> " is not a valid Username."
+instance FromJSON UserID where
+    parseJSON = withText "UserID" $ \t ->
+        case T.encodeUtf8 t ^? userID of
+            Nothing -> fail $ show t <> " is not a valid UserID."
             Just s -> return s
 
 instance ToJSON ClientID where

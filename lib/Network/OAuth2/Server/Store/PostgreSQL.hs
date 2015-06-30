@@ -23,9 +23,9 @@ import           Control.Lens.Review              (review)
 import           Data.Int                         (Int64)
 import           Data.Monoid                      ((<>))
 import           Data.Pool                        (Pool, withResource)
-import           Database.PostgreSQL.Simple       (Connection, Only (..),
-                                                   Query, execute, query,
-                                                   query_)
+import           Database.PostgreSQL.Simple       ((:.) (..), Connection,
+                                                   Only (..), Query, execute,
+                                                   query, query_)
 import           System.Log.Logger                (criticalM, debugM, errorM,
                                                    warningM)
 
@@ -58,15 +58,16 @@ instance TokenStore PSQLConnPool where
     storeActivateCode (PSQLConnPool pool) code' user_id = do
         withResource pool $ \conn -> do
             debugM logName $ "Attempting storeActivateCode with " <> show code'
-            res <- query conn "UPDATE request_codes SET authorized = TRUE WHERE code = ? AND user_id = ? RETURNING redirect_url" (code', user_id)
+            res <- query conn "UPDATE request_codes SET authorized = TRUE WHERE code = ? AND user_id = ? RETURNING code, expires, client_id, redirect_url, scope, state" (code', user_id)
             case res of
                 [] -> return Nothing
-                [Only uri] -> return (Just uri)
+                [reqCode] -> return $ Just reqCode
                 _ -> do
-                    errorM logName $ "Consistency error: multiple redirect URLs found"
-                    error "Consistency error: multiple redirect URLs found"
+                    let errMsg = "Consistency error: multiple request codes found"
+                    errorM logName errMsg
+                    error errMsg
 
-    storeLoadCode (PSQLConnPool pool) request_code = do
+    storeReadCode (PSQLConnPool pool) request_code = do
         codes :: [RequestCode] <- withResource pool $ \conn -> do
             debugM logName $ "Attempting storeLoadCode"
             query conn "SELECT code, expires, client_id, redirect_url, scope, state FROM request_codes WHERE (code = ?)"
@@ -76,22 +77,25 @@ instance TokenStore PSQLConnPool where
             [rc] -> return rc
             _ -> error "Expected code PK to be unique"
 
-    storeSaveToken (PSQLConnPool pool) grant = do
+    storeCreateToken (PSQLConnPool pool) grant = do
         debugM logName $ "Saving new token: " <> show grant
-        res :: [TokenDetails] <- withResource pool $ \conn -> do
+        res <- withResource pool $ \conn -> do
             debugM logName $ "Attempting storeSaveToken"
-            query conn "INSERT INTO tokens (token_type, expires, user_id, client_id, scope, token, created) VALUES (?,?,?,?,?,uuid_generate_v4(), NOW()) RETURNING token_type, token, expires, user_id, client_id, scope" grant
+            query conn "INSERT INTO tokens (token_type, expires, user_id, client_id, scope, token, created) VALUES (?,?,?,?,?,uuid_generate_v4(), NOW()) RETURNING token_id, token_type, token, expires, user_id, client_id, scope" grant
         case res of
-            [tok] -> return tok
+            [Only tid :. tok] -> return (tid, tok)
             []    -> fail $ "Failed to save new token: " <> show grant
             _     -> fail "Impossible: multiple tokens returned from single insert"
 
-    storeLoadToken (PSQLConnPool pool) tok = do
+    storeReadToken (PSQLConnPool pool) tok = do
         debugM logName $ "Loading token: " <> show tok
-        tokens :: [TokenDetails] <- withResource pool $ \conn -> do
-            query conn "SELECT token_type, token, expires, user_id, client_id, scope FROM tokens WHERE (token = ?) AND (created <= NOW()) AND (NOW() < expires) AND (revoked IS NULL)" (Only tok)
+        tokens <- withResource pool $ \conn -> do
+            let q = "SELECT token_id, token_type, token, expires, user_id, client_id, scope FROM tokens WHERE (created <= NOW()) AND (NOW() < expires) AND (revoked IS NULL) AND "
+            case tok of
+                Left tok' -> query conn (q <> "(token    = ?)") (Only tok')
+                Right tid -> query conn (q <> "(token_id = ?)") (Only tid )
         case tokens of
-            [t] -> return $ Just t
+            [Only tid :. tok'] -> return $ Just (tid, tok')
             []  -> do
                 debugM logName $ "No tokens found matching " <> show tok
                 return Nothing
@@ -99,36 +103,31 @@ instance TokenStore PSQLConnPool where
                 errorM logName $ "Consistency error: multiple tokens found matching " <> show tok
                 return Nothing
 
-    storeListTokens (PSQLConnPool pool) size uid (review page -> p) = do
-        withResource pool $ \conn -> do
-            debugM logName $ "Listing tokens for " <> show uid
-            tokens <- query conn "SELECT client_id, scope, token, token_id FROM tokens WHERE (user_id = ?) AND revoked is NULL ORDER BY created LIMIT ? OFFSET ?" (uid, size, (p - 1) * size)
-            [Only numTokens] <- query conn "SELECT count(*) FROM tokens WHERE (user_id = ?)" (Only uid)
-            return (tokens, numTokens)
-
-    storeDisplayToken (PSQLConnPool pool) user_id token_id = do
-        withResource pool $ \conn -> do
-            debugM logName $ "Retrieving token with id " <> show token_id <> " for user " <> show user_id
-            tokens <- query conn "SELECT client_id, scope, token, token_id FROM tokens WHERE (token_id = ?) AND (user_id = ?) AND revoked is NULL" (token_id, user_id)
-            case tokens of
-                []  -> return Nothing
-                [x] -> return $ Just x
-                xs  -> let msg = "Should only be able to retrieve at most one token, retrieved: " <> show xs
-                    in errorM logName msg >> fail msg
-
-    storeCreateToken (PSQLConnPool pool) _user_id _request_scope = do
-        withResource pool $ \_conn ->
-            --execute conn "INSERT INTO tokens VALUES ..."
-            error "wat"
-
     storeRevokeToken (PSQLConnPool pool) user_id token_id = do
         withResource pool $ \conn -> do
             debugM logName $ "Revoking token with id " <> show token_id <> " for user " <> show user_id
             rows <- execute conn "UPDATE tokens SET revoked = NOW() WHERE (token_id = ?) AND (user_id = ?)" (token_id, user_id)
             case rows of
-                1 -> debugM logName $ "Revoked token with id " <> show token_id <> " for user " <> show user_id
-                0 -> fail $ "Failed to revoke token " <> show token_id <> " for user " <> show user_id
-                _ -> errorM logName $ "Consistency error: revoked multiple tokens " <> show token_id <> " for user " <> show user_id
+                1 -> do
+                    debugM logName $ "Revoked token with id " <> show token_id <> " for user " <> show user_id
+                    return True
+                0 -> do
+                    debugM logName $ "Failed to revoke token " <> show token_id <> " for user " <> show user_id
+                    return False
+                x -> do
+                    let errMsg = "Consistency error: revoked multiple (" <> show x <> ") tokens " <> show token_id <> " for user " <> show user_id
+                    errorM logName errMsg
+                    fail errMsg
+
+    storeListTokens (PSQLConnPool pool) uid (review pageSize -> size :: Integer) (review page -> p) = do
+        withResource pool $ \conn -> do
+            debugM logName $ "Listing tokens for " <> show uid
+            putStrLn "a"
+            tokens <- query conn "SELECT token_id, token_type, token, expires, user_id, client_id, scope FROM tokens WHERE (user_id = ?) AND revoked is NULL ORDER BY created LIMIT ? OFFSET ?" (uid, size, (p - 1) * size)
+            debugM logName $ "Counting number of tokens for " <> show uid
+            putStrLn "b"
+            [Only numTokens] <- query conn "SELECT count(*) FROM tokens WHERE (user_id = ?)" (Only uid)
+            return (map (\((Only tid) :. tok) -> (tid, tok)) tokens, numTokens)
 
     storeGatherStats (PSQLConnPool pool) =
         let gather :: Query -> Connection -> IO Int64
