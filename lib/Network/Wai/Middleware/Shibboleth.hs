@@ -37,7 +37,7 @@ defaultConfig =
         prefix = "Shibboleth-"
     in ShibConfig{..}
 
--- | Strip Shibboleth headers unless from a trusted upstream.
+-- | Strip Shibboleth headers from requests unless from a trusted upstream.
 shibboleth :: ShibConfig -> Middleware
 shibboleth ShibConfig{..} app req respond =
     if req `fromUpstream` upstream
