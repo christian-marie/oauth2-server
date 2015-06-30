@@ -9,16 +9,26 @@
 
 {-# LANGUAGE ViewPatterns #-}
 
--- | Syntax Descriptions for OAuth2
+-- | Common types and encoding for OAuth2 Types
+module Network.OAuth2.Server.Types.Common where
+
+import           Blaze.ByteString.Builder (toByteString)
+import           Data.Aeson               (ToJSON (..), Value, withText)
+import qualified Data.Aeson.Types         as Aeson (Parser)
+import           Data.Char                (ord)
+import qualified Data.Text.Encoding       as T (decodeUtf8, encodeUtf8)
+import           Data.Word                (Word8)
+import           URI.ByteString           (URI, parseURI, serializeURI,
+                                           strictURIParserOptions)
+
+--------------------------------------------------------------------------------
+
+-- Syntax Descriptions for OAuth2
 --
 -- Defined here https://tools.ietf.org/html/rfc6749#appendix-A
 --
 -- Uses Augmented Backus-Nuar Form (ABNF) Syntax
 -- ABNF RFC is found here: https://tools.ietf.org/html/rfc5234
-module Network.OAuth2.Server.Types.Common where
-
-import           Data.Char
-import           Data.Word
 
 -- VSCHAR = %x20-7E
 vschar :: Word8 -> Bool
@@ -50,3 +60,18 @@ unicodecharnocrlf (ord -> c) = or
     , c>=0xE000  && c<=0xFFFD
     , c>=0x10000 && c<=0x10FFFF
     ]
+
+--------------------------------------------------------------------------------
+
+-- URI JSON/Aeson Encoding/Decoding
+
+uriToJSON :: URI -> Value
+uriToJSON = toJSON . T.decodeUtf8 . toByteString . serializeURI
+
+uriFromJSON :: Value -> Aeson.Parser URI
+uriFromJSON = withText "URI" $ \t ->
+    case parseURI strictURIParserOptions $ T.encodeUtf8 t of
+        Left e -> fail $ show e
+        Right u -> return u
+
+--------------------------------------------------------------------------------
