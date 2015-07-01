@@ -10,7 +10,6 @@
 {-# LANGUAGE DeriveDataTypeable         #-}
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE NoMonomorphismRestriction  #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE QuasiQuotes                #-}
 {-# LANGUAGE RankNTypes                 #-}
@@ -230,8 +229,11 @@ instance FromJSON ErrorDescription where
 -- Convenience functions for throwing errors
 
 do TyConI (DataD _ _ _ cs _) <- reify ''ErrorCode
-   forM cs $ \(NormalC c []) -> do
+   res <- forM cs $ \(NormalC c []) -> do
        let (h:t) = nameBase c
            c' = toLower h : t
        n <- newName c'
-       valD (varP n) (normalB [e|(\msg -> throwError $ OAuth2Error $(pure $ ConE c) (Just $ msg ^?! errorDescription) Nothing)|]) []
+       ty <- sigD n [t|MonadError OAuth2Error m => ByteString -> m a|]
+       d <- valD (varP n) (normalB [e|(\msg -> throwError $ OAuth2Error $(pure $ ConE c) (Just $ msg ^?! errorDescription) Nothing)|]) []
+       return [ty,d]
+   return $ concat res
