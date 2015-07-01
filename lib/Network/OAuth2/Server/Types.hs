@@ -266,6 +266,7 @@ data RequestCode = RequestCode
     { requestCodeCode        :: Code
     , requestCodeAuthorized  :: Bool
     , requestCodeExpires     :: Maybe UTCTime
+    , requestCodeUserID      :: UserID
     , requestCodeClientID    :: ClientID
     , requestCodeRedirectURI :: RedirectURI
     , requestCodeScope       :: Maybe Scope
@@ -586,6 +587,7 @@ instance ToField Code where
 
 instance FromRow RequestCode where
     fromRow = RequestCode <$> field
+                          <*> field
                           <*> field
                           <*> field
                           <*> field

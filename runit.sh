@@ -11,6 +11,9 @@ TESTCONF="/tmp/token-server-$$.conf"
 
 cd $(dirname $0)
 
+# Build first, so we don't wait for the DB only to bail out.
+cabal build tokenserver
+
 # Clean up our mess from last time
 dropdb --if-exists $DBNAME
 

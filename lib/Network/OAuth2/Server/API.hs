@@ -171,12 +171,29 @@ processTokenRequest _ _ Nothing _ = do
 processTokenRequest ref t (Just client_auth) req = do
     (client_id, modified_scope) <- checkCredentials ref client_auth req
     user <- case req of
-        RequestAuthorizationCode{} -> return Nothing
+        RequestAuthorizationCode{..} -> do
+            -- Load the authorization code.
+            code' <- liftIO $ storeReadCode ref requestCode
+            case code' of
+                Nothing -> throwError $
+                    OAuth2Error InvalidGrant (preview errorDescription "This code is not valid.") Nothing
+                Just c  ->
+                    -- TODO(thsutton) Revoke tokens if this code has already
+                    -- been used as described in:
+                    -- http://tools.ietf.org/html/rfc6749#section-4.1.2
+                    return $ Just (requestCodeUserID c)
         RequestClientCredentials{} -> return Nothing
         RequestRefreshToken{..} -> do
                 -- Decode previous token so we can copy details across.
                 previous <- liftIO $ storeReadToken ref (Left requestRefreshToken)
-                return $ tokenDetailsUserID . snd =<< previous
+                case previous of
+                    Nothing -> return Nothing
+                    Just (tid, details) -> do
+                        let uid = tokenDetailsUserID details
+                        -- TODO(thsutton) Check the result here; better yet,
+                        -- refactor so we revoke *after* creating the new tokens.
+                        liftIO $ storeRevokeToken ref tid
+                        return uid
     let expires = Just $ addUTCTime 1800 t
         access_grant = TokenGrant
             { grantTokenType = Bearer
@@ -191,8 +208,9 @@ processTokenRequest ref t (Just client_auth) req = do
             { grantTokenType = Refresh
             , grantExpires = refresh_expires
             }
-    (_, access_details)  <- liftIO $ storeCreateToken ref access_grant
-    (_, refresh_details) <- liftIO $ storeCreateToken ref refresh_grant
+    -- Save the new tokens to the store.
+    (rid, refresh_details) <- liftIO $ storeCreateToken ref refresh_grant Nothing
+    (  _, access_details)  <- liftIO $ storeCreateToken ref access_grant (Just rid)
     return $ grantResponse t access_details (Just $ tokenDetailsToken refresh_details)
 
 -- | Headers for Shibboleth, this tells us who the user is and what they're
@@ -577,6 +595,8 @@ serverPostToken
     -> m Html
 -- | Revoke a given token
 serverPostToken ref user_id _ (DeleteRequest token_id) = do
+    -- TODO(thsutton) Must check that the supplied user_id has permission to
+    -- revoke the supplied token_id.
     maybe_tok <- liftIO $ storeReadToken ref (Right token_id)
     tok <- case maybe_tok of
         Nothing -> invalidRequest
@@ -608,7 +628,7 @@ serverPostToken ref user_id user_scope (CreateRequest req_scope) =
             grantUserID    = Just user_id
             grantClientID  = Nothing
             grantScope     = req_scope
-        (TokenID t, _) <- liftIO $ storeCreateToken ref TokenGrant{..}
+        (TokenID t, _) <- liftIO $ storeCreateToken ref TokenGrant{..} Nothing
         let link = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy DisplayToken) (TokenID t)
         throwError err302{errHeaders = [(hLocation, B.pack $ show link)]} --Redirect to tokens page
     else throwError err403{errBody = "Invalid requested token scope"}

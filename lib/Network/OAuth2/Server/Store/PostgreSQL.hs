@@ -44,13 +44,13 @@ instance TokenStore PSQLConnPool where
                 [client] -> Just client
                 _ -> error "Expected client_id PK to be unique"
 
-    storeCreateCode (PSQLConnPool pool) user_id requestCodeClientID requestCodeRedirectURI sc requestCodeState = do
+    storeCreateCode (PSQLConnPool pool) requestCodeUserID requestCodeClientID requestCodeRedirectURI sc requestCodeState = do
         withResource pool $ \conn -> do
             [(requestCodeCode, requestCodeExpires)] <- do
                 debugM logName $ "Attempting storeCreateCode with " <> show sc
                 query conn
                       "INSERT INTO request_codes (client_id, user_id, redirect_url, scope, state) VALUES (?,?,?,?,?) RETURNING code, expires"
-                      (requestCodeClientID, user_id, requestCodeRedirectURI, sc, requestCodeState)
+                      (requestCodeClientID, requestCodeUserID, requestCodeRedirectURI, sc, requestCodeState)
             let requestCodeScope = Just sc
                 requestCodeAuthorized = False
             return RequestCode{..}
@@ -58,7 +58,7 @@ instance TokenStore PSQLConnPool where
     storeActivateCode (PSQLConnPool pool) code' user_id = do
         withResource pool $ \conn -> do
             debugM logName $ "Attempting storeActivateCode with " <> show code'
-            res <- query conn "UPDATE request_codes SET authorized = TRUE WHERE code = ? AND user_id = ? RETURNING code, authorized, expires, client_id, redirect_url, scope, state" (code', user_id)
+            res <- query conn "UPDATE request_codes SET authorized = TRUE WHERE code = ? AND user_id = ? RETURNING code, authorized, expires, user_id, client_id, redirect_url, scope, state" (code', user_id)
             case res of
                 [] -> return Nothing
                 [reqCode] -> return $ Just reqCode
@@ -70,18 +70,20 @@ instance TokenStore PSQLConnPool where
     storeReadCode (PSQLConnPool pool) request_code = do
         codes :: [RequestCode] <- withResource pool $ \conn -> do
             debugM logName $ "Attempting storeLoadCode"
-            query conn "SELECT code, authorized, expires, client_id, redirect_url, scope, state FROM request_codes WHERE (code = ?)"
+            query conn "SELECT code, authorized, expires, user_id, client_id, redirect_url, scope, state FROM request_codes WHERE (code = ?)"
                        (Only request_code)
         return $ case codes of
             [] -> Nothing
             [rc] -> return rc
             _ -> error "Expected code PK to be unique"
 
-    storeCreateToken (PSQLConnPool pool) grant = do
+    storeCreateToken (PSQLConnPool pool) grant parent_token = do
         debugM logName $ "Saving new token: " <> show grant
         res <- withResource pool $ \conn -> do
             debugM logName $ "Attempting storeSaveToken"
-            query conn "INSERT INTO tokens (token_type, expires, user_id, client_id, scope, token, created) VALUES (?,?,?,?,?,uuid_generate_v4(), NOW()) RETURNING token_id, token_type, token, expires, user_id, client_id, scope" grant
+            case parent_token of
+                Nothing  -> query conn "INSERT INTO tokens (token_type, expires, user_id, client_id, scope, token, created) VALUES (?,?,?,?,?,uuid_generate_v4(), NOW()) RETURNING token_id, token_type, token, expires, user_id, client_id, scope" grant
+                Just tid -> query conn "INSERT INTO tokens (token_type, expires, user_id, client_id, scope, token, created, token_parent) VALUES (?,?,?,?,?,uuid_generate_v4(), NOW(), ?) RETURNING token_id, token_type, token, expires, user_id, client_id, scope" (grant :. Only tid)
         case res of
             [Only tid :. tok] -> return (tid, tok)
             []    -> fail $ "Failed to save new token: " <> show grant
@@ -106,18 +108,13 @@ instance TokenStore PSQLConnPool where
     storeRevokeToken (PSQLConnPool pool) token_id = do
         withResource pool $ \conn -> do
             debugM logName $ "Revoking token with id " <> show token_id
-            rows <- execute conn "UPDATE tokens SET revoked = NOW() WHERE (token_id = ?)" (Only token_id)
+            rows <- execute conn "UPDATE tokens SET revoked = NOW() WHERE (token_id = ?) OR (token_parent = ?)" (token_id, token_id)
             case rows of
-                1 -> do
-                    debugM logName $ "Revoked token with id " <> show token_id
                 0 -> do
                     let msg = "Failed to revoke token " <> show token_id
                     errorM logName msg
                     fail msg
-                x -> do
-                    let msg = "The impossible happened: revoked multiple (" <> show x <> ") tokens " <> show token_id
-                    errorM logName msg
-                    fail msg
+                x -> debugM logName $ "Revoked multiple (" <> show x <> ") tokens with id " <> show token_id
 
     storeListTokens (PSQLConnPool pool) maybe_uid (review pageSize -> size :: Integer) (review page -> p) =
         withResource pool $ \conn -> do

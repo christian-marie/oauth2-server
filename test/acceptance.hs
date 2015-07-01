@@ -43,6 +43,28 @@ main = do
 
 tests :: URI -> Spec
 tests base_uri = do
+    describe "verify endpoint" $ do
+
+        it "returns a response when given valid credentials and a matching token" $ do
+            resp <- verifyToken base_uri client1 (fst tokenVV)
+            resp `shouldSatisfy` isRight
+
+        it "returns an error when given valid credentials and a token from another client" $ do
+            resp <- verifyToken base_uri client2 (fst tokenVV)
+            resp `shouldBe` Left "404 Not Found - This is not a valid token."
+
+        it "returns an error when given invalid client credentials" $ do
+            resp <- verifyToken base_uri client3 (fst tokenVV)
+            resp `shouldBe` Left "401 Unauthorized - Login to validate a token."
+
+        it "returns an error when given a token which has been revoked" $ do
+            resp <- verifyToken base_uri client1 (fst tokenRV)
+            resp `shouldBe` Left "404 Not Found - This is not a valid token."
+
+        it "returns an error when given a token which is not valid" $ do
+            resp <- verifyToken base_uri client1 (fst tokenDERP)
+            resp `shouldBe` Left "404 Not Found - This is not a valid token."
+
     describe "token endpoint" $ do
         it "uses the same details when refreshing a token" $ do
             -- Verify a good token.
@@ -79,7 +101,7 @@ tests base_uri = do
             (shouldBe `on` tokenScope) t1 t2
 
         it "revokes the existing token when it is refreshed" $ do
-            let tok = tokenVV
+            let tok = tokenVV2
 
             -- Verify a pair of existing tokens.
             t1' <- verifyToken base_uri client1 (fst tok)
@@ -110,27 +132,6 @@ tests base_uri = do
         it "restricts new tokens to the client which granted them"
             pending
 
-    describe "verify endpoint" $ do
-
-        it "returns a response when given valid credentials and a matching token" $ do
-            resp <- verifyToken base_uri client1 (fst tokenVV)
-            resp `shouldSatisfy` isRight
-
-        it "returns an error when given valid credentials and a token from another client" $ do
-            resp <- verifyToken base_uri client2 (fst tokenVV)
-            resp `shouldBe` Left "404 Not Found - This is not a valid token."
-
-        it "returns an error when given invalid client credentials" $ do
-            resp <- verifyToken base_uri client3 (fst tokenVV)
-            resp `shouldBe` Left "401 Unauthorized - Login to validate a token."
-
-        it "returns an error when given a token which has been revoked" $ do
-            resp <- verifyToken base_uri client1 (fst tokenRV)
-            resp `shouldBe` Left "404 Not Found - This is not a valid token."
-
-        it "returns an error when given a token which is not valid" $ do
-            resp <- verifyToken base_uri client1 (fst tokenDERP)
-            resp `shouldBe` Left "404 Not Found - This is not a valid token."
 
     describe "authorize endpoint" $ do
         let Just a_scope = bsToScope "login missiles:launch"
@@ -209,7 +210,16 @@ tests base_uri = do
                     resp `shouldSatisfy` isRight
 
                     -- 6. Use the code in the redirect to request a token.
+                    -- TODO
                     -- requestTokenWithCode base_uri client1
+
+                    -- 7. Verify the token and check that it contaisn the appropriate details.
+                    -- TODO
+                    {-
+                    t `shouldSatisfy` ((== (Just user1)) `on` tokenUserId)
+                    t `shouldSatisfy` ((== (Just client1)) `on` tokenClientID)
+                    t `shouldSatisfy` ((== (Just a_scope)) `on` tokenScope)
+                    -}
 
     describe "user interface" $ do
         it "returns an error when Shibboleth authentication headers are missing"
@@ -462,6 +472,12 @@ tokenVV :: (Token, Token)
 tokenVV =
     let Just b = preview token "Xnl4W3J3ReJYN9qH1YfR4mjxaZs70lVX/Edwbh42KPpmlqhp500c4UKnQ6XKmyjbnqoRW1NFWl7h"
         Just r = preview token "hBC86fa6py9nDYMNNZAOfkseAJlN5WvnEmelbCuAUOqOYhYan8N7EgZh6b6k7DpWF6j9DomLlaGZ"
+    in (b,r)
+
+tokenVV2 :: (Token, Token)
+tokenVV2 =
+    let Just b = preview token "2224W3J3ReJYN9qH1YfR4mjxaZs70lVX/Edwbh42KPpmlqhp500c4UKnQ6XKmyjbnqoRW1NFWl7h"
+        Just r = preview token "22286fa6py9nDYMNNZAOfkseAJlN5WvnEmelbCuAUOqOYhYan8N7EgZh6b6k7DpWF6j9DomLlaGZ"
     in (b,r)
 
 tokenEV :: (Token, Token)
