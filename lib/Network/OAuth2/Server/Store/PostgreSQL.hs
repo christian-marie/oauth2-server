@@ -111,7 +111,7 @@ instance TokenStore PSQLConnPool where
                 1 -> do
                     debugM logName $ "Revoked token with id " <> show token_id
                 0 -> do
-                    let msg = "Failed to revoke token " <> show token_id 
+                    let msg = "Failed to revoke token " <> show token_id
                     errorM logName msg
                     fail msg
                 x -> do
