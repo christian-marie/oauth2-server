@@ -3,12 +3,19 @@ notifications:
     on_success: change
     on_failure: change
 
+addons:
+  postgresql: "9.3"
+
 # The following enables several GHC versions to be tested; often it's enough to
 # test only against the last release in a major GHC version. Feel free to omit
 # lines listings versions you don't need/want testing for.
 env:
- - CABALVER=1.18 GHCVER=7.8.3
- - CABALVER=1.22 GHCVER=7.10.1
+  global:
+    - TESTCONF="/tmp/token-server-$$.conf"
+    - DBNAME="token_server_test"
+  matrix:
+    - CABALVER=1.18 GHCVER=7.8.3
+    - CABALVER=1.22 GHCVER=7.10.1
 
 before_install:
  # If $GHCVER is the one travis has, don't bother reinstalling it.
@@ -25,12 +32,16 @@ before_install:
      travis_retry sudo apt-get install cabal-install-$CABALVER ghc-$GHCVER
      export PATH=/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:$PATH
    fi
+ - psql -c "create database $DBNAME;" -U postgres
 
 install:
  - cabal --version
  - echo "$(ghc --version) [$(ghc --print-project-git-commit-id 2> /dev/null || echo '?')]"
  - travis_retry cabal update
  - cabal install --jobs --only-dependencies --enable-tests --enable-benchmarks
+ - psql $DBNAME < schema/postgresql.sql
+ - psql $DBNAME < examples/postgresql-data.sql
+ - cat examples/token-server.conf | sed -e "s/DBNAME/$DBNAME/" > $TESTCONF
 
 # Here starts the actual work to be performed for the package under test; any
 # command which exits with a non-zero exit code causes the build to fail.
@@ -38,6 +49,10 @@ script:
  - cabal configure --enable-tests --enable-benchmarks --enable-library-coverage -v2
  - cabal build --jobs
  - cabal test
+ - dist/build/tokenserver/tokenserver "$TESTCONF" > /dev/null 2>&1 &
+ - sleep 1
+ - dist/build/test-acceptance/test-acceptance http://localhost:8080
+ - pkill tokenserver
  - cabal check
  - cabal sdist
  - export SRC_TGZ=$(cabal info . | awk '{print $2 ".tar.gz";exit}') ;
