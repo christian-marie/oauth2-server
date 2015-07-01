@@ -101,7 +101,7 @@ tests base_uri = do
             (shouldBe `on` tokenScope) t1 t2
 
         it "revokes the existing token when it is refreshed" $ do
-            let tok = tokenVV
+            let tok = tokenVV2
 
             -- Verify a pair of existing tokens.
             t1' <- verifyToken base_uri client1 (fst tok)
