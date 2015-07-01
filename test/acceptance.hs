@@ -185,7 +185,16 @@ tests base_uri = do
                     resp `shouldSatisfy` isRight
 
                     -- 6. Use the code in the redirect to request a token.
+                    -- TODO
                     -- requestTokenWithCode base_uri client1
+
+                    -- 7. Verify the token and check that it contaisn the appropriate details.
+                    -- TODO
+                    {-
+                    t `shouldSatisfy` ((== (Just user1)) `on` tokenUserId)
+                    t `shouldSatisfy` ((== (Just client1)) `on` tokenClientID)
+                    t `shouldSatisfy` ((== (Just a_scope)) `on` tokenScope)
+                    -}
 
     describe "user interface" $ do
         it "returns an error when Shibboleth authentication headers are missing"
