@@ -1,6 +1,8 @@
 Anchor Token Server
 ===================
 
+[![Build Status](https://travis-ci.org/anchor/oauth2-server.svg)](https://travis-ci.org/anchor/oauth2-server)
+
 Anchor Token Server is a small web application which allows clients, users, and
 services to request, approve, and verify OAuth2 tokens.
 

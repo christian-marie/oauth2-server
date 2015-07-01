@@ -11,6 +11,17 @@ copyright:           (c) 2015 Anchor Systems, Pty Ltd and Others
 category:            Network
 build-type:          Simple
 cabal-version:       >=1.10
+data-files:          schema/postgresql.sql
+extra-source-files:  style.css
+                     runit.sh
+                     stack.yaml
+                     docs/architecture.dot
+                     docs/architecture.png
+                     docs/client.md
+                     docs/service.md
+                     docs/statistics.md
+                     examples/postgresql-data.sql
+                     examples/token-server.conf
 
 source-repository HEAD
   type: git
