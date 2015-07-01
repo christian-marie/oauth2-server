@@ -49,6 +49,30 @@ SELECT 'Xnl4W3J3ReJYN9qH1YfR4mjxaZs70lVX/Edwbh42KPpmlqhp500c4UKnQ6XKmyjbnqoRW1NF
        , new_id
 FROM parent;
 
+-- A second valid bearer, valid refresh.
+WITH parent AS (
+    INSERT INTO tokens (token, token_type, scope, created, expires, client_id, user_id)
+    VALUES ( '22286fa6py9nDYMNNZAOfkseAJlN5WvnEmelbCuAUOqOYhYan8N7EgZh6b6k7DpWF6j9DomLlaGZ'
+           , 'refresh'
+           , '{"login", "profile"}'
+           , now() - interval '10 minutes'
+           , now() + interval '28 days'
+           , '5641ea27-1111-1111-1111-8fc06b502be0'
+           , 'user1@example.com'
+           )
+    RETURNING token_id AS new_id, scope, created, expires, client_id, user_id
+)
+INSERT INTO tokens (token, token_type, scope, created, expires, client_id, user_id, token_parent)
+SELECT '2224W3J3ReJYN9qH1YfR4mjxaZs70lVX/Edwbh42KPpmlqhp500c4UKnQ6XKmyjbnqoRW1NFWl7h'
+       , 'bearer'
+       , scope
+       , created
+       , now() + interval '110 minutes'
+       , client_id
+       , user_id
+       , new_id
+FROM parent;
+
 -- Expired bearer & valid refresh.
 WITH parent AS (
     INSERT INTO tokens (token, token_type, scope, created, expires, client_id, user_id)
