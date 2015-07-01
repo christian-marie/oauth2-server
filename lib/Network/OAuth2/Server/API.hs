@@ -50,8 +50,8 @@ import           Data.Maybe
 import           Data.Monoid
 import           Data.Proxy
 import qualified Data.Set                            as S
-import qualified Data.Text                           as T
 import           Data.Text                           (Text)
+import qualified Data.Text                           as T
 import qualified Data.Text.Encoding                  as T
 import           Data.Time.Clock                     (UTCTime, addUTCTime,
                                                       getCurrentTime)
@@ -71,8 +71,7 @@ import           Servant.API                         ((:<|>) (..), (:>),
 import           Servant.HTML.Blaze
 import           Servant.Server                      (ServantErr (errBody, errHeaders),
                                                       Server, err302, err400,
-                                                      err401, err403, err404,
-                                                      err500)
+                                                      err401, err403, err404)
 import           Servant.Utils.Links
 import           System.Log.Logger
 import           Text.Blaze.Html5                    (Html)
@@ -584,25 +583,21 @@ serverPostToken ref user_id _ (DeleteRequest token_id) = do
     tok <- case maybe_tok of
         Nothing -> invalidRequest
         Just (_, tok) -> return tok
-    case tokenDetailsUserID tok of
-        Nothing -> do
-            errorLog "serverPostToken" $
+    if tok `belongsToUser` user_id then do
+        liftIO $ storeRevokeToken ref token_id
+        let link = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy ListTokens) page1
+        throwError err302{errHeaders = [(hLocation, B.pack $ show link)]} --Redirect to tokens page
+    else do
+        errorLog "serverPostToken" $ case tokenDetailsUserID tok of
+            Nothing ->
                 sformat ("user_id " % shown % " tried to revoke token_id " %
                           shown % ", which did not have a user_id")
                         user_id token_id
-            invalidRequest
-        Just user_id' -> do
-            if user_id == user_id'
-                then liftIO $ storeRevokeToken ref token_id
-                else do
-                    errorLog "serverPostToken" $
-                        sformat ("user_id " % shown % " tried to revoke token_id " %
-                                shown % ", which had user_id " % shown)
-                                user_id token_id user_id'
-                    invalidRequest
-
-    let link = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy ListTokens) page1
-    throwError err302{errHeaders = [(hLocation, B.pack $ show link)]} --Redirect to tokens page
+            Just user_id' ->
+                sformat ("user_id " % shown % " tried to revoke token_id " %
+                          shown % ", which had user_id " % shown)
+                        user_id token_id user_id'
+        invalidRequest
   where
     -- We don't want to leak information, so just throw a generic error
     invalidRequest = throwError err400 { errBody = "Invalid request" }
