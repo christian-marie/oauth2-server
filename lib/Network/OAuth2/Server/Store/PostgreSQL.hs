@@ -58,7 +58,7 @@ instance TokenStore PSQLConnPool where
     storeActivateCode (PSQLConnPool pool) code' user_id = do
         withResource pool $ \conn -> do
             debugM logName $ "Attempting storeActivateCode with " <> show code'
-            res <- query conn "UPDATE request_codes SET authorized = TRUE WHERE code = ? AND user_id = ? RETURNING code, expires, client_id, redirect_url, scope, state" (code', user_id)
+            res <- query conn "UPDATE request_codes SET authorized = TRUE WHERE code = ? AND user_id = ? RETURNING code, authorized, expires, client_id, redirect_url, scope, state" (code', user_id)
             case res of
                 [] -> return Nothing
                 [reqCode] -> return $ Just reqCode
@@ -70,7 +70,7 @@ instance TokenStore PSQLConnPool where
     storeReadCode (PSQLConnPool pool) request_code = do
         codes :: [RequestCode] <- withResource pool $ \conn -> do
             debugM logName $ "Attempting storeLoadCode"
-            query conn "SELECT code, expires, user_id, client_id, redirect_url, scope, state FROM request_codes WHERE (code = ?)"
+            query conn "SELECT code, authorized, expires, client_id, redirect_url, scope, state FROM request_codes WHERE (code = ?)"
                        (Only request_code)
         return $ case codes of
             [] -> Nothing
@@ -111,21 +111,27 @@ instance TokenStore PSQLConnPool where
             rows <- execute conn "UPDATE tokens SET revoked = NOW() WHERE (token_id = ?) OR (token_parent = ?)" (token_id, token_id)
             case rows of
                 0 -> do
-                    debugM logName $ "Failed to revoke token " <> show token_id
-                    return False
-                x -> do
-                    debugM logName $ "Revoked multiple (" <> show x <> ") tokens with id " <> show token_id
-                    return True
+                    let msg = "Failed to revoke token " <> show token_id
+                    errorM logName msg
+                    fail msg
+                x -> debugM logName $ "Revoked multiple (" <> show x <> ") tokens with id " <> show token_id
 
-    storeListTokens (PSQLConnPool pool) uid (review pageSize -> size :: Integer) (review page -> p) = do
+    storeListTokens (PSQLConnPool pool) maybe_uid (review pageSize -> size :: Integer) (review page -> p) =
         withResource pool $ \conn -> do
-            debugM logName $ "Listing tokens for " <> show uid
-            putStrLn "a"
-            tokens <- query conn "SELECT token_id, token_type, token, expires, user_id, client_id, scope FROM tokens WHERE (user_id = ?) AND revoked is NULL ORDER BY created LIMIT ? OFFSET ?" (uid, size, (p - 1) * size)
-            debugM logName $ "Counting number of tokens for " <> show uid
-            putStrLn "b"
-            [Only numTokens] <- query conn "SELECT count(*) FROM tokens WHERE (user_id = ?)" (Only uid)
-            return (map (\((Only tid) :. tok) -> (tid, tok)) tokens, numTokens)
+            (toks, n_toks) <- case maybe_uid of
+                Nothing -> do
+                    debugM logName "Listing all tokens"
+                    toks <- query conn "SELECT token_id, token_type, token, expires, user_id, client_id, scope FROM tokens WHERE revoked is NULL ORDER BY created LIMIT ? OFFSET ?" (size, (p - 1) * size)
+                    debugM logName "Counting all tokens"
+                    [Only n_toks] <- query conn "SELECT count(*) FROM tokens" ()
+                    return (toks, n_toks)
+                Just uid -> do
+                    debugM logName $ "Listing tokens for " <> show uid
+                    toks <- query conn "SELECT token_id, token_type, token, expires, user_id, client_id, scope FROM tokens WHERE (user_id = ?) AND revoked is NULL ORDER BY created LIMIT ? OFFSET ?" (uid, size, (p - 1) * size)
+                    debugM logName $ "Counting tokens for " <> show uid
+                    [Only n_toks] <- query conn "SELECT count(*) FROM tokens WHERE (user_id = ?)" (Only uid)
+                    return (toks, n_toks)
+            return (map (\((Only tid) :. tok) -> (tid, tok)) toks, n_toks)
 
     storeGatherStats (PSQLConnPool pool) =
         let gather :: Query -> Connection -> IO Int64

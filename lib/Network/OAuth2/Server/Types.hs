@@ -255,7 +255,7 @@ instance FromText ClientState where
 data RequestCode = RequestCode
     { requestCodeCode        :: Code
     , requestCodeAuthorized  :: Bool
-    , requestCodeExpires     :: UTCTime
+    , requestCodeExpires     :: Maybe UTCTime
     , requestCodeUserID      :: UserID
     , requestCodeClientID    :: ClientID
     , requestCodeRedirectURI :: RedirectURI

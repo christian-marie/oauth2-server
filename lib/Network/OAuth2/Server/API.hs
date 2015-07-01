@@ -50,10 +50,12 @@ import           Data.Maybe
 import           Data.Monoid
 import           Data.Proxy
 import qualified Data.Set                            as S
+import           Data.Text                           (Text)
 import qualified Data.Text                           as T
 import qualified Data.Text.Encoding                  as T
 import           Data.Time.Clock                     (UTCTime, addUTCTime,
                                                       getCurrentTime)
+import           Formatting                          (sformat, shown, (%))
 import           Network.HTTP.Types                  hiding (Header)
 import           Network.OAuth2.Server.Configuration as X
 import           Network.OAuth2.Server.Types         as X
@@ -69,8 +71,7 @@ import           Servant.API                         ((:<|>) (..), (:>),
 import           Servant.HTML.Blaze
 import           Servant.Server                      (ServantErr (errBody, errHeaders),
                                                       Server, err302, err400,
-                                                      err401, err403, err404,
-                                                      err500)
+                                                      err401, err403, err404)
 import           Servant.Utils.Links
 import           System.Log.Logger
 import           Text.Blaze.Html5                    (Html)
@@ -81,6 +82,14 @@ import           Network.OAuth2.Server.UI
 logName :: String
 logName = "Anchor.Tokens.Server.API"
 
+-- Wrappers for underlying logging system
+debugLog, errorLog :: MonadIO m => String -> Text -> m ()
+debugLog = wrapLogger debugM
+errorLog = wrapLogger errorM
+
+wrapLogger :: MonadIO m => (String -> String -> IO a) -> String -> Text -> m a
+wrapLogger logger component msg = do
+    liftIO $ logger (logName <> " " <> component <> ": ") (T.unpack msg)
 
 -- TODO: Move this into some servant common package
 
@@ -157,7 +166,7 @@ processTokenRequest
     -> AccessRequest                              -- ^ What do they want?
     -> ExceptT OAuth2Error IO AccessResponse
 processTokenRequest _ _ Nothing _ = do
-    liftIO . debugM logName $ "Checking credentials but none provided."
+    errorLog "processTokenRequest" "Checking credentials but none provided."
     throwError $ OAuth2Error InvalidRequest
                              (preview errorDescription "No credentials provided")
                              Nothing
@@ -492,10 +501,12 @@ verifyEndpoint ref ServerOptions{..} (Just auth) token' = do
     client_id' <- liftIO . runExceptT $ checkClientAuth ref auth
     client_id <- case client_id' of
         Left e -> do
-            logE $ "Error verifying token: " <> show (e :: OAuth2Error)
-            throwError login -- err500 { errBody = "Error checking client credentials." }
+            errorLog "verifyEndpoint" $
+                sformat ("Error verifying token: " % shown) (e :: OAuth2Error)
+            throwError login
         Right Nothing -> do
-            logD $ "Invalid client credentials: " <> show auth
+            debugLog "verifyEndpoint" $
+                sformat ("Invalid client credentials: " % shown) auth
             throwError login
         Right (Just cid) -> do
             return cid
@@ -503,12 +514,16 @@ verifyEndpoint ref ServerOptions{..} (Just auth) token' = do
     tok <- liftIO $ storeReadToken ref (Left token')
     case tok of
         Nothing -> do
-            logD $ "Cannot verify token: failed to lookup " <> show token'
+            debugLog "verifyEndpoint" $
+                sformat ("Cannot verify token: failed to lookup " % shown) token'
             throwError denied
         Just (_, details) -> do
             -- 3. Check client authorization.
             when (Just client_id /= tokenDetailsClientID details) $ do
-                logD $ "Client " <> show client_id <> " attempted to verify someone elses token: " <> show token'
+                debugLog "verifyEndpoint" $
+                    sformat ("Client " % shown %
+                             " attempted to verify someone elses token: " % shown)
+                            client_id token'
                 throwError denied
             -- 4. Send the access response.
             now <- liftIO getCurrentTime
@@ -518,8 +533,6 @@ verifyEndpoint ref ServerOptions{..} (Just auth) token' = do
     login = err401 { errHeaders = toHeaders $ BasicAuth (Realm optVerifyRealm)
                    , errBody = "Login to validate a token."
                    }
-    logD = liftIO . debugM (logName <> ".verifyEndpoint")
-    logE = liftIO . errorM (logName <> ".verifyEndpoint")
 
 -- | Page 1 is totally a valid page, promise.
 page1 :: Page
@@ -567,7 +580,7 @@ serverListTokens
     -> m Html
 serverListTokens ref size u s p = do
     let p' = fromMaybe page1 p
-    res <- liftIO $ storeListTokens ref u size p'
+    res <- liftIO $ storeListTokens ref (Just u) size p'
     return $ renderTokensPage s size p' res
 
 -- | Handle a token create/delete request.
@@ -586,12 +599,29 @@ serverPostToken
 serverPostToken ref user_id _ (DeleteRequest token_id) = do
     -- TODO(thsutton) Must check that the supplied user_id has permission to
     -- revoke the supplied token_id.
-    success <- liftIO $ storeRevokeToken ref token_id
-    if success then
+    maybe_tok <- liftIO $ storeReadToken ref (Right token_id)
+    tok <- case maybe_tok of
+        Nothing -> invalidRequest
+        Just (_, tok) -> return tok
+    if tok `belongsToUser` user_id then do
+        liftIO $ storeRevokeToken ref token_id
         let link = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy ListTokens) page1
-        in throwError err302{errHeaders = [(hLocation, B.pack $ show link)]} --Redirect to tokens page
-    else
-        throwError err500{errBody = "Something quite horrible has happened"}
+        throwError err302{errHeaders = [(hLocation, B.pack $ show link)]} --Redirect to tokens page
+    else do
+        errorLog "serverPostToken" $ case tokenDetailsUserID tok of
+            Nothing ->
+                sformat ("user_id " % shown % " tried to revoke token_id " %
+                          shown % ", which did not have a user_id")
+                        user_id token_id
+            Just user_id' ->
+                sformat ("user_id " % shown % " tried to revoke token_id " %
+                          shown % ", which had user_id " % shown)
+                        user_id token_id user_id'
+        invalidRequest
+  where
+    -- We don't want to leak information, so just throw a generic error
+    invalidRequest = throwError err400 { errBody = "Invalid request" }
+
 -- | Create a new token
 serverPostToken ref user_id user_scope (CreateRequest req_scope) =
     if compatibleScope req_scope user_scope then do
@@ -614,7 +644,7 @@ checkCredentials
     -> AccessRequest
     -> m (Maybe ClientID, Scope)
 checkCredentials ref auth req = do
-    liftIO . debugM logName $ "Checking some credentials"
+    debugLog "checkCredentials" "Checking some credentials"
     client_id <- checkClientAuth ref auth
     case client_id of
         Nothing -> throwError $ OAuth2Error UnauthorizedClient
@@ -652,10 +682,10 @@ checkCredentials ref auth req = do
                 -- Fail if redirect_uri doesn't match what's in the database.
                 case uri of
                     Just uri' | uri' /= (requestCodeRedirectURI rc) -> do
-                        liftIO . debugM logName $ "Redirect URI mismatch verifying access token request: requested"
-                                               <> show uri
-                                               <> " but got "
-                                               <> show (requestCodeRedirectURI rc)
+                        debugLog "checkClientAuthCode" $
+                            sformat ("Redirect URI mismatch verifying access token request: requested"
+                                    % shown % " but got " % shown )
+                                    uri (requestCodeRedirectURI rc)
                         throwError $ OAuth2Error InvalidRequest
                                                  (preview errorDescription "Invalid redirect URI")
                                                  Nothing
@@ -663,7 +693,8 @@ checkCredentials ref auth req = do
 
                 case requestCodeScope rc of
                     Nothing -> do
-                        liftIO . debugM logName $ "No scope found for code " <> show request_code
+                        debugLog "checkClientAuthCode" $
+                            sformat ("No scope found for code " % shown) request_code
                         throwError $ OAuth2Error InvalidScope
                                                  (preview errorDescription "No scope found")
                                                  Nothing
@@ -688,17 +719,18 @@ checkCredentials ref auth req = do
             case details of
                 -- The old token is dead.
                 Nothing -> do
-                    liftIO $ debugM logName $ "Got passed invalid token " <> show tok
+                    debugLog "checkRefreshToken" $
+                        sformat ("Got passed invalid token " % shown) tok
                     throwError $ OAuth2Error InvalidRequest
                                              (preview errorDescription "Invalid token")
                                              Nothing
                 Just (_, details') -> do
                     -- Check the ClientIDs match.
                     when (Just client_id /= tokenDetailsClientID details') $ do
-                        liftIO . errorM logName $ "Refresh requested with "
-                            <> "different ClientID: " <> show client_id <> " =/= "
-                            <> show (tokenDetailsClientID details') <> " for "
-                            <> show tok
+                        errorLog "checkRefreshToken" $
+                            sformat ("Refresh requested with different ClientID: "
+                                    % shown % " =/= " % shown % "for " % shown)
+                                    client_id (tokenDetailsClientID details') tok
                         throwError $ OAuth2Error InvalidClient
                                                  (preview errorDescription "Mismatching clientID")
                                                  Nothing
@@ -711,10 +743,10 @@ checkCredentials ref auth req = do
                              -- @TODO(thsutton): The concern with scopes should probably
                              -- be completely removed here.
                              unless (compatibleScope request_scope (tokenDetailsScope details')) $ do
-                                 liftIO . debugM logName $
-                                     "Refresh requested with incompatible " <>
-                                     "scopes: " <> show request_scope <> " vs " <>
-                                     show (tokenDetailsScope details')
+                                 debugLog "checkRefreshToken" $
+                                     sformat ("Refresh requested with incompatible scopes"
+                                             % shown % " vs " % shown)
+                                             request_scope (tokenDetailsScope details')
                                  throwError $ OAuth2Error InvalidScope
                                                           (preview errorDescription "Incompatible scope")
                                                           Nothing
@@ -730,7 +762,7 @@ checkClientAuth
 checkClientAuth ref auth = do
     case preview authDetails auth of
         Nothing -> do
-            liftIO . debugM logName $ "Got an invalid auth header."
+            debugLog "checkClientAuth" "Got an invalid auth header."
             throwError $ OAuth2Error InvalidRequest
                                      (preview errorDescription "Invalid auth header provided.")
                                      Nothing
@@ -739,7 +771,9 @@ checkClientAuth ref auth = do
             case client of
                 Just ClientDetails{..} -> return $ verifyClientSecret client_id secret clientSecret
                 Nothing -> do
-                    liftIO . debugM logName $ "Got a request for invalid client_id " <> show client_id
+                    debugLog "checkClientAuth" $
+                        sformat ("Got a request for invalid client_id " % shown)
+                                client_id
                     throwError $ OAuth2Error InvalidClient
                                              (preview errorDescription "No such client.")
                                              Nothing

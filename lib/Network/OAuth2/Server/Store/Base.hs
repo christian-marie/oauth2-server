@@ -53,6 +53,9 @@ class TokenStore ref where
     -- | Authorize a `Code` used in the Authorization Code Grant.
     -- This was created before using `storeCreateCode`.
     --
+    -- This will cause further lookups via storeReadCode to return a
+    -- 'RequestCode' where requestCodeAuthorized = True
+    --
     -- https://tools.ietf.org/html/rfc6749#section-4.1
     storeActivateCode
         :: ref
@@ -83,11 +86,14 @@ class TokenStore ref where
         -> Either Token TokenID
         -> IO (Maybe (TokenID, TokenDetails))
 
-    -- | Revoke a previously issued token
+    -- | Revoke a previously issued token.
+    --
+    -- It is the caller's responsibility to ensure that this is a valid TokenID
+    -- and that whatever requested this revocation is allowed to do so.
     storeRevokeToken
         :: ref
         -> TokenID
-        -> IO Bool
+        -> IO ()
 
     -- * User Interface operations
 
@@ -97,7 +103,7 @@ class TokenStore ref where
     -- pages.
     storeListTokens
         :: ref
-        -> UserID
+        -> Maybe UserID
         -> PageSize
         -> Page
         -> IO ([(TokenID, TokenDetails)], Int)
