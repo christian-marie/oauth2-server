@@ -228,12 +228,23 @@ instance FromJSON ErrorDescription where
 
 -- Convenience functions for throwing errors
 
+
+-- This will output one helper function per `ErrorCode`.
+-- For `InvalidRequest` this would be:
+--
+-- invalidRequest :: MonadError OAuth2Error m => ByteString -> m a
+-- invalidRequest msg = throwError $ OAuth2Error InvalidRequest
+--                                               (Just $ msg ^?! errorDescription)
+--                                               Nothing
 do TyConI (DataD _ _ _ cs _) <- reify ''ErrorCode
    res <- forM cs $ \(NormalC c []) -> do
        let (h:t) = nameBase c
            c' = toLower h : t
        n <- newName c'
        ty <- sigD n [t|MonadError OAuth2Error m => ByteString -> m a|]
-       d <- valD (varP n) (normalB [e|(\msg -> throwError $ OAuth2Error $(pure $ ConE c) (Just $ msg ^?! errorDescription) Nothing)|]) []
+       let b = [e|(\msg -> throwError $ OAuth2Error $(pure $ ConE c)
+                                                    (Just $ msg ^?! errorDescription)
+                                                    Nothing)|]
+       d <- valD (varP n) (normalB b) []
        return [ty,d]
    return $ concat res
