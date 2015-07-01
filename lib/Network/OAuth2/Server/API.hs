@@ -167,9 +167,7 @@ processTokenRequest
     -> ExceptT OAuth2Error IO AccessResponse
 processTokenRequest _ _ Nothing _ = do
     errorLog "processTokenRequest" "Checking credentials but none provided."
-    throwError $ OAuth2Error InvalidRequest
-                             (preview errorDescription "No credentials provided")
-                             Nothing
+    invalidRequest "No credentials provided"
 processTokenRequest ref t (Just client_auth) req = do
     (client_id, modified_scope) <- checkCredentials ref client_auth req
     user <- case req of
@@ -627,9 +625,7 @@ checkCredentials ref auth req = do
     debugLog "checkCredentials" "Checking some credentials"
     client_id <- checkClientAuth ref auth
     case client_id of
-        Nothing -> throwError $ OAuth2Error UnauthorizedClient
-                                            (preview errorDescription "Invalid client credentials")
-                                            Nothing
+        Nothing -> unauthorizedClient "Invalid client credentials"
         Just client_id' -> case req of
             -- https://tools.ietf.org/html/rfc6749#section-4.1.3
             RequestAuthorizationCode auth_code uri client ->
@@ -645,19 +641,12 @@ checkCredentials ref auth req = do
     -- Verify client, scope and request code.
     --
     checkClientAuthCode :: ClientID -> Code -> Maybe RedirectURI -> Maybe ClientID -> m (Maybe ClientID, Scope)
-    checkClientAuthCode _ _ _ Nothing = throwError $ OAuth2Error InvalidRequest
-                                                                 (preview errorDescription "No client ID supplied.")
-                                                                 Nothing
+    checkClientAuthCode _ _ _ Nothing = invalidRequest "No client ID supplied."
     checkClientAuthCode client_id request_code uri (Just purported_client) = do
-        when (client_id /= purported_client) $ throwError $
-            OAuth2Error UnauthorizedClient
-                        (preview errorDescription "Invalid client credentials")
-                        Nothing
+        when (client_id /= purported_client) $ unauthorizedClient "Invalid client credentials"
         codes <- liftIO $ storeReadCode ref request_code
         case codes of
-            Nothing -> throwError $ OAuth2Error InvalidGrant
-                                                (preview errorDescription "Request code not found")
-                                                Nothing
+            Nothing -> invalidGrant "Request code not found"
             Just rc -> do
                 -- Fail if redirect_uri doesn't match what's in the database.
                 case uri of
@@ -666,18 +655,14 @@ checkCredentials ref auth req = do
                             sformat ("Redirect URI mismatch verifying access token request: requested"
                                     % shown % " but got " % shown )
                                     uri (requestCodeRedirectURI rc)
-                        throwError $ OAuth2Error InvalidRequest
-                                                 (preview errorDescription "Invalid redirect URI")
-                                                 Nothing
+                        invalidRequest "Invalid redirect URI"
                     _ -> return ()
 
                 case requestCodeScope rc of
                     Nothing -> do
                         debugLog "checkClientAuthCode" $
                             sformat ("No scope found for code " % shown) request_code
-                        throwError $ OAuth2Error InvalidScope
-                                                 (preview errorDescription "No scope found")
-                                                 Nothing
+                        invalidScope "No scope found"
                     Just code_scope -> return (Just client_id, code_scope)
 
     --
@@ -685,9 +670,7 @@ checkCredentials ref auth req = do
     -- scope, so this will always succeed unless we get no scope at all.
     --
     checkClientCredentials :: ClientID -> Maybe Scope -> m (Maybe ClientID, Scope)
-    checkClientCredentials _ Nothing = throwError $ OAuth2Error InvalidRequest
-                                                                (preview errorDescription "No scope supplied.")
-                                                                Nothing
+    checkClientCredentials _ Nothing = invalidRequest "No scope supplied."
     checkClientCredentials client_id (Just request_scope) = return (Just client_id, request_scope)
 
     --
@@ -701,9 +684,7 @@ checkCredentials ref auth req = do
                 Nothing -> do
                     debugLog "checkRefreshToken" $
                         sformat ("Got passed invalid token " % shown) tok
-                    throwError $ OAuth2Error InvalidRequest
-                                             (preview errorDescription "Invalid token")
-                                             Nothing
+                    invalidRequest "Invalid token"
                 Just (_, details') -> do
                     -- Check the ClientIDs match.
                     when (Just client_id /= tokenDetailsClientID details') $ do
@@ -711,9 +692,7 @@ checkCredentials ref auth req = do
                             sformat ("Refresh requested with different ClientID: "
                                     % shown % " =/= " % shown % "for " % shown)
                                     client_id (tokenDetailsClientID details') tok
-                        throwError $ OAuth2Error InvalidClient
-                                                 (preview errorDescription "Mismatching clientID")
-                                                 Nothing
+                        invalidClient "Mismatching clientID"
 
                     case scope' of
                          Nothing ->
@@ -727,9 +706,7 @@ checkCredentials ref auth req = do
                                      sformat ("Refresh requested with incompatible scopes"
                                              % shown % " vs " % shown)
                                              request_scope (tokenDetailsScope details')
-                                 throwError $ OAuth2Error InvalidScope
-                                                          (preview errorDescription "Incompatible scope")
-                                                          Nothing
+                                 invalidScope "Incompatible scope"
                              return (Just client_id, request_scope)
 
 -- | Given an AuthHeader sent by a client, verify that it authenticates.
@@ -743,9 +720,7 @@ checkClientAuth ref auth = do
     case preview authDetails auth of
         Nothing -> do
             debugLog "checkClientAuth" "Got an invalid auth header."
-            throwError $ OAuth2Error InvalidRequest
-                                     (preview errorDescription "Invalid auth header provided.")
-                                     Nothing
+            invalidRequest "Invalid auth header provided."
         Just (client_id, secret) -> do
             client <- liftIO $ storeLookupClient ref client_id
             case client of
@@ -754,9 +729,7 @@ checkClientAuth ref auth = do
                     debugLog "checkClientAuth" $
                         sformat ("Got a request for invalid client_id " % shown)
                                 client_id
-                    throwError $ OAuth2Error InvalidClient
-                                             (preview errorDescription "No such client.")
-                                             Nothing
+                    invalidClient "No such client."
   where
     verifyClientSecret client_id secret hash =
         let pass = Pass . T.encodeUtf8 $ review password secret in
