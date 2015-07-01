@@ -21,7 +21,6 @@ import           Data.Function
 import           Data.Maybe
 import           Data.Monoid
 import qualified Data.Text.Encoding          as T
-import           Data.Text.Strict.Lens
 import           Network.HTTP.Client         (HttpException (..))
 import           Network.HTTP.Types          (Status (..), hLocation)
 import           Network.URI
@@ -33,7 +32,6 @@ import           Text.HandsomeSoup
 import           Text.XML.HXT.Core           (IOSArrow, XmlTree, runX)
 
 import           Network.OAuth2.Server       hiding (refreshToken)
-import           Network.OAuth2.Server.Types hiding (refreshToken)
 import qualified Network.OAuth2.Server.Types as OAuth2
 
 main :: IO ()
@@ -80,8 +78,34 @@ tests base_uri = do
             (shouldBe `on` tokenClientID) t1 t2
             (shouldBe `on` tokenScope) t1 t2
 
-        it "revokes the existing token when it is refreshed"
-            pending
+        it "revokes the existing token when it is refreshed" $ do
+            let tok = tokenVV
+
+            -- Verify a pair of existing tokens.
+            t1' <- verifyToken base_uri client1 (fst tok)
+            t1' `shouldSatisfy` isRight
+
+            t1r' <- verifyToken base_uri client1 (snd tok)
+            t1r' `shouldSatisfy` isRight
+
+            -- Refresh to get new bearer and, optionally, refresh tokens.
+            t2_id' <- runExceptT $ refreshToken base_uri client1 (snd tok)
+            t2_id <- either (\e -> fail $ "Couldn't refresh: " <> e)
+                            (return) t2_id'
+
+            -- Verify new bearer token.
+            t2' <- verifyToken base_uri client1 t2_id
+            t2 <- either (\_ -> fail "Couldn't verify new token.")
+                         (return) t2'
+
+            -- The old bearer token should now be invalid.
+            t1_2' <- verifyToken base_uri client1 (fst tok)
+            t1_2' `shouldBe` Left "404 Not Found - This is not a valid token."
+
+            -- If we got a new refresh token, the old one should be revoked.
+            when (isJust $ OAuth2.refreshToken t2) $ do
+                    r1 <- verifyToken base_uri client1 (snd tok)
+                    r1 `shouldBe` Left "404 Not Found - This is not a valid token."
 
         it "restricts new tokens to the client which granted them"
             pending
