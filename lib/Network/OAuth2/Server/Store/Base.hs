@@ -86,7 +86,6 @@ class TokenStore ref where
     -- | Revoke a previously issued token
     storeRevokeToken
         :: ref
-        -> UserID
         -> TokenID
         -> IO Bool
 

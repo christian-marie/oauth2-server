@@ -83,7 +83,7 @@ instance TokenStore PSQLConnPool where
             debugM logName $ "Attempting storeSaveToken"
             case parent_token of
                 Nothing  -> query conn "INSERT INTO tokens (token_type, expires, user_id, client_id, scope, token, created) VALUES (?,?,?,?,?,uuid_generate_v4(), NOW()) RETURNING token_id, token_type, token, expires, user_id, client_id, scope" grant
-                Just tid -> query conn "INSERT INTO tokens (token_type, expires, user_id, client_id, scope, token, created, parent_token) VALUES (?,?,?,?,?,uuid_generate_v4(), NOW(), ?) RETURNING token_id, token_type, token, expires, user_id, client_id, scope" (grant :. Only tid)
+                Just tid -> query conn "INSERT INTO tokens (token_type, expires, user_id, client_id, scope, token, created, token_parent) VALUES (?,?,?,?,?,uuid_generate_v4(), NOW(), ?) RETURNING token_id, token_type, token, expires, user_id, client_id, scope" (grant :. Only tid)
         case res of
             [Only tid :. tok] -> return (tid, tok)
             []    -> fail $ "Failed to save new token: " <> show grant
@@ -105,21 +105,17 @@ instance TokenStore PSQLConnPool where
                 errorM logName $ "Consistency error: multiple tokens found matching " <> show tok
                 return Nothing
 
-    storeRevokeToken (PSQLConnPool pool) user_id token_id = do
+    storeRevokeToken (PSQLConnPool pool) token_id = do
         withResource pool $ \conn -> do
-            debugM logName $ "Revoking token with id " <> show token_id <> " for user " <> show user_id
-            rows <- execute conn "UPDATE tokens SET revoked = NOW() WHERE (token_id = ?) AND (user_id = ?)" (token_id, user_id)
+            debugM logName $ "Revoking token with id " <> show token_id
+            rows <- execute conn "UPDATE tokens SET revoked = NOW() WHERE (token_id = ?) OR (token_parent = ?)" (token_id, token_id)
             case rows of
-                1 -> do
-                    debugM logName $ "Revoked token with id " <> show token_id <> " for user " <> show user_id
-                    return True
                 0 -> do
-                    debugM logName $ "Failed to revoke token " <> show token_id <> " for user " <> show user_id
+                    debugM logName $ "Failed to revoke token " <> show token_id
                     return False
                 x -> do
-                    let errMsg = "Consistency error: revoked multiple (" <> show x <> ") tokens " <> show token_id <> " for user " <> show user_id
-                    errorM logName errMsg
-                    fail errMsg
+                    debugM logName $ "Revoked multiple (" <> show x <> ") tokens with id " <> show token_id
+                    return True
 
     storeListTokens (PSQLConnPool pool) uid (review pageSize -> size :: Integer) (review page -> p) = do
         withResource pool $ \conn -> do

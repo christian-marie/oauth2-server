@@ -182,8 +182,11 @@ processTokenRequest ref t (Just client_auth) req = do
                 case previous of
                     Nothing -> return Nothing
                     Just (tid, details) -> do
-                        -- TODO: Revoke the old ones.
-                        return $ tokenDetailsUserID details
+                        let uid = tokenDetailsUserID details
+                        -- TODO(thsutton) Check the result here; better yet,
+                        -- refactor so we revoke *after* creating the new tokens.
+                        liftIO $ storeRevokeToken ref tid
+                        return uid
     let expires = Just $ addUTCTime 1800 t
         access_grant = TokenGrant
             { grantTokenType = Bearer
@@ -581,7 +584,9 @@ serverPostToken
     -> m Html
 -- | Revoke a given token
 serverPostToken ref user_id _ (DeleteRequest token_id) = do
-    success <- liftIO $ storeRevokeToken ref user_id token_id
+    -- TODO(thsutton) Must check that the supplied user_id has permission to
+    -- revoke the supplied token_id.
+    success <- liftIO $ storeRevokeToken ref token_id
     if success then
         let link = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy ListTokens) page1
         in throwError err302{errHeaders = [(hLocation, B.pack $ show link)]} --Redirect to tokens page
