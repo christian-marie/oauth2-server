@@ -61,4 +61,5 @@ CREATE TABLE tokens (
 
     PRIMARY KEY (token),
     FOREIGN KEY (client_id) REFERENCES clients (client_id)
+    FOREIGN KEY (parent_token) REFERENCES tokens (token)
 );
