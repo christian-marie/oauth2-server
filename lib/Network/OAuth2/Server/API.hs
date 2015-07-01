@@ -164,7 +164,17 @@ processTokenRequest _ _ Nothing _ = do
 processTokenRequest ref t (Just client_auth) req = do
     (client_id, modified_scope) <- checkCredentials ref client_auth req
     user <- case req of
-        RequestAuthorizationCode{} -> return Nothing
+        RequestAuthorizationCode{..} -> do
+            -- Load the authorization code.
+            code' <- liftIO $ storeReadCode ref requestCode
+            case code' of
+                Nothing -> throwError $
+                    OAuth2Error InvalidGrant (preview errorDescription "This code is not valid.") Nothing
+                Just c  ->
+                    -- TODO(thsutton) Revoke tokens if this code has already
+                    -- been used as described in:
+                    -- http://tools.ietf.org/html/rfc6749#section-4.1.2
+                    return $ Just (requestCodeUserID c)
         RequestClientCredentials{} -> return Nothing
         RequestRefreshToken{..} -> do
                 -- Decode previous token so we can copy details across.
@@ -184,6 +194,7 @@ processTokenRequest ref t (Just client_auth) req = do
             { grantTokenType = Refresh
             , grantExpires = refresh_expires
             }
+    -- Save the new tokens to the store.
     (_, access_details)  <- liftIO $ storeCreateToken ref access_grant
     (_, refresh_details) <- liftIO $ storeCreateToken ref refresh_grant
     return $ grantResponse t access_details (Just $ tokenDetailsToken refresh_details)

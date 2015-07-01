@@ -70,7 +70,7 @@ instance TokenStore PSQLConnPool where
     storeReadCode (PSQLConnPool pool) request_code = do
         codes :: [RequestCode] <- withResource pool $ \conn -> do
             debugM logName $ "Attempting storeLoadCode"
-            query conn "SELECT code, expires, client_id, redirect_url, scope, state FROM request_codes WHERE (code = ?)"
+            query conn "SELECT code, expires, user_id, client_id, redirect_url, scope, state FROM request_codes WHERE (code = ?)"
                        (Only request_code)
         return $ case codes of
             [] -> Nothing
