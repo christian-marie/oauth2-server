@@ -49,7 +49,7 @@ script:
  - cabal configure --enable-tests --enable-benchmarks --enable-library-coverage -v2
  - cabal build --jobs
  - cabal test
- - dist/build/tokenserver/tokenserver "$TESTCONF" &
+ - dist/build/tokenserver/tokenserver "$TESTCONF" 2>&1 /dev/null &
  - sleep 1
  - dist/build/test-acceptance/test-acceptance http://localhost:8080
  - pkill tokenserver
