@@ -60,6 +60,7 @@ Library
                      , errors
                      , ekg
                      , ekg-core
+                     , formatting
                      , file-embed
                      , hslogger
                      , http-types
