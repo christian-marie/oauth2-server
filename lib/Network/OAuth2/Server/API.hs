@@ -586,17 +586,19 @@ serverPostToken ref user_id _ (DeleteRequest token_id) = do
         Just (_, tok) -> return tok
     case tokenDetailsUserID tok of
         Nothing -> do
-            liftIO . errorM logName $
-                "user_id " <> show user_id <> " tried to revoke token_id " <>
-                show token_id <> ", which did not have a user_id"
+            errorLog "serverPostToken" $
+                sformat ("user_id " % shown % " tried to revoke token_id " %
+                          shown % ", which did not have a user_id")
+                        user_id token_id
             invalidRequest
         Just user_id' -> do
             if user_id == user_id'
                 then liftIO $ storeRevokeToken ref token_id
                 else do
-                    liftIO . errorM logName $
-                        "user_id " <> show user_id <> " tried to revoke token_id " <>
-                        show token_id <> ", which had user_id " <> show user_id'
+                    errorLog "serverPostToken" $
+                        sformat ("user_id " % shown % " tried to revoke token_id " %
+                                shown % ", which had user_id " % shown)
+                                user_id token_id user_id'
                     invalidRequest
 
     let link = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy ListTokens) page1
