@@ -549,7 +549,7 @@ serverListTokens
     -> m Html
 serverListTokens ref size u s p = do
     let p' = fromMaybe page1 p
-    res <- liftIO $ storeListTokens ref u size p'
+    res <- liftIO $ storeListTokens ref (Just u) size p'
     return $ renderTokensPage s size p' res
 
 -- | Handle a token create/delete request.
@@ -566,12 +566,28 @@ serverPostToken
     -> m Html
 -- | Revoke a given token
 serverPostToken ref user_id _ (DeleteRequest token_id) = do
-    success <- liftIO $ storeRevokeToken ref user_id token_id
-    if success then
-        let link = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy ListTokens) page1
-        in throwError err302{errHeaders = [(hLocation, B.pack $ show link)]} --Redirect to tokens page
-    else
-        throwError err500{errBody = "Something quite horrible has happened"}
+    maybe_tok <- liftIO $ storeReadToken ref (Right token_id)
+    tok <- case maybe_tok of
+        Nothing -> throwError err403 { errBody = "Invalid token_id" }
+        Just (_, tok) -> return tok
+    case tokenDetailsUserID tok of
+        Nothing -> do
+            liftIO . errorM logName $
+                "user_id " <> show user_id <> " tried to revoke token_id " <>
+                show token_id <> ", which did not have a user_id"
+            throwError err403 { errBody = "Invalid token_id" }
+        Just user_id' -> do
+            if user_id == user_id'
+                then liftIO $ storeRevokeToken ref token_id
+                else do
+                    liftIO . errorM logName $
+                        "user_id " <> show user_id <> " tried to revoke token_id " <>
+                        show token_id <> ", which had user_id " <> show user_id'
+                    throwError err403 { errBody = "Invalid token_id" }
+
+    let link = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy ListTokens) page1
+    throwError err302{errHeaders = [(hLocation, B.pack $ show link)]} --Redirect to tokens page
+
 -- | Create a new token
 serverPostToken ref user_id user_scope (CreateRequest req_scope) =
     if compatibleScope req_scope user_scope then do
