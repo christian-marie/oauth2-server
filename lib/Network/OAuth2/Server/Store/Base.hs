@@ -72,6 +72,7 @@ class TokenStore ref where
     storeCreateToken
         :: ref
         -> TokenGrant
+        -> Maybe TokenID
         -> IO (TokenID, TokenDetails)
 
     -- | Retrieve the details of a previously issued token from the database.

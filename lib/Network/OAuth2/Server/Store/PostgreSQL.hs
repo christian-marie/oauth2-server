@@ -44,13 +44,13 @@ instance TokenStore PSQLConnPool where
                 [client] -> Just client
                 _ -> error "Expected client_id PK to be unique"
 
-    storeCreateCode (PSQLConnPool pool) user_id requestCodeClientID requestCodeRedirectURI sc requestCodeState = do
+    storeCreateCode (PSQLConnPool pool) requestCodeUserID requestCodeClientID requestCodeRedirectURI sc requestCodeState = do
         withResource pool $ \conn -> do
             [(requestCodeCode, requestCodeExpires)] <- do
                 debugM logName $ "Attempting storeCreateCode with " <> show sc
                 query conn
                       "INSERT INTO request_codes (client_id, user_id, redirect_url, scope, state) VALUES (?,?,?,?,?) RETURNING code, expires"
-                      (requestCodeClientID, user_id, requestCodeRedirectURI, sc, requestCodeState)
+                      (requestCodeClientID, requestCodeUserID, requestCodeRedirectURI, sc, requestCodeState)
             let requestCodeScope = Just sc
                 requestCodeAuthorized = False
             return RequestCode{..}
@@ -77,11 +77,13 @@ instance TokenStore PSQLConnPool where
             [rc] -> return rc
             _ -> error "Expected code PK to be unique"
 
-    storeCreateToken (PSQLConnPool pool) grant = do
+    storeCreateToken (PSQLConnPool pool) grant parent_token = do
         debugM logName $ "Saving new token: " <> show grant
         res <- withResource pool $ \conn -> do
             debugM logName $ "Attempting storeSaveToken"
-            query conn "INSERT INTO tokens (token_type, expires, user_id, client_id, scope, token, created) VALUES (?,?,?,?,?,uuid_generate_v4(), NOW()) RETURNING token_id, token_type, token, expires, user_id, client_id, scope" grant
+            case parent_token of
+                Nothing  -> query conn "INSERT INTO tokens (token_type, expires, user_id, client_id, scope, token, created) VALUES (?,?,?,?,?,uuid_generate_v4(), NOW()) RETURNING token_id, token_type, token, expires, user_id, client_id, scope" grant
+                Just tid -> query conn "INSERT INTO tokens (token_type, expires, user_id, client_id, scope, token, created, parent_token) VALUES (?,?,?,?,?,uuid_generate_v4(), NOW(), ?) RETURNING token_id, token_type, token, expires, user_id, client_id, scope" (grant :. Only tid)
         case res of
             [Only tid :. tok] -> return (tid, tok)
             []    -> fail $ "Failed to save new token: " <> show grant

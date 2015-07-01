@@ -179,7 +179,11 @@ processTokenRequest ref t (Just client_auth) req = do
         RequestRefreshToken{..} -> do
                 -- Decode previous token so we can copy details across.
                 previous <- liftIO $ storeReadToken ref (Left requestRefreshToken)
-                return $ tokenDetailsUserID . snd =<< previous
+                case previous of
+                    Nothing -> return Nothing
+                    Just (tid, details) -> do
+                        -- TODO: Revoke the old ones.
+                        return $ tokenDetailsUserID details
     let expires = Just $ addUTCTime 1800 t
         access_grant = TokenGrant
             { grantTokenType = Bearer
@@ -195,8 +199,8 @@ processTokenRequest ref t (Just client_auth) req = do
             , grantExpires = refresh_expires
             }
     -- Save the new tokens to the store.
-    (_, access_details)  <- liftIO $ storeCreateToken ref access_grant
-    (_, refresh_details) <- liftIO $ storeCreateToken ref refresh_grant
+    (rid, refresh_details) <- liftIO $ storeCreateToken ref refresh_grant Nothing
+    (  _, access_details)  <- liftIO $ storeCreateToken ref access_grant (Just rid)
     return $ grantResponse t access_details (Just $ tokenDetailsToken refresh_details)
 
 -- | Headers for Shibboleth, this tells us who the user is and what they're
@@ -591,7 +595,7 @@ serverPostToken ref user_id user_scope (CreateRequest req_scope) =
             grantUserID    = Just user_id
             grantClientID  = Nothing
             grantScope     = req_scope
-        (TokenID t, _) <- liftIO $ storeCreateToken ref TokenGrant{..}
+        (TokenID t, _) <- liftIO $ storeCreateToken ref TokenGrant{..} Nothing
         let link = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy DisplayToken) (TokenID t)
         throwError err302{errHeaders = [(hLocation, B.pack $ show link)]} --Redirect to tokens page
     else throwError err403{errBody = "Invalid requested token scope"}
