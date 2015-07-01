@@ -116,7 +116,7 @@ instance TokenStore PSQLConnPool where
                     errorM logName msg
                     fail msg
                 x -> do
-                    let msg = "Consistency error: revoked multiple (" <> show x <> ") tokens " <> show token_id
+                    let msg = "The impossible happened: revoked multiple (" <> show x <> ") tokens " <> show token_id
                     errorM logName msg
                     fail msg
 

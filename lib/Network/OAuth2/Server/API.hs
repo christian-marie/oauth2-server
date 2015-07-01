@@ -568,14 +568,14 @@ serverPostToken
 serverPostToken ref user_id _ (DeleteRequest token_id) = do
     maybe_tok <- liftIO $ storeReadToken ref (Right token_id)
     tok <- case maybe_tok of
-        Nothing -> throwError err403 { errBody = "Invalid token_id" }
+        Nothing -> invalidRequest
         Just (_, tok) -> return tok
     case tokenDetailsUserID tok of
         Nothing -> do
             liftIO . errorM logName $
                 "user_id " <> show user_id <> " tried to revoke token_id " <>
                 show token_id <> ", which did not have a user_id"
-            throwError err403 { errBody = "Invalid token_id" }
+            invalidRequest
         Just user_id' -> do
             if user_id == user_id'
                 then liftIO $ storeRevokeToken ref token_id
@@ -583,10 +583,13 @@ serverPostToken ref user_id _ (DeleteRequest token_id) = do
                     liftIO . errorM logName $
                         "user_id " <> show user_id <> " tried to revoke token_id " <>
                         show token_id <> ", which had user_id " <> show user_id'
-                    throwError err403 { errBody = "Invalid token_id" }
+                    invalidRequest
 
     let link = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy ListTokens) page1
     throwError err302{errHeaders = [(hLocation, B.pack $ show link)]} --Redirect to tokens page
+  where
+    -- We don't want to leak information, so just throw a generic error
+    invalidRequest = throwError err400 { errBody = "Invalid request" }
 
 -- | Create a new token
 serverPostToken ref user_id user_scope (CreateRequest req_scope) =
