@@ -26,6 +26,7 @@ module Network.OAuth2.Server.Types (
   OAuth2Error(..),
   AuthHeader(..),
   authDetails,
+  AuthorizePostRequest(..),
   belongsToUser,
   bsToScope,
   ClientDetails(..),
@@ -52,7 +53,7 @@ module Network.OAuth2.Server.Types (
   PageSize,
   pageSize,
   Password,
-  password,  
+  password,
   RequestCode(..),
   RedirectURI,
   redirectURI,
@@ -94,7 +95,7 @@ import           Data.ByteString                      (ByteString)
 import qualified Data.ByteString                      as B (all)
 import           Data.Monoid                          ((<>))
 import           Data.Text                            (Text)
-import qualified Data.Text                            as T (unpack)
+import qualified Data.Text                            as T (toLower, unpack)
 import qualified Data.Text.Encoding                   as T (decodeUtf8,
                                                             encodeUtf8)
 import           Data.Time.Clock                      (UTCTime, diffUTCTime)
@@ -177,13 +178,6 @@ data ClientDetails = ClientDetails
     , clientAppUrl       :: URI
     }
   deriving (Eq, Show)
-
-instance FromFormUrlEncoded Code where
-    fromFormUrlEncoded xs = case lookup "code" xs of
-        Nothing -> Left "Code is a required field."
-        Just x -> case T.encodeUtf8 x ^? code of
-            Nothing -> Left "Invalid Code Syntax"
-            Just c -> Right c
 
 -- | Response type requested by client when using the authorize endpoint.
 --
@@ -473,6 +467,23 @@ instance FromJSON AccessResponse where
         <*> o .:? "user_id"
         <*> o .:? "client_id"
         <*> o .: "scope"
+
+data AuthorizePostRequest
+    = AuthorizeApproved Code
+    | AuthorizeDeclined Code
+
+instance FromFormUrlEncoded AuthorizePostRequest where
+    fromFormUrlEncoded xs = do
+        cons <- case T.toLower <$> lookup "action" xs of
+            Just "approve" -> Right AuthorizeApproved
+            Just "decline" -> Right AuthorizeDeclined
+            Just act -> Left $ "Invalid action: " <> show act
+            Nothing -> Left "no action"
+        case lookup "code" xs of
+            Nothing -> Left "Code is a required field."
+            Just x -> case T.encodeUtf8 x ^? code of
+                Nothing -> Left "invalid code"
+                Just c -> Right $ cons c
 
 -- | Redirect URIs as used in the OAuth2 RFC.
 --
