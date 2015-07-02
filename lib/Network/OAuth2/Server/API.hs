@@ -179,11 +179,16 @@ processTokenRequest ref t (Just client_auth) req = do
             case code' of
                 Nothing -> throwError $
                     OAuth2Error InvalidGrant (preview errorDescription "This code is not valid.") Nothing
-                Just c  ->
+                Just c  -> do
                     -- TODO(thsutton) Revoke tokens if this code has already
                     -- been used as described in:
                     -- http://tools.ietf.org/html/rfc6749#section-4.1.2
-                    return $ Just (requestCodeUserID c)
+                    res <- liftIO $ storeDeleteCode ref requestCode
+                    case res of
+                        True  -> return $ Just (requestCodeUserID c)
+                        False -> throwError $ OAuth2Error InvalidRequest
+                                                          (preview errorDescription "This code is not valid.")
+                                                          Nothing
         RequestClientCredentials{} -> return Nothing
         RequestRefreshToken{..} -> do
                 -- Decode previous token so we can copy details across.
@@ -478,14 +483,14 @@ authorizePost ref user_id _scope (AuthorizeApproved code') = do
 authorizePost ref user_id _scope (AuthorizeDeclined code') = do
     res <- liftIO $ storeReadCode ref code'
     case res of
-        Nothing -> throwError err401{ errBody = "You are not authorized to approve this request." }
-        Just RequestCode{..} -> do
-            -- TODO: Actually decline the token in the store.
+        Just RequestCode{..} | user_id == requestCodeUserID-> do
+            void .liftIO $ storeDeleteCode ref code'
             let e = OAuth2Error AccessDenied Nothing Nothing
                 url = addQueryParameters requestCodeRedirectURI $
                     over (mapped . both) T.encodeUtf8 (toFormUrlEncoded e) <>
                     [("state", state' ^.re clientState) | Just state' <- [requestCodeState]]
             throwError err302{ errHeaders = [(hLocation, url ^.re redirectURI)] }
+        _ -> throwError err401{ errBody = "You are not authorized to approve this request." }
 
 -- | Verify a token and return information about the principal and grant.
 --

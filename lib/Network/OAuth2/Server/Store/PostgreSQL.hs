@@ -77,6 +77,16 @@ instance TokenStore PSQLConnPool where
             [rc] -> return rc
             _ -> error "Expected code PK to be unique"
 
+    storeDeleteCode (PSQLConnPool pool) request_code = do
+        [Only res] <- withResource pool $ \conn -> do
+            debugM logName $ "Attempting storeDeleteCode"
+            query conn "WITH deleted AS (DELETE FROM request_codes WHERE (code = ?) RETURNING *) SELECT count(*) FROM deleted"
+                       (Only request_code)
+        return $ case res :: Int of
+            0 -> False
+            1 -> True
+            _ -> error "Expected code PK to be unique"
+
     storeCreateToken (PSQLConnPool pool) grant parent_token = do
         debugM logName $ "Saving new token: " <> show grant
         res <- withResource pool $ \conn -> do
