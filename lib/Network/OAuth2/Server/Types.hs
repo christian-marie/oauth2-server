@@ -75,6 +75,16 @@ module Network.OAuth2.Server.Types (
   UserID,
   userID,
   vschar,
+  unsupportedGrantType,
+  invalidGrant,
+  invalidClient,
+  temporarilyUnavailable,
+  serverError,
+  invalidScope,
+  unsupportedResponseType,
+  accessDenied,
+  unauthorizedClient,
+  invalidRequest,
 ) where
 
 import           Blaze.ByteString.Builder             (toByteString)

@@ -8,9 +8,13 @@
 --
 
 {-# LANGUAGE DeriveDataTypeable         #-}
+{-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE QuasiQuotes                #-}
+{-# LANGUAGE RankNTypes                 #-}
 {-# LANGUAGE RecordWildCards            #-}
+{-# LANGUAGE TemplateHaskell            #-}
 
 -- | Types representing OAuth2 Error Responses
 --
@@ -28,11 +32,12 @@ module Network.OAuth2.Server.Types.Error where
 
 import           Blaze.ByteString.Builder           (toByteString)
 import           Control.Applicative                (pure, (<$>), (<*>))
-import           Control.Lens.Fold                  ((^?))
+import           Control.Lens.Fold                  ((^?), (^?!))
 import           Control.Lens.Operators             ((^.))
 import           Control.Lens.Prism                 (Prism', prism')
 import           Control.Lens.Review                (re, review)
-import           Control.Monad                      (guard)
+import           Control.Monad                      (forM, guard)
+import           Control.Monad.Error.Class          (MonadError (..))
 import           Data.Aeson                         (FromJSON (..),
                                                      ToJSON (..),
                                                      Value (String), object,
@@ -40,11 +45,13 @@ import           Data.Aeson                         (FromJSON (..),
                                                      (.:), (.:?), (.=))
 import           Data.ByteString                    (ByteString)
 import qualified Data.ByteString                    as B (all)
+import           Data.Char
 import           Data.Monoid                        ((<>))
 import qualified Data.Text                          as T (unpack)
 import qualified Data.Text.Encoding                 as T (decodeUtf8,
                                                           encodeUtf8)
 import           Data.Typeable                      (Typeable)
+import           Language.Haskell.TH
 import           Servant.API                        (FromFormUrlEncoded (..),
                                                      ToFormUrlEncoded (..))
 import           URI.ByteString                     (URI, parseURI,
@@ -218,3 +225,26 @@ instance FromJSON ErrorDescription where
             Just s -> return s
 
 --------------------------------------------------------------------------------
+
+-- Convenience functions for throwing errors
+
+
+-- This will output one helper function per `ErrorCode`.
+-- For `InvalidRequest` this would be:
+--
+-- invalidRequest :: MonadError OAuth2Error m => ByteString -> m a
+-- invalidRequest msg = throwError $ OAuth2Error InvalidRequest
+--                                               (Just $ msg ^?! errorDescription)
+--                                               Nothing
+do TyConI (DataD _ _ _ cs _) <- reify ''ErrorCode
+   res <- forM cs $ \(NormalC c []) -> do
+       let (h:t) = nameBase c
+           c' = toLower h : t
+       n <- newName c'
+       ty <- sigD n [t|MonadError OAuth2Error m => ByteString -> m a|]
+       let b = [e|(\msg -> throwError $ OAuth2Error $(pure $ ConE c)
+                                                    (Just $ msg ^?! errorDescription)
+                                                    Nothing)|]
+       d <- valD (varP n) (normalB b) []
+       return [ty,d]
+   return $ concat res
