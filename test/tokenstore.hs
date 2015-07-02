@@ -169,7 +169,7 @@ propSaveLoadListRevokeToken ref arb_token_grant = monadicIO $ do
     let token_grant = arb_token_grant { grantExpires = Just $ 30 `addUTCTime` now }
 
     -- We first save with the token grant
-    (id1, details1) <- run $ storeCreateToken ref token_grant
+    (id1, details1) <- run $ storeCreateToken ref token_grant Nothing
 
     -- Then try to read the token back, multiple ways
     maybe_result <- run $ storeReadToken ref (Left $ tokenDetailsToken details1)
