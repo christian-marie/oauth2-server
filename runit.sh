@@ -29,7 +29,7 @@ cat examples/token-server.conf \
 # Trap the interrupt so that we can clean up.
 trap "echo interrupted" INT TERM
 
-cabal run tokenserver "$TESTCONF"
+dist/build/tokenserver/tokenserver "$TESTCONF"
 
 # Clean up our mess
 echo "Cleaning up!"
