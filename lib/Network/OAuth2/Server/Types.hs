@@ -52,7 +52,7 @@ module Network.OAuth2.Server.Types (
   PageSize,
   pageSize,
   Password,
-  password,  
+  password,
   RequestCode(..),
   RedirectURI,
   redirectURI,

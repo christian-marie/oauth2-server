@@ -12,6 +12,7 @@ import           Control.Monad
 import           Control.Monad.Error.Class
 import           Control.Monad.IO.Class
 import           Control.Monad.Trans.Except
+import           Data.Aeson
 import           Data.Aeson.Lens
 import           Data.ByteString.Char8       (ByteString)
 import qualified Data.ByteString.Char8       as BC
@@ -30,6 +31,7 @@ import           System.Environment
 import           Test.Hspec
 import           Text.HandsomeSoup
 import           Text.XML.HXT.Core           (IOSArrow, XmlTree, runX)
+import qualified URI.ByteString              as UB
 
 import           Network.OAuth2.Server       hiding (refreshToken)
 import qualified Network.OAuth2.Server.Types as OAuth2
@@ -184,42 +186,40 @@ tests base_uri = do
                     resp `shouldBe` (Left "401 Unauthorized - You are not authorized to approve this request.")
 
         it "the redirect contains a code which can be used to request a token" $ do
-            -- 1. Get the page.
-            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) code_request
-            resp `shouldSatisfy` isRight
+            res <- runExceptT $ do
+                -- 1. Get the page.
+                page <- getAuthorizePage base_uri (Just user1) code_request
 
-            -- 2. Extract the code.
-            let Right page = resp
+                -- 2. Check that the page describes the requested token.
+                liftIO $ do
+                    page `shouldSatisfy` ("Name" `BC.isInfixOf`)
+                    page `shouldSatisfy` ("ID" `BC.isInfixOf`)
+                    page `shouldSatisfy` ("Description" `BC.isInfixOf`)
+                    page `shouldSatisfy` ("App 1" `BC.isInfixOf`)
+                    page `shouldSatisfy` ("Application One" `BC.isInfixOf`)
+                    page `shouldSatisfy` ("missiles:launch" `BC.isInfixOf`)
+                    page `shouldSatisfy` ("login" `BC.isInfixOf`)
 
-            -- 3. Check that the page describes the requested token.
-            page `shouldSatisfy` ("Name" `BC.isInfixOf`)
-            page `shouldSatisfy` ("ID" `BC.isInfixOf`)
-            page `shouldSatisfy` ("Description" `BC.isInfixOf`)
-            page `shouldSatisfy` ("App 1" `BC.isInfixOf`)
-            page `shouldSatisfy` ("Application One" `BC.isInfixOf`)
-            page `shouldSatisfy` ("missiles:launch" `BC.isInfixOf`)
-            page `shouldSatisfy` ("login" `BC.isInfixOf`)
+                -- 3. Extract details from the form.
+                (uri, fields) <- getAuthorizeFields base_uri page
 
-            -- 4. Extract details from the form.
-            resp <- runExceptT $ getAuthorizeFields base_uri page
-            case resp of
-                Left _ -> error "No fields"
-                Right (uri, fields) -> do
-                    -- 5. Submit the approval form.
-                    resp <- runExceptT $ sendAuthorization uri (Just user1) fields
-                    resp `shouldSatisfy` isRight
+                -- 4. Submit the approval form.
+                x <- sendAuthorization uri (Just user1) fields
+                auth_code <- case lookup "code" $ x ^. UB.uriQueryL . UB.queryPairsL of
+                    Nothing -> error "No code in redirect URI"
+                    Just auth_code -> return auth_code
 
-                    -- 6. Use the code in the redirect to request a token.
-                    -- TODO
-                    -- requestTokenWithCode base_uri client1
+                -- 5. Use the code in the redirect to request a token.
+                t <- requestTokenWithCode base_uri client1 auth_code a_scope
 
-                    -- 7. Verify the token and check that it contaisn the appropriate details.
-                    -- TODO
-                    {-
-                    t `shouldSatisfy` ((== (Just user1)) `on` tokenUserId)
-                    t `shouldSatisfy` ((== (Just client1)) `on` tokenClientID)
-                    t `shouldSatisfy` ((== (Just a_scope)) `on` tokenScope)
-                    -}
+                -- 6. Verify the token and check that it contaisn the appropriate details.
+                liftIO $ do
+                    tokenUserID t `shouldBe` (Just $ fst user1)
+                    tokenClientID t `shouldBe` (Just $ fst client1)
+                    tokenScope t `shouldBe`  a_scope
+            case res of
+                Left e -> error e
+                Right () -> return ()
 
     describe "user interface" $ do
         it "returns an error when Shibboleth authentication headers are missing"
@@ -288,34 +288,6 @@ refreshToken base_uri (client, secret) tok = do
     pass = T.encodeUtf8 $ review password secret
     user = review clientID client
 
--- | Contact a server and request a 'Token' with the specified 'Scope'.
-requestToken
-    :: URI                  -- ^ Server base URI.
-    -> (ClientID, Password) -- ^ Client details.
-    -> (UserID, Scope)      -- ^ User details.
-    -> Scope                -- ^ Requested scope.
-    -> ExceptT String IO Token
-requestToken base_uri (client, secret) (uid, perms) scope = do
-    code <- authorizeRequest auth_endpoint (uid, perms) client scope
-    throwError "Not implemented"
-  where
-    auth_endpoint = base_uri { uriPath = "/oauth2/authorize" }
-    token_endpoint = base_uri { uriPath = "/oauth2/token" }
-
--- | Conact a server and authorize a request.
-authorizeRequest
-    :: URI
-    -> (UserID, Scope)      -- ^ User details
-    -> ClientID             -- ^ Requesting client
-    -> Scope                -- ^ Requested scope
-    -> ExceptT String IO Code
-authorizeRequest auth_uri (uid, perms) client scope = do
-    -- 1. Fetch the page with appropriate headers.
-    -- 2. Extract the <form>.
-    -- 3. Post the response with appropriate headers.
-    -- 4. Extract the code.
-    throwError "Not implemented"
-
 getAuthorizePage
     :: URI
     -> Maybe (UserID, Scope)
@@ -380,7 +352,7 @@ sendAuthorization
     :: URI
     -> Maybe (UserID, Scope)
     -> [(ByteString, ByteString)]
-    -> ExceptT String IO URI
+    -> ExceptT String IO UB.URI
 sendAuthorization uri user_m fields = do
     let opts = defaults & header "Accept" .~ ["text/html"]
                         & redirects .~ 0
@@ -399,10 +371,34 @@ sendAuthorization uri user_m fields = do
             redirect <- case lookup hLocation hs of
                 Nothing -> throwError "No Location header in redirect"
                 Just x' -> return x'
-            case parseURI $ BC.unpack redirect of
-                Nothing -> throwError $ "Invalid Location header in redirect: " <> show redirect
-                Just x -> return x
+            case UB.parseURI UB.strictURIParserOptions redirect of
+                Left e -> throwError $ "Invalid Location header in redirect: " <> show (redirect, e)
+                Right x -> return x
         Right _ -> throwError "No redirect"
+
+-- |
+requestTokenWithCode
+    :: URI
+    -> (ClientID, Password)
+    -> ByteString
+    -> Scope
+    -> ExceptT String IO AccessResponse
+requestTokenWithCode base_uri (client, secret) auth_code req_scope = do
+    let opts = defaults & header "Accept" .~ ["application/json"]
+                        & auth ?~ basicAuth client' secret'
+
+    let req = [ ("grant_type", "authorization_code")
+              , ("code", auth_code)
+              , ("client_id", client')
+              ] :: [(ByteString, ByteString)]
+    r <- liftIO $ try $ postWith opts (show base_uri <> "/oauth2/token") req
+    res <- handleResponse r
+    case eitherDecode $ BSL.fromStrict res of
+        Left e -> throwError e
+        Right x -> return x
+  where
+    client' = review clientID client
+    secret' = T.encodeUtf8 $ review password secret
 
 -- * Fixtures
 --

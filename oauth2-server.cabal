@@ -188,3 +188,4 @@ test-suite             test-acceptance
                      , transformers
                      , transformers-compat
                      , wreq
+                     , uri-bytestring
