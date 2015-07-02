@@ -9,6 +9,7 @@ import           Control.Exception
 import           Control.Monad
 import           Data.Configurator        as C
 import           System.Environment
+import           System.IO
 import           System.Log.Logger
 
 import           Network.OAuth2.Server
@@ -18,6 +19,8 @@ logName = "Anchor.Tokens.Server.Store"
 
 main :: IO ()
 main = do
+    hSetBuffering stderr LineBuffering
+    hSetBuffering stdout LineBuffering
     args <- getArgs
     let confFile = case args of
             [] -> "/etc/anchor-token-server/anchor-token-server.conf"
