@@ -210,7 +210,7 @@ tests base_uri = do
                     Just auth_code -> return auth_code
 
                 -- 5. Use the code in the redirect to request a token.
-                t <- requestTokenWithCode base_uri client1 auth_code a_scope
+                t <- requestTokenWithCode base_uri client1 auth_code
 
                 -- 6. Verify the token and check that it contaisn the appropriate details.
                 liftIO $ do
@@ -376,14 +376,14 @@ sendAuthorization uri user_m fields = do
                 Right x -> return x
         Right _ -> throwError "No redirect"
 
--- |
+-- | Request a token (Authorization Code Grant) as described in
+-- https://tools.ietf.org/html/rfc6749#section-4.1.1
 requestTokenWithCode
     :: URI
     -> (ClientID, Password)
     -> ByteString
-    -> Scope
     -> ExceptT String IO AccessResponse
-requestTokenWithCode base_uri (client, secret) auth_code req_scope = do
+requestTokenWithCode base_uri (client, secret) auth_code = do
     let opts = defaults & header "Accept" .~ ["application/json"]
                         & auth ?~ basicAuth client' secret'
 
