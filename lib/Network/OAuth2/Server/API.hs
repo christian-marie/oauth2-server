@@ -272,7 +272,7 @@ type AuthorizePost
     = "authorize"
     :> Header OAuthUserHeader UserID
     :> Header OAuthUserScopeHeader Scope
-    :> ReqBody '[FormUrlEncoded] Code
+    :> ReqBody '[FormUrlEncoded] AuthorizePostRequest
     :> Post '[HTML] ()
 
 -- | Facilitates services checking tokens.
@@ -466,15 +466,26 @@ authorizePost
     => ref
     -> UserID
     -> Scope
-    -> Code
+    -> AuthorizePostRequest
     -> m ()
-authorizePost ref user_id _scope code' = do
+authorizePost ref user_id _scope (AuthorizeApproved code') = do
     res <- liftIO $ storeActivateCode ref code' user_id
     case res of
         Nothing -> throwError err401{ errBody = "You are not authorized to approve this request." }
         Just RequestCode{..} -> do
             let uri' = addQueryParameters requestCodeRedirectURI [("code", code' ^.re code)]
             throwError err302{ errHeaders = [(hLocation, uri' ^.re redirectURI)] }
+authorizePost ref user_id _scope (AuthorizeDeclined code') = do
+    res <- liftIO $ storeReadCode ref code'
+    case res of
+        Nothing -> throwError err401{ errBody = "You are not authorized to approve this request." }
+        Just RequestCode{..} -> do
+            -- TODO: Actually decline the token in the store.
+            let e = OAuth2Error AccessDenied Nothing Nothing
+                url = addQueryParameters requestCodeRedirectURI $
+                    over (mapped . both) T.encodeUtf8 (toFormUrlEncoded e) <>
+                    [("state", state' ^.re clientState) | Just state' <- [requestCodeState]]
+            throwError err302{ errHeaders = [(hLocation, url ^.re redirectURI)] }
 
 -- | Verify a token and return information about the principal and grant.
 --
