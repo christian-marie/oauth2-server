@@ -19,8 +19,8 @@ logName = "Anchor.Tokens.Server.Store"
 
 main :: IO ()
 main = do
-    hSetBuffering stderr LineBuffering
-    hSetBuffering stdout LineBuffering
+    hSetBuffering stderr (BlockBuffering Nothing)
+    hSetBuffering stdout (BlockBuffering Nothing)
     args <- getArgs
     let confFile = case args of
             [] -> "/etc/anchor-token-server/anchor-token-server.conf"
