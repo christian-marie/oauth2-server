@@ -69,6 +69,12 @@ class TokenStore ref where
         -> Code
         -> IO (Maybe RequestCode)
 
+    -- | Delete a previously requested Authorization Code Grant
+    storeDeleteCode
+        :: ref
+        -> Code
+        -> IO Bool
+
     -- * CRUD for Tokens
 
     -- | Record a new token grant in the database.
