@@ -80,7 +80,7 @@ import           Network.OAuth2.Server.Store         hiding (logName)
 import           Network.OAuth2.Server.UI
 
 logName :: String
-logName = "Anchor.Tokens.Server.API"
+logName = "Network.OAuth2.Server.API"
 
 -- Wrappers for underlying logging system
 debugLog, errorLog :: MonadIO m => String -> Text -> m ()
@@ -313,7 +313,7 @@ type PostToken
     :> ReqBody '[FormUrlEncoded] TokenRequest
     :> Post '[HTML] Html
 
--- | Anchor Token Server HTTP endpoints.
+-- | OAuth2 Server HTTP endpoints.
 --
 -- Includes endpoints defined in RFC6749 describing OAuth2, plus application
 -- specific extensions.

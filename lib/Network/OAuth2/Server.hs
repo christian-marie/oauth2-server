@@ -47,7 +47,7 @@ import           Paths_oauth2_server                 as P
 
 
 logName :: String
-logName = "Anchor.Tokens.Server"
+logName = "Network.OAuth2.Server"
 
 -- | Start the statistics-reporting thread.
 startStatistics
