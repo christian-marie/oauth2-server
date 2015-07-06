@@ -177,6 +177,7 @@ data GrantEvent
     | OwnerCredentialsGranted -- ^ Issued token from owner password request.
     | ClientCredentialsGranted -- ^ Issued token from client password request.
     | ExtensionGranted -- ^ Issued token from extension grant request.
+    | RefreshGranted -- ^ Issued token from refresh grant request.
 
 data ClientDetails = ClientDetails
     { clientClientId     :: ClientID

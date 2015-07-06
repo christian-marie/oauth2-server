@@ -89,7 +89,7 @@ startServer serverOpts@ServerOptions{..} = do
     let settings = setPort optServicePort $ setHost optServiceHost $ defaultSettings
     apiSrv <- async $ do
         debugM logName $ "Starting API Server"
-        runSettingsSocket settings sock . shibboleth optShibboleth $ serve anchorOAuth2API (server ref serverOpts)
+        runSettingsSocket settings sock . shibboleth optShibboleth $ serve anchorOAuth2API (server ref serverOpts serverEventSink)
     let serverServiceStop = do
             debugM logName $ "Closing API Socket"
             S.close sock
