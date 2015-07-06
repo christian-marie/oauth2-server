@@ -35,6 +35,7 @@ module Network.OAuth2.Server.API (
     TokenEndpoint,
 ) where
 
+import           Control.Concurrent.STM              (atomically)
 import           Control.Lens
 import           Control.Monad
 import           Control.Monad.Error.Class           (MonadError (throwError))
@@ -59,6 +60,7 @@ import           Formatting                          (sformat, shown, (%))
 import           Network.HTTP.Types                  hiding (Header)
 import           Network.OAuth2.Server.Configuration as X
 import           Network.OAuth2.Server.Types         as X
+import           Pipes.Concurrent                    (Output, send)
 import           Servant.API                         ((:<|>) (..), (:>),
                                                       AddHeader (addHeader),
                                                       Capture, FormUrlEncoded,
@@ -142,14 +144,18 @@ throwOAuth2Error e =
                       }
 
 -- | Handler for 'TokenEndpoint', basically a wrapper for 'processTokenRequest'
-tokenEndpoint :: TokenStore ref => ref -> Server TokenEndpoint
-tokenEndpoint _ _ (Left e) = throwOAuth2Error e
-tokenEndpoint ref auth (Right req) = do
+tokenEndpoint :: TokenStore ref => ref -> Output GrantEvent -> Server TokenEndpoint
+tokenEndpoint _ _ _ (Left e) = throwOAuth2Error e
+tokenEndpoint ref sink auth (Right req) = do
     t <- liftIO getCurrentTime
     res <- liftIO . runExceptT $ processTokenRequest ref t auth req
     case res of
         Left e -> throwOAuth2Error e
         Right response -> do
+            void . liftIO . atomically . send sink $ case req of
+                RequestAuthorizationCode{} -> CodeGranted
+                RequestClientCredentials{} -> ClientCredentialsGranted
+                RequestRefreshToken{}      -> RefreshGranted
             return $ addHeader NoStore $ addHeader NoCache $ response
 
 -- | Check that the request is valid, if it is, provide an 'AccessResponse',
@@ -329,9 +335,9 @@ anchorOAuth2API :: Proxy AnchorOAuth2API
 anchorOAuth2API = Proxy
 
 -- | Construct a server of the entire API from an initial state
-server :: TokenStore ref => ref -> ServerOptions -> Server AnchorOAuth2API
-server ref serverOpts
-       = tokenEndpoint ref
+server :: TokenStore ref => ref -> ServerOptions -> Output GrantEvent -> Server AnchorOAuth2API
+server ref serverOpts sink
+       = tokenEndpoint ref sink
     :<|> verifyEndpoint ref serverOpts
     :<|> handleShib (authorizeEndpoint ref)
     :<|> handleShib (authorizePost ref)

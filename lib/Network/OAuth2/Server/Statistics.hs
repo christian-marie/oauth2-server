@@ -36,6 +36,7 @@ data GrantCounters = GrantCounters
     , ownerCredentialsCounter  :: C.Counter
     , clientCredentialsCounter :: C.Counter
     , extensionCounter         :: C.Counter
+    , refreshCounter           :: C.Counter
     }
 
 -- | Record containing statistics to report from grant events.
@@ -45,6 +46,7 @@ data GrantStats = GrantStats
     , statGrantOwnerCredentials  :: Int64 -- ^ Resource Owner credential grants completed.
     , statGrantClientCredentials :: Int64 -- ^ Client credential grants completed.
     , statGrantExtension         :: Int64 -- ^ Extension grants completed.
+    , statGrantRefresh           :: Int64 -- ^ Refresh grants completed.
     } deriving (Show, Eq)
 
 -- | Intitialize some empty 'GrantCounters'
@@ -55,10 +57,11 @@ mkGrantCounters = GrantCounters
     <*> C.new
     <*> C.new
     <*> C.new
+    <*> C.new
 
 -- | Empty grant stats, all starting from zero.
 defaultGrantStats :: GrantStats
-defaultGrantStats = GrantStats 0 0 0 0 0
+defaultGrantStats = GrantStats 0 0 0 0 0 0
 
 -- | Get some stas from a GrantCounters
 grantGatherStats
@@ -70,6 +73,7 @@ grantGatherStats GrantCounters{..} =
                <*> C.read ownerCredentialsCounter
                <*> C.read clientCredentialsCounter
                <*> C.read extensionCounter
+               <*> C.read refreshCounter
 
 -- | Increment 'GrantCounter's as 'GrantEvent' come in.
 statsWatcher :: Input GrantEvent -> GrantCounters -> IO ()
@@ -83,6 +87,7 @@ statsWatcher source GrantCounters{..} = forever $ do
             OwnerCredentialsGranted  -> ownerCredentialsCounter
             ClientCredentialsGranted -> clientCredentialsCounter
             ExtensionGranted         -> extensionCounter
+            RefreshGranted           -> refreshCounter
 
 -- | Set up EKG
 registerOAuth2Metrics
@@ -107,5 +112,6 @@ registerOAuth2Metrics store ref source counters = do
         , ("oauth2.grants.owner_credentials",  Counter . statGrantOwnerCredentials)
         , ("oauth2.grants.client_credentials", Counter . statGrantClientCredentials)
         , ("oauth2.grants.extension",          Counter . statGrantExtension)
+        , ("oauth2.grants.refresh",            Counter . statGrantRefresh)
         ]) (grantGatherStats counters) store
 
