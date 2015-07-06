@@ -1,8 +1,8 @@
-Anchor Token Server Clients
-===========================
+OAuth2 Server Clients
+=====================
 
-Implementing a *client* to interact with Anchor Token Server is no more complex
-than interacting with any other OAuth2-based service:
+Implementing a *client* to interact with OAuth2 Server is no more complex than
+interacting with any other OAuth2-based service:
 
 - Decide which service/s the client will interact with.
 
@@ -10,16 +10,16 @@ For each service your system will need to be configured with:
 
 1. A Service Endpoint to communicate with the service; and
 
-2. An OAuth2 Token Endpoint for the Anchor Token Server; and
+2. An OAuth2 Token Endpoint for the OAuth2 Server; and
 
-2. An OAuth2 Authorization Endpoint for the Anchor Token Server; and
+2. An OAuth2 Authorization Endpoint for the OAuth2 Server; and
 
 3. A set of OAuth2 Token Scope values to request as appropriate for the
 service; and
 
-4. A Client ID specified by the Anchor Token Server; and
+4. A Client ID specified by the OAuth2 Server; and
 
-5. A Client Secret specified by the Anchor Token Server.
+5. A Client Secret specified by the OAuth2 Server.
 
 Implementation requirements
 ---------------------------
@@ -38,12 +38,11 @@ it should:
 
 1. Use the OAuth2 Authorization Endpoint, Client ID, and OAuth2 Token Scope
 values to redirect the user to perform an [authorization code grant][s4.1] from
-the Anchor Token Server.
+the OAuth2 Server.
 
 1. When the user is redirected to the Redirection Endpoint, use the supplied
 authorization code, the OAuth2 Token Endpoint, Client ID, Client Secret, and
-Redirection Endpoint to request the approved token from the Anchor Token
-Server.
+Redirection Endpoint to request the approved token from the OAuth2 Server.
 
 Configuration format
 --------------------

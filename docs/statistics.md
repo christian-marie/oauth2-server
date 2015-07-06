@@ -1,8 +1,7 @@
-Anchor Token Server Statistics
-==============================
+OAuth2 Server Statistics
+========================
 
-Anchor Token Server uses the [ekg][] package to report statistics on its
-operations.
+OAuth2 Server uses the [ekg][] package to report statistics on its operations.
 
 [ekg]: https://hackage.haskell.org/package/ekg
 
