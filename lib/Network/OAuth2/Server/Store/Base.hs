@@ -15,7 +15,7 @@ import           Data.Int                    (Int64)
 import           Network.OAuth2.Server.Types
 
 logName :: String
-logName = "Anchor.Tokens.Server.Store"
+logName = "Network.OAuth2.Server.Store"
 
 -- | A token store is some read only reference (connection, ioref, etc)
 -- accompanied by some functions to do things like create and revoke tokens.
