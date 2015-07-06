@@ -48,6 +48,7 @@ install:
 script:
  - cabal configure --enable-tests --enable-benchmarks -v2
  - cabal build --jobs
+ - cabal haddock
  - cabal test
  - dist/build/tokenserver/tokenserver "$TESTCONF" > /dev/null 2>&1 &
  - sleep 1

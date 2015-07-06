@@ -129,8 +129,7 @@ type TokenEndpoint
     = "token"
     :> Header "Authorization" AuthHeader
     :> ReqBody '[FormUrlEncoded] (Either OAuth2Error AccessRequest)
-                                 -- ^ The Either here is a weird hack to be
-                                 -- able to handle parse failures explicitly.
+                                 -- The Either here is a weird hack to be able to handle parse failures explicitly.
     :> Post '[JSON] (Headers '[Header "Cache-Control" NoStore, Header "Pragma" NoCache] AccessResponse)
 
 -- | Encode an 'OAuth2Error' and throw it to servant.
