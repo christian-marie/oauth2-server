@@ -15,7 +15,8 @@ Installing OAuth2 Server
 Dependencies
 ------------
 
-- PostgreSQL server version 9.1 or higher.
+- PostgreSQL server version 9.1 or higher, including the `uuid-ossp`
+  module.
 
 - `libpq` PostgreSQL client library.
 
@@ -94,6 +95,9 @@ a single space and containing ASCII characters in the following range only:
 Requests for non-protected paths, and authenticated requests for protected
 paths should be forwarded to the IP address and port configured in the `api`
 group as described above.
+
+You can find excerpts of these configuration files in the `examples/`
+directory.
 
 Testing
 -------
