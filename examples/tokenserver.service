@@ -1,0 +1,14 @@
+# Basic systemd service unit for tokenserver.
+
+[Unit]
+Description=OAuth2 token server
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/tokenserver
+
+# Don't run this as root.
+User=tokenserver
+
+[Install]
+WantedBy=multi-user.target
