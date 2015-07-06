@@ -103,6 +103,8 @@ executable             tokenserver
                      , oauth2-server
                      , stm
   ghc-options: -threaded
+               -rtsopts
+               -with-rtsopts "-T -N"
 
 test-suite             test-tokenserver
   type:                exitcode-stdio-1.0
