@@ -226,8 +226,10 @@ instance FromJSON ErrorDescription where
 
 --------------------------------------------------------------------------------
 
--- Convenience functions for throwing errors
+-- * Throwing errors
 
+-- $ These helper functions construct an 'OAuth2Error' with the appropriate
+-- 'ErrorCode' and supplied error description, and throw it.
 
 -- This will output one helper function per `ErrorCode`.
 -- For `InvalidRequest` this would be:
