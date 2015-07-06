@@ -69,7 +69,6 @@ Library
                      , monad-control
                      , mtl
                      , network
-                     , pipes-concurrency
                      , postgresql-simple
                      , resource-pool
                      , scrypt
@@ -131,7 +130,6 @@ test-suite             test-tokenstore
                      , mtl
                      , oauth2-server
                      , oauth2-server
-                     , pipes-concurrency
                      , postgresql-simple
                      , process
                      , QuickCheck
