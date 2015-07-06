@@ -27,12 +27,12 @@ module Network.OAuth2.Server
 import           Control.Applicative                 ((<$>))
 import           Control.Concurrent
 import           Control.Concurrent.Async
+import           Control.Concurrent.STM
 import           Data.Pool
 import qualified Data.Streaming.Network              as N
 import           Database.PostgreSQL.Simple
 import qualified Network.Socket                      as S
 import           Network.Wai.Handler.Warp            hiding (Connection)
-import           Pipes.Concurrent
 import           Servant.Server
 import           System.Log.Logger
 import qualified System.Remote.Monitoring            as EKG
@@ -55,15 +55,15 @@ startStatistics
     => ServerOptions
     -> ref
     -> GrantCounters
-    -> IO (Output GrantEvent, IO ())
+    -> IO (TChan GrantEvent, IO ())
 startStatistics ServerOptions{..} ref counters = do
     debugM logName $ "Starting EKG"
     srv <- EKG.forkServer optStatsHost optStatsPort
-    (output, input, seal) <- spawn' (bounded 50)
+    output <- newBroadcastTChanIO
+    input <- atomically $ dupTChan output
     registerOAuth2Metrics (EKG.serverMetricStore srv) ref input counters
     let stop = do
             debugM logName $ "Stopping EKG"
-            atomically seal
             killThread (EKG.serverThreadId srv)
             threadDelay 10000
             debugM logName $ "Stopped EKG"

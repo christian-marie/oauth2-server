@@ -14,12 +14,12 @@
 module Network.OAuth2.Server.Statistics where
 
 import           Control.Applicative
+import           Control.Concurrent.Async
+import           Control.Concurrent.STM
 import           Control.Monad
-import           Control.Monad.STM
 import qualified Data.HashMap.Strict         as HM
 import           Data.Int
 import           Data.Text                   ()
-import           Pipes.Concurrent
 import           System.Metrics
 import qualified System.Metrics.Counter      as C
 
@@ -76,29 +76,27 @@ grantGatherStats GrantCounters{..} =
                <*> C.read refreshCounter
 
 -- | Increment 'GrantCounter's as 'GrantEvent' come in.
-statsWatcher :: Input GrantEvent -> GrantCounters -> IO ()
+statsWatcher :: TChan GrantEvent -> GrantCounters -> IO ()
 statsWatcher source GrantCounters{..} = forever $ do
-    curr <- atomically $ recv source
-    case curr of
-        Nothing -> return ()
-        Just x  -> C.inc $ case x of
-            CodeGranted              -> codeCounter
-            ImplicitGranted          -> implicitCounter
-            OwnerCredentialsGranted  -> ownerCredentialsCounter
-            ClientCredentialsGranted -> clientCredentialsCounter
-            ExtensionGranted         -> extensionCounter
-            RefreshGranted           -> refreshCounter
+    curr <- atomically $ readTChan source
+    C.inc $ case curr of
+        CodeGranted              -> codeCounter
+        ImplicitGranted          -> implicitCounter
+        OwnerCredentialsGranted  -> ownerCredentialsCounter
+        ClientCredentialsGranted -> clientCredentialsCounter
+        ExtensionGranted         -> extensionCounter
+        RefreshGranted           -> refreshCounter
 
 -- | Set up EKG
 registerOAuth2Metrics
     :: TokenStore ref
     => Store
     -> ref
-    -> Input GrantEvent
+    -> TChan GrantEvent
     -> GrantCounters
     -> IO ()
 registerOAuth2Metrics store ref source counters = do
-    void $ forkIO $ statsWatcher source counters
+    void $ async $ statsWatcher source counters
     registerGroup (HM.fromList
         [ ("oauth2.clients",                   Gauge . statClients)
         , ("oauth2.users",                     Gauge . statUsers)
