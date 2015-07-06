@@ -19,6 +19,7 @@ import qualified Data.ByteString.Char8       as BC
 import qualified Data.ByteString.Lazy        as BSL
 import           Data.Either
 import           Data.Function
+import           Data.List
 import           Data.Maybe
 import           Data.Monoid
 import qualified Data.Text.Encoding          as T
@@ -153,7 +154,8 @@ tests base_uri = do
             case resp of
                 Left _ -> error "No fields"
                 Right (uri, fields) -> do
-                    resp <- runExceptT $ sendAuthorization uri Nothing fields
+                    let fields' = nubBy ((==) `on` fst) fields
+                    resp <- runExceptT $ sendAuthorization uri Nothing fields'
                     resp `shouldSatisfy` isLeft
 
         it "the POST returns an error when the request ID is missing" $ do
@@ -204,7 +206,8 @@ tests base_uri = do
                 (uri, fields) <- getAuthorizeFields base_uri page
 
                 -- 4. Submit the approval form.
-                x <- sendAuthorization uri (Just user1) fields
+                let fields' = nubBy ((==) `on` fst) fields
+                x <- sendAuthorization uri (Just user1) fields'
                 auth_code <- case lookup "code" $ x ^. UB.uriQueryL . UB.queryPairsL of
                     Nothing -> error "No code in redirect URI"
                     Just auth_code -> return auth_code
@@ -217,6 +220,39 @@ tests base_uri = do
                     tokenUserID t `shouldBe` (Just $ fst user1)
                     tokenClientID t `shouldBe` (Just $ fst client1)
                     tokenScope t `shouldBe`  a_scope
+            case res of
+                Left e -> error e
+                Right () -> return ()
+
+        it "the redirect contains \"access_denied\" error if declined" $ do
+            res <- runExceptT $ do
+                -- 1. Get the page.
+                page <- getAuthorizePage base_uri (Just user1) code_request
+
+                -- 2. Check that the page describes the requested token.
+                liftIO $ do
+                    page `shouldSatisfy` ("Name" `BC.isInfixOf`)
+                    page `shouldSatisfy` ("ID" `BC.isInfixOf`)
+                    page `shouldSatisfy` ("Description" `BC.isInfixOf`)
+                    page `shouldSatisfy` ("App 1" `BC.isInfixOf`)
+                    page `shouldSatisfy` ("Application One" `BC.isInfixOf`)
+                    page `shouldSatisfy` ("missiles:launch" `BC.isInfixOf`)
+                    page `shouldSatisfy` ("login" `BC.isInfixOf`)
+
+                -- 3. Extract details from the form.
+                (uri, fields) <- getAuthorizeFields base_uri page
+
+                -- 4. Submit the approval form.
+                let fields' = nubBy ((==) `on` fst) $ deleteBy ((==) `on` fst) ("action","") fields
+                x <- sendAuthorization uri (Just user1) fields'
+                let qps = x ^. UB.uriQueryL . UB.queryPairsL
+                case lookup "code" qps of
+                    Nothing -> return ()
+                    Just _ -> error $ "redirect has an auth_code"
+                case lookup "error" qps of
+                    Nothing -> error $ "redirect has no error"
+                    Just "access_denied" -> return ()
+                    Just e -> error $ "wrong error: " <> show e
             case res of
                 Left e -> error e
                 Right () -> return ()
