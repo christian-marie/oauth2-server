@@ -1,9 +1,9 @@
-digraph "Anchor Token Server" {
+digraph "OAuth2 Server" {
 
     user [label="User"];
     client [label="Client"];
     service [label="Service"];
-    server [label="ATS"];
+    server [label="Token Server"];
 
     user -> client    [label="1. Request action"];
     client -> server  [label="2. Request token"];
