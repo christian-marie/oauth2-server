@@ -1,7 +1,7 @@
 name:                oauth2-server
 version:             0.1.0.0
-synopsis:            Library for OAuth2 servers.
-description:         Library for OAuth2 servers.
+synopsis:            OAuth2 server implementation.
+description:         An OAuth2 server implemented designed for use in a multi-service environment.
 homepage:            https://github.com/anchor/oauth2-server
 license:             BSD3
 license-file:        LICENSE
