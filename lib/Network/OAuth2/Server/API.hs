@@ -46,11 +46,9 @@ import           Crypto.Scrypt
 import           Data.Aeson                          (encode)
 import qualified Data.ByteString.Char8               as B
 import           Data.ByteString.Conversion          (ToByteString (..))
-import           Data.Either
 import           Data.Maybe
 import           Data.Monoid
 import           Data.Proxy
-import qualified Data.Set                            as S
 import           Data.Text                           (Text)
 import qualified Data.Text                           as T
 import qualified Data.Text.Encoding                  as T
@@ -62,9 +60,7 @@ import           Network.OAuth2.Server.Configuration as X
 import           Network.OAuth2.Server.Types         as X
 import           Servant.API                         ((:<|>) (..), (:>),
                                                       AddHeader (addHeader),
-                                                      Capture, FormUrlEncoded,
-                                                      FromFormUrlEncoded (..),
-                                                      FromText (..), Get,
+                                                      Capture, FormUrlEncoded, Get,
                                                       Header, Headers, JSON,
                                                       OctetStream, Post,
                                                       QueryParam, ReqBody,
@@ -226,30 +222,6 @@ processTokenRequest ref t (Just client_auth) req = do
 -- allowed to do.
 type OAuthUserHeader = "Identity-OAuthUser"
 type OAuthUserScopeHeader = "Identity-OAuthUserScopes"
-
-data TokenRequest = DeleteRequest TokenID
-                  | CreateRequest Scope
-
--- Decode something like: method=delete/create;scope=thing.
-instance FromFormUrlEncoded TokenRequest where
-    fromFormUrlEncoded o = case lookup "method" o of
-        Nothing -> Left "method field missing"
-        Just "delete" -> case lookup "token_id" o of
-            Nothing   -> Left "token_id field missing"
-            Just t_id -> case fromText t_id of
-                Nothing    -> Left "Invalid Token ID"
-                Just t_id' -> Right $ DeleteRequest t_id'
-        Just "create" -> do
-            let processScope x = case (T.encodeUtf8 x) ^? scopeToken of
-                    Nothing -> Left $ T.unpack x
-                    Just ts -> Right ts
-            let scopes = map (processScope . snd) $ filter (\x -> fst x == "scope") o
-            case lefts scopes of
-                [] -> case S.fromList (rights scopes) ^? scope of
-                    Nothing -> Left "empty scope is invalid"
-                    Just s  -> Right $ CreateRequest s
-                es -> Left $ "invalid scopes: " <> show es
-        Just x        -> Left . T.unpack $ "Invalid method field value, got: " <> x
 
 
 -- | OAuth2 Authorization Endpoint
