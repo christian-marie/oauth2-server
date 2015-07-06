@@ -46,7 +46,7 @@ install:
 # Here starts the actual work to be performed for the package under test; any
 # command which exits with a non-zero exit code causes the build to fail.
 script:
- - cabal configure --enable-tests --enable-benchmarks --enable-library-coverage -v2
+ - cabal configure --enable-tests --enable-benchmarks -v2
  - cabal build --jobs
  - cabal test
  - dist/build/tokenserver/tokenserver "$TESTCONF" > /dev/null 2>&1 &
@@ -63,7 +63,3 @@ script:
       echo "expected '$SRC_TGZ' not found";
       exit 1;
    fi
-
-after_script:
-   - cabal install hpc-coveralls
-   - hpc-coveralls --exclude-dir=test --coverage-mode=AllowPartialLines test
