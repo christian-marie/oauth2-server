@@ -43,15 +43,15 @@ You should change the `database` key to specify a PostgreSQL connection string
 for your OAuth2 Server database as described in the [libpq
 documentation][libpq].
 
-Update the `stats` group to specify a `host` and `port` for the statistics
-server. This port should be firewalled and accessible to your monitoring
-software only.
+Update the `stats` group to specify a `host` and `port` that the statistics
+server should bind to. This port should be firewalled and accessible to your
+monitoring software only (for security reasons).
 
-Update the `api` group to specify a `host` and `port` for the API server. You
-should also specify a `verify_realm` which will be used to HTTP authentication
-for the token verification endpoint.
+Update the `api` group to specify a `host` and `port` for the API server to
+listen on. You should also specify a `verify_realm` which will be used for
+HTTP authentication of the token verification endpoint.
 
-Update the `shibboleth` group to specify a `header_prefix` and, more
+Update the `shibboleth` config group to specify a `header_prefix` and, more
 importantly, a list of `upstream` proxy servers. The header prefix is used to
 filter HTTP request headers and *must* be set to `Identity-` in the current
 version. The `upstream` key *must* contain a list CIDR address ranges which are
