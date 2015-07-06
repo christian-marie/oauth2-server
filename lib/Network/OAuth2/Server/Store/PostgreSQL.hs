@@ -102,10 +102,10 @@ instance TokenStore PSQLConnPool where
     storeReadToken (PSQLConnPool pool) tok = do
         debugM logName $ "Loading token: " <> show tok
         tokens <- withResource pool $ \conn -> do
-            let q = "SELECT token_id, token_type, token, expires, user_id, client_id, scope FROM tokens WHERE (created <= NOW()) AND (NOW() < expires) AND (revoked IS NULL) AND "
+            let q = "SELECT token_id, token_type, token, expires, user_id, client_id, scope FROM tokens WHERE (created <= NOW()) AND (NOW() < expires) AND (revoked IS NULL) "
             case tok of
-                Left tok' -> query conn (q <> "(token    = ?)") (Only tok')
-                Right tid -> query conn (q <> "(token_id = ?)") (Only tid )
+                Left tok' -> query conn (q <> "AND (token    = ?)") (Only tok')
+                Right tid -> query conn (q <> "AND (token_id = ?)") (Only tid )
         case tokens of
             [Only tid :. tok'] -> return $ Just (tid, tok')
             []  -> do
