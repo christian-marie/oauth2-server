@@ -172,53 +172,27 @@ processTokenRequest _ _ Nothing _ = do
 processTokenRequest ref t (Just client_auth) req = do
     debugLog "checkCredentials" "Checking some credentials"
     c_id <- checkClientAuth ref client_auth
-    (client_id, modified_scope) <- case c_id of
+    client_id <- case c_id of
         Nothing -> unauthorizedClient "Invalid client credentials"
-        Just client_id' -> case req of
-            -- https://tools.ietf.org/html/rfc6749#section-4.1.3
-            RequestAuthorizationCode auth_code uri client ->
-                checkClientAuthCode client_id' auth_code uri client
-            -- http://tools.ietf.org/html/rfc6749#section-4.4.2
-            RequestClientCredentials request_scope ->
-                checkClientCredentials client_id' request_scope
-            -- http://tools.ietf.org/html/rfc6749#section-6
-            RequestRefreshToken tok request_scope ->
-                checkRefreshToken client_id' tok request_scope
-    user <- case req of
-        RequestAuthorizationCode{..} -> do
-            -- Load the authorization code.
-            code' <- liftIO $ storeReadCode ref requestCode
-            case code' of
-                Nothing -> throwError $
-                    OAuth2Error InvalidGrant (preview errorDescription "This code is not valid.") Nothing
-                Just c  -> do
-                    -- TODO(thsutton) Revoke tokens if this code has already
-                    -- been used as described in:
-                    -- http://tools.ietf.org/html/rfc6749#section-4.1.2
-                    res <- liftIO $ storeDeleteCode ref requestCode
-                    case res of
-                        True  -> return $ Just (requestCodeUserID c)
-                        False -> throwError $ OAuth2Error InvalidRequest
-                                                          (preview errorDescription "This code is not valid.")
-                                                          Nothing
-        RequestClientCredentials{} -> return Nothing
-        RequestRefreshToken{..} -> do
-                -- Decode previous token so we can copy details across.
-                previous <- liftIO $ storeReadToken ref (Left requestRefreshToken)
-                case previous of
-                    Nothing -> return Nothing
-                    Just (tid, details) -> do
-                        let uid = tokenDetailsUserID details
-                        -- TODO(thsutton) Check the result here; better yet,
-                        -- refactor so we revoke *after* creating the new tokens.
-                        liftIO $ storeRevokeToken ref tid
-                        return uid
+        Just client_id -> return client_id
+
+    (user, modified_scope) <- case req of
+        -- https://tools.ietf.org/html/rfc6749#section-4.1.3
+        RequestAuthorizationCode auth_code uri client -> do
+            checkClientAuthCode client_id auth_code uri client
+        -- http://tools.ietf.org/html/rfc6749#section-4.4.2
+        RequestClientCredentials request_scope ->
+            checkClientCredentials client_id request_scope
+        -- http://tools.ietf.org/html/rfc6749#section-6
+        RequestRefreshToken tok request_scope ->
+            checkRefreshToken client_id tok request_scope
+
     let expires = Just $ addUTCTime 1800 t
         access_grant = TokenGrant
             { grantTokenType = Bearer
             , grantExpires = expires
             , grantUserID = user
-            , grantClientID = client_id
+            , grantClientID = Just client_id
             , grantScope = modified_scope
             }
         -- Create a refresh token with these details.
@@ -235,7 +209,7 @@ processTokenRequest ref t (Just client_auth) req = do
     --
     -- Verify client, scope and request code.
     --
-    checkClientAuthCode :: ClientID -> Code -> Maybe RedirectURI -> Maybe ClientID -> m (Maybe ClientID, Scope)
+    checkClientAuthCode :: ClientID -> Code -> Maybe RedirectURI -> Maybe ClientID -> m (Maybe UserID, Scope)
     checkClientAuthCode _ _ _ Nothing = invalidRequest "No client ID supplied."
     checkClientAuthCode client_id request_code uri (Just purported_client) = do
         when (client_id /= purported_client) $ unauthorizedClient "Invalid client credentials"
@@ -258,51 +232,51 @@ processTokenRequest ref t (Just client_auth) req = do
                         debugLog "checkClientAuthCode" $
                             sformat ("No scope found for code " % shown) request_code
                         invalidScope "No scope found"
-                    Just code_scope -> return (Just client_id, code_scope)
+                    Just code_scope -> return (Just $ requestCodeUserID rc, code_scope)
 
     --
     -- Client has been verified and there's nothing to verify for the
     -- scope, so this will always succeed unless we get no scope at all.
     --
-    checkClientCredentials :: ClientID -> Maybe Scope -> m (Maybe ClientID, Scope)
+    checkClientCredentials :: ClientID -> Maybe Scope -> m (Maybe UserID, Scope)
     checkClientCredentials _ Nothing = invalidRequest "No scope supplied."
-    checkClientCredentials client_id (Just request_scope) = return (Just client_id, request_scope)
+    checkClientCredentials client_id (Just request_scope) = return (Nothing, request_scope)
 
     --
     -- Verify scope and request token.
     --
-    checkRefreshToken :: ClientID -> Token -> Maybe Scope -> m (Maybe ClientID, Scope)
-    checkRefreshToken client_id tok scope' = do
-            details <- liftIO $ storeReadToken ref (Left tok)
-            case details of
-                -- The old token is dead.
-                Nothing -> do
-                    debugLog "checkRefreshToken" $
-                        sformat ("Got passed invalid token " % shown) tok
-                    invalidRequest "Invalid token"
-                Just (_, details') -> do
-                    -- Check the ClientIDs match.
-                    when (Just client_id /= tokenDetailsClientID details') $ do
-                        errorLog "checkRefreshToken" $
-                            sformat ("Refresh requested with different ClientID: "
-                                    % shown % " =/= " % shown % "for " % shown)
-                                    client_id (tokenDetailsClientID details') tok
-                        invalidClient "Mismatching clientID"
+    checkRefreshToken :: ClientID -> Token -> Maybe Scope -> m (Maybe UserID, Scope)
+    checkRefreshToken client_id tok request_scope = do
+        previous <- liftIO $ storeReadToken ref (Left tok)
+        case previous of
+            Just (tid, TokenDetails{..})
+                | (Just client_id == tokenDetailsClientID) -> do
+                      scope' <- case request_scope of
+                          Nothing -> return tokenDetailsScope
+                          Just scope'
+                              -- Check scope compatible.
+                              -- @TODO(thsutton): The concern with scopes should probably
+                              -- be completely removed here.
+                              | compatibleScope scope' tokenDetailsScope ->
+                                    return scope'
+                              | otherwise -> do
+                                    debugLog "checkRefreshToken" $
+                                        sformat ("Refresh requested with incompatible scopes"
+                                                 % shown % " vs " % shown)
+                                                 request_scope tokenDetailsScope
 
-                    case scope' of
-                         Nothing ->
-                             return (Just client_id, tokenDetailsScope details')
-                         Just request_scope -> do
-                             -- Check scope compatible.
-                             -- @TODO(thsutton): The concern with scopes should probably
-                             -- be completely removed here.
-                             unless (compatibleScope request_scope (tokenDetailsScope details')) $ do
-                                 debugLog "checkRefreshToken" $
-                                     sformat ("Refresh requested with incompatible scopes"
-                                             % shown % " vs " % shown)
-                                             request_scope (tokenDetailsScope details')
-                                 invalidScope "Incompatible scope"
-                             return (Just client_id, request_scope)
+                                    invalidScope "Incompatible scope"
+
+                      -- TODO(thsutton) Check the result here; better yet,
+                      -- refactor so we revoke *after* creating the new tokens.
+                      liftIO $ storeRevokeToken ref tid
+                      return (tokenDetailsUserID, scope')
+
+            -- The old token is dead or client_id doesn't match.
+            _ -> do
+                debugLog "checkRefreshToken" $
+                    sformat ("Got passed invalid token " % shown) tok
+                invalidRequest "Invalid token"
 
 -- | Headers for Shibboleth, this tells us who the user is and what they're
 -- allowed to do.
