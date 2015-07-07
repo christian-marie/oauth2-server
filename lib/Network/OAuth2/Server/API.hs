@@ -159,7 +159,8 @@ tokenEndpoint ref sink auth (Right req) = do
 -- Any IO exception that are thrown are probably catastrophic and unaccounted
 -- for, and should not be caught.
 processTokenRequest
-    :: TokenStore ref
+    :: forall m ref.
+       (TokenStore ref, m ~ ExceptT OAuth2Error IO)
     => ref                                        -- ^ PG pool, ioref, etc.
     -> UTCTime                                    -- ^ Time of request
     -> Maybe AuthHeader                           -- ^ Who wants the token?
@@ -169,7 +170,20 @@ processTokenRequest _ _ Nothing _ = do
     errorLog "processTokenRequest" "Checking credentials but none provided."
     invalidRequest "No credentials provided"
 processTokenRequest ref t (Just client_auth) req = do
-    (client_id, modified_scope) <- checkCredentials ref client_auth req
+    debugLog "checkCredentials" "Checking some credentials"
+    c_id <- checkClientAuth ref client_auth
+    (client_id, modified_scope) <- case c_id of
+        Nothing -> unauthorizedClient "Invalid client credentials"
+        Just client_id' -> case req of
+            -- https://tools.ietf.org/html/rfc6749#section-4.1.3
+            RequestAuthorizationCode auth_code uri client ->
+                checkClientAuthCode client_id' auth_code uri client
+            -- http://tools.ietf.org/html/rfc6749#section-4.4.2
+            RequestClientCredentials request_scope ->
+                checkClientCredentials client_id' request_scope
+            -- http://tools.ietf.org/html/rfc6749#section-6
+            RequestRefreshToken tok request_scope ->
+                checkRefreshToken client_id' tok request_scope
     user <- case req of
         RequestAuthorizationCode{..} -> do
             -- Load the authorization code.
@@ -217,6 +231,78 @@ processTokenRequest ref t (Just client_auth) req = do
     (rid, refresh_details) <- liftIO $ storeCreateToken ref refresh_grant Nothing
     (  _, access_details)  <- liftIO $ storeCreateToken ref access_grant (Just rid)
     return $ grantResponse t access_details (Just $ tokenDetailsToken refresh_details)
+  where
+    --
+    -- Verify client, scope and request code.
+    --
+    checkClientAuthCode :: ClientID -> Code -> Maybe RedirectURI -> Maybe ClientID -> m (Maybe ClientID, Scope)
+    checkClientAuthCode _ _ _ Nothing = invalidRequest "No client ID supplied."
+    checkClientAuthCode client_id request_code uri (Just purported_client) = do
+        when (client_id /= purported_client) $ unauthorizedClient "Invalid client credentials"
+        codes <- liftIO $ storeReadCode ref request_code
+        case codes of
+            Nothing -> invalidGrant "Request code not found"
+            Just rc -> do
+                -- Fail if redirect_uri doesn't match what's in the database.
+                case uri of
+                    Just uri' | uri' /= (requestCodeRedirectURI rc) -> do
+                        debugLog "checkClientAuthCode" $
+                            sformat ("Redirect URI mismatch verifying access token request: requested"
+                                    % shown % " but got " % shown )
+                                    uri (requestCodeRedirectURI rc)
+                        invalidRequest "Invalid redirect URI"
+                    _ -> return ()
+
+                case requestCodeScope rc of
+                    Nothing -> do
+                        debugLog "checkClientAuthCode" $
+                            sformat ("No scope found for code " % shown) request_code
+                        invalidScope "No scope found"
+                    Just code_scope -> return (Just client_id, code_scope)
+
+    --
+    -- Client has been verified and there's nothing to verify for the
+    -- scope, so this will always succeed unless we get no scope at all.
+    --
+    checkClientCredentials :: ClientID -> Maybe Scope -> m (Maybe ClientID, Scope)
+    checkClientCredentials _ Nothing = invalidRequest "No scope supplied."
+    checkClientCredentials client_id (Just request_scope) = return (Just client_id, request_scope)
+
+    --
+    -- Verify scope and request token.
+    --
+    checkRefreshToken :: ClientID -> Token -> Maybe Scope -> m (Maybe ClientID, Scope)
+    checkRefreshToken client_id tok scope' = do
+            details <- liftIO $ storeReadToken ref (Left tok)
+            case details of
+                -- The old token is dead.
+                Nothing -> do
+                    debugLog "checkRefreshToken" $
+                        sformat ("Got passed invalid token " % shown) tok
+                    invalidRequest "Invalid token"
+                Just (_, details') -> do
+                    -- Check the ClientIDs match.
+                    when (Just client_id /= tokenDetailsClientID details') $ do
+                        errorLog "checkRefreshToken" $
+                            sformat ("Refresh requested with different ClientID: "
+                                    % shown % " =/= " % shown % "for " % shown)
+                                    client_id (tokenDetailsClientID details') tok
+                        invalidClient "Mismatching clientID"
+
+                    case scope' of
+                         Nothing ->
+                             return (Just client_id, tokenDetailsScope details')
+                         Just request_scope -> do
+                             -- Check scope compatible.
+                             -- @TODO(thsutton): The concern with scopes should probably
+                             -- be completely removed here.
+                             unless (compatibleScope request_scope (tokenDetailsScope details')) $ do
+                                 debugLog "checkRefreshToken" $
+                                     sformat ("Refresh requested with incompatible scopes"
+                                             % shown % " vs " % shown)
+                                             request_scope (tokenDetailsScope details')
+                                 invalidScope "Incompatible scope"
+                             return (Just client_id, request_scope)
 
 -- | Headers for Shibboleth, this tells us who the user is and what they're
 -- allowed to do.
@@ -624,102 +710,6 @@ serverPostToken ref user_id user_scope (CreateRequest req_scope) =
         let link = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy DisplayToken) (TokenID t)
         throwError err302{errHeaders = [(hLocation, B.pack $ show link)]} --Redirect to tokens page
     else throwError err403{errBody = "Invalid requested token scope"}
-
-
--- | Check the supplied credentials against the database.
-checkCredentials
-    :: forall m ref. (MonadIO m, MonadError OAuth2Error m, TokenStore ref)
-    => ref
-    -> AuthHeader
-    -> AccessRequest
-    -> m (Maybe ClientID, Scope)
-checkCredentials ref auth req = do
-    debugLog "checkCredentials" "Checking some credentials"
-    client_id <- checkClientAuth ref auth
-    case client_id of
-        Nothing -> unauthorizedClient "Invalid client credentials"
-        Just client_id' -> case req of
-            -- https://tools.ietf.org/html/rfc6749#section-4.1.3
-            RequestAuthorizationCode auth_code uri client ->
-                checkClientAuthCode client_id' auth_code uri client
-            -- http://tools.ietf.org/html/rfc6749#section-4.4.2
-            RequestClientCredentials request_scope ->
-                checkClientCredentials client_id' request_scope
-            -- http://tools.ietf.org/html/rfc6749#section-6
-            RequestRefreshToken tok request_scope ->
-                checkRefreshToken client_id' tok request_scope
-  where
-    --
-    -- Verify client, scope and request code.
-    --
-    checkClientAuthCode :: ClientID -> Code -> Maybe RedirectURI -> Maybe ClientID -> m (Maybe ClientID, Scope)
-    checkClientAuthCode _ _ _ Nothing = invalidRequest "No client ID supplied."
-    checkClientAuthCode client_id request_code uri (Just purported_client) = do
-        when (client_id /= purported_client) $ unauthorizedClient "Invalid client credentials"
-        codes <- liftIO $ storeReadCode ref request_code
-        case codes of
-            Nothing -> invalidGrant "Request code not found"
-            Just rc -> do
-                -- Fail if redirect_uri doesn't match what's in the database.
-                case uri of
-                    Just uri' | uri' /= (requestCodeRedirectURI rc) -> do
-                        debugLog "checkClientAuthCode" $
-                            sformat ("Redirect URI mismatch verifying access token request: requested"
-                                    % shown % " but got " % shown )
-                                    uri (requestCodeRedirectURI rc)
-                        invalidRequest "Invalid redirect URI"
-                    _ -> return ()
-
-                case requestCodeScope rc of
-                    Nothing -> do
-                        debugLog "checkClientAuthCode" $
-                            sformat ("No scope found for code " % shown) request_code
-                        invalidScope "No scope found"
-                    Just code_scope -> return (Just client_id, code_scope)
-
-    --
-    -- Client has been verified and there's nothing to verify for the
-    -- scope, so this will always succeed unless we get no scope at all.
-    --
-    checkClientCredentials :: ClientID -> Maybe Scope -> m (Maybe ClientID, Scope)
-    checkClientCredentials _ Nothing = invalidRequest "No scope supplied."
-    checkClientCredentials client_id (Just request_scope) = return (Just client_id, request_scope)
-
-    --
-    -- Verify scope and request token.
-    --
-    checkRefreshToken :: ClientID -> Token -> Maybe Scope -> m (Maybe ClientID, Scope)
-    checkRefreshToken client_id tok scope' = do
-            details <- liftIO $ storeReadToken ref (Left tok)
-            case details of
-                -- The old token is dead.
-                Nothing -> do
-                    debugLog "checkRefreshToken" $
-                        sformat ("Got passed invalid token " % shown) tok
-                    invalidRequest "Invalid token"
-                Just (_, details') -> do
-                    -- Check the ClientIDs match.
-                    when (Just client_id /= tokenDetailsClientID details') $ do
-                        errorLog "checkRefreshToken" $
-                            sformat ("Refresh requested with different ClientID: "
-                                    % shown % " =/= " % shown % "for " % shown)
-                                    client_id (tokenDetailsClientID details') tok
-                        invalidClient "Mismatching clientID"
-
-                    case scope' of
-                         Nothing ->
-                             return (Just client_id, tokenDetailsScope details')
-                         Just request_scope -> do
-                             -- Check scope compatible.
-                             -- @TODO(thsutton): The concern with scopes should probably
-                             -- be completely removed here.
-                             unless (compatibleScope request_scope (tokenDetailsScope details')) $ do
-                                 debugLog "checkRefreshToken" $
-                                     sformat ("Refresh requested with incompatible scopes"
-                                             % shown % " vs " % shown)
-                                             request_scope (tokenDetailsScope details')
-                                 invalidScope "Incompatible scope"
-                             return (Just client_id, request_scope)
 
 -- | Given an AuthHeader sent by a client, verify that it authenticates.
 --   If it does, return the authenticated ClientID; otherwise, Nothing.
