@@ -19,6 +19,9 @@
 {-# LANGUAGE TypeFamilies          #-}
 {-# LANGUAGE TypeOperators         #-}
 
+-- This should be removed when the 'HasLink (Headers ...)' instance is removed.
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+
 -- | OAuth2 API implementation.
 --
 -- This implementation assumes the use of Shibboleth, which doesn't actually
@@ -78,6 +81,8 @@ import           Text.Blaze.Html5                    (Html)
 import           Network.OAuth2.Server.Store         hiding (logName)
 import           Network.OAuth2.Server.UI
 
+-- * Logging
+
 logName :: String
 logName = "Network.OAuth2.Server.API"
 
@@ -90,28 +95,63 @@ wrapLogger :: MonadIO m => (String -> String -> IO a) -> String -> Text -> m a
 wrapLogger logger component msg = do
     liftIO $ logger (logName <> " " <> component <> ": ") (T.unpack msg)
 
+-- * HTTP Headers
+--
+-- $ The OAuth2 Server API uses HTTP headers to exchange information between
+-- system components and to control caching behaviour.
+
 -- TODO: Move this into some servant common package
 
--- | http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.9.2
+-- | HTTP implementations should not store this request.
 --
--- The purpose of the no-store directive is to prevent the inadvertent release
--- or retention of sensitive information (for example, on backup tapes).
+--   http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.9.2
+--
+--   The purpose of the no-store directive is to prevent the inadvertent
+--   release retention of sensitive information (for example, on backup tapes).
+
 data NoStore = NoStore
 instance ToByteString NoStore where
     builder _ = "no-store"
 
--- | Same as Cache-Control: no-cache, we use Pragma for compatibilty.
+-- | HTTP implementations should not cache this request.
 --
--- http://tools.ietf.org/html/rfc2616#section-14.32
+--   http://tools.ietf.org/html/rfc2616#section-14.32
+--
+--   We use this in Pragma headers, for compatibilty.
 data NoCache = NoCache
 instance ToByteString NoCache where
     builder _ = "no-cache"
 
 -- | Temporary instance to create links with headers pending
 --   servant 0.4.3/0.5
+--
+--   When this is removed, also delete the -fno-warn-orphans option above.
 instance HasLink sub => HasLink (Header sym a :> sub) where
     type MkLink (Header sym a :> sub) = MkLink sub
     toLink _ = toLink (Proxy :: Proxy sub)
+
+-- | Shibboleth will pass us the UID of the authenticated user in this header.
+type OAuthUserHeader = "Identity-OAuthUser"
+
+-- | Shibboleth will pass us the available permissions of the authenticated
+--   user in this header.
+type OAuthUserScopeHeader = "Identity-OAuthUserScopes"
+
+-- | Type-list of headers to disable HTTP caching in clients.
+--
+--   This is used in several places throughout the API and, furthermore, breaks
+--   haskell-src-exts, hlint, etc. when used inline in more complex types.
+type CachingHeaders = '[HdrCacheControl, HdrPragma]
+
+-- | 'Header' type for the Cache-Control HTTP header.
+--
+--   Used in 'CachingHeaders'.
+type HdrCacheControl = Header "Cache-Control" NoStore
+
+-- | 'Header' type for the Pragma HTTP header.
+--
+--   Used in 'CachingHeaders'.
+type HdrPragma = Header "Pragma" NoCache
 
 -- | Request a token, basically AccessRequest -> AccessResponse with noise.
 --
@@ -220,27 +260,6 @@ processTokenRequest ref t (Just client_auth) req = do
     (  _, access_details)  <- liftIO $ storeCreateToken ref access_grant (Just rid)
     return $ grantResponse t access_details (Just $ tokenDetailsToken refresh_details)
 
--- | Headers for Shibboleth, this tells us who the user is and what they're
--- allowed to do.
-type OAuthUserHeader = "Identity-OAuthUser"
-type OAuthUserScopeHeader = "Identity-OAuthUserScopes"
-
-
--- | Type-list of headers to disable HTTP caching in clients.
---
---   This is used in several places throughout the API and, furthermore, breaks
---   haskell-src-exts, hlint, etc. when used inline in more complex types.
-type CachingHeaders = '[HdrCacheControl, HdrPragma]
-
--- | 'Header' type for the Cache-Control HTTP header.
---
---   Used in 'CachingHeaders'.
-type HdrCacheControl = Header "Cache-Control" NoStore
-
--- | 'Header' type for the Pragma HTTP header.
---
---   Used in 'CachingHeaders'.
-type HdrPragma = Header "Pragma" NoCache
 
 -- | OAuth2 Authorization Endpoint
 --
@@ -609,7 +628,7 @@ serverPostToken ref user_id _ (DeleteRequest token_id) = do
     -- revoke the supplied token_id.
     maybe_tok <- liftIO $ storeReadToken ref (Right token_id)
     tok <- case maybe_tok of
-        Nothing -> invalidRequest
+        Nothing -> invalidReq
         Just (_, tok) -> return tok
     if tok `belongsToUser` user_id then do
         liftIO $ storeRevokeToken ref token_id
@@ -625,10 +644,10 @@ serverPostToken ref user_id _ (DeleteRequest token_id) = do
                 sformat ("user_id " % shown % " tried to revoke token_id " %
                           shown % ", which had user_id " % shown)
                         user_id token_id user_id'
-        invalidRequest
+        invalidReq
   where
     -- We don't want to leak information, so just throw a generic error
-    invalidRequest = throwError err400 { errBody = "Invalid request" }
+    invalidReq = throwError err400 { errBody = "Invalid request" }
 
 -- | Create a new token
 serverPostToken ref user_id user_scope (CreateRequest req_scope) =

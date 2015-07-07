@@ -20,7 +20,6 @@ import           Data.ByteString.Lens        (packedChars)
 import           Data.Maybe
 import           Data.Monoid
 import           Data.Pool
-import           Data.Text.Lens              (packed)
 import           Data.Time.Calendar
 import           Data.Time.Clock
 import           Database.PostgreSQL.Simple
