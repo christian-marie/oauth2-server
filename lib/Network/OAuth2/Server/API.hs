@@ -127,7 +127,7 @@ type TokenEndpoint
     :> Header "Authorization" AuthHeader
     :> ReqBody '[FormUrlEncoded] (Either OAuth2Error AccessRequest)
                                  -- The Either here is a weird hack to be able to handle parse failures explicitly.
-    :> Post '[JSON] (Headers '[Header "Cache-Control" NoStore, Header "Pragma" NoCache] AccessResponse)
+    :> Post '[JSON] (Headers CachingHeaders AccessResponse)
 
 -- | Encode an 'OAuth2Error' and throw it to servant.
 --
@@ -151,7 +151,7 @@ tokenEndpoint ref sink auth (Right req) = do
                 RequestAuthorizationCode{} -> CodeGranted
                 RequestClientCredentials{} -> ClientCredentialsGranted
                 RequestRefreshToken{}      -> RefreshGranted
-            return $ addHeader NoStore $ addHeader NoCache $ response
+            return . addHeader NoStore . addHeader NoCache $ response
 
 -- | Check that the request is valid, if it is, provide an 'AccessResponse',
 -- otherwise we return an 'OAuth2Error'.
@@ -224,6 +224,22 @@ type OAuthUserHeader = "Identity-OAuthUser"
 type OAuthUserScopeHeader = "Identity-OAuthUserScopes"
 
 
+-- | Type-list of headers to disable HTTP caching in clients.
+--
+--   This is used in several places throughout the API and, furthermore, breaks
+--   haskell-src-exts, hlint, etc. when used inline in more complex types.
+type CachingHeaders = '[HdrCacheControl, HdrPragma]
+
+-- | 'Header' type for the Cache-Control HTTP header.
+--
+--   Used in 'CachingHeaders'.
+type HdrCacheControl = Header "Cache-Control" NoStore
+
+-- | 'Header' type for the Pragma HTTP header.
+--
+--   Used in 'CachingHeaders'.
+type HdrPragma = Header "Pragma" NoCache
+
 -- | OAuth2 Authorization Endpoint
 --
 -- Allows authenticated users to review and authorize a code token grant
@@ -262,7 +278,7 @@ type VerifyEndpoint
     = "verify"
     :> Header "Authorization" AuthHeader
     :> ReqBody '[OctetStream] Token
-    :> Post '[JSON] (Headers '[Header "Cache-Control" NoCache] AccessResponse)
+    :> Post '[JSON] (Headers CachingHeaders AccessResponse)
 
 -- | Facilitates human-readable token listing.
 --
@@ -479,7 +495,7 @@ verifyEndpoint
     -> ServerOptions
     -> Maybe AuthHeader
     -> Token
-    -> m (Headers '[Header "Cache-Control" NoCache] AccessResponse)
+    -> m (Headers CachingHeaders AccessResponse)
 verifyEndpoint _ ServerOptions{..} Nothing _token =
     throwError login
   where
@@ -517,7 +533,7 @@ verifyEndpoint ref ServerOptions{..} (Just auth) token' = do
                 throwError denied
             -- 4. Send the access response.
             now <- liftIO getCurrentTime
-            return . addHeader NoCache $ grantResponse now details (Just token')
+            return . addHeader NoStore . addHeader NoCache $ grantResponse now details (Just token')
   where
     denied = err404 { errBody = "This is not a valid token." }
     login = err401 { errHeaders = toHeaders $ BasicAuth (Realm optVerifyRealm)
