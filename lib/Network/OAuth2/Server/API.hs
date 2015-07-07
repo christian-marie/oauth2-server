@@ -326,6 +326,9 @@ type PostToken
     :> ReqBody '[FormUrlEncoded] TokenRequest
     :> Post '[HTML] Html
 
+type BaseEndpoint
+    = Get '[HTML] Html
+
 -- | OAuth2 Server HTTP endpoints.
 --
 -- Includes endpoints defined in RFC6749 describing OAuth2, plus application
@@ -338,6 +341,7 @@ type AnchorOAuth2API
     :<|> ListTokens
     :<|> DisplayToken
     :<|> PostToken
+    :<|> BaseEndpoint
 
 anchorOAuth2API :: Proxy AnchorOAuth2API
 anchorOAuth2API = Proxy
@@ -352,6 +356,7 @@ server ref serverOpts sink
     :<|> handleShib (serverListTokens ref (optUIPageSize serverOpts))
     :<|> handleShib (serverDisplayToken ref)
     :<|> handleShib (serverPostToken ref)
+    :<|> redirectToUI
 
 -- | Any shibboleth authed endpoint must have all relevant headers defined, and
 -- any other case is an internal error. handleShib consolidates checking these
@@ -363,6 +368,17 @@ handleShib
     -> a
 handleShib f (Just u) (Just s) = f u s
 handleShib _ _        _        = error "Expected Shibbloleth headers"
+
+-- | If the user hits / redirect them to the tokens UI
+redirectToUI
+    :: ( MonadIO m
+       , MonadBaseControl IO m
+       , MonadError ServantErr m
+       )
+    => m Html
+redirectToUI =
+    let link = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy ListTokens) page1
+    in throwError err302{errHeaders = [(hLocation, B.pack $ show link)]} --Redirect to tokens page
 
 -- | Implement the OAuth2 authorize endpoint.
 --
