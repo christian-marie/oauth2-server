@@ -149,61 +149,61 @@ tests base_uri = do
             resp <- runExceptT $ getAuthorizePage base_uri (Just user1) code_request
             resp `shouldSatisfy` isRight
             -- 2. Extract the code.
-            let Right page = resp
-            resp <- runExceptT $ getAuthorizeFields base_uri page
-            case resp of
+            let Right pg = resp
+            resp2 <- runExceptT $ getAuthorizeFields base_uri pg
+            case resp2 of
                 Left _ -> error "No fields"
                 Right (uri, fields) -> do
                     let fields' = nubBy ((==) `on` fst) fields
-                    resp <- runExceptT $ sendAuthorization uri Nothing fields'
-                    resp `shouldSatisfy` isLeft
+                    resp3 <- runExceptT $ sendAuthorization uri Nothing fields'
+                    resp3 `shouldSatisfy` isLeft
 
         it "the POST returns an error when the request ID is missing" $ do
             -- 1. Get the page.
             resp <- runExceptT $ getAuthorizePage base_uri (Just user1) code_request
             resp `shouldSatisfy` isRight
             -- 2. Extract the code.
-            let Right page = resp
-            resp <- runExceptT $ getAuthorizeFields base_uri page
-            case resp of
+            let Right pg = resp
+            resp2 <- runExceptT $ getAuthorizeFields base_uri pg
+            case resp2 of
                 Left _ -> error "No fields"
                 Right (uri, fields) -> do
-                    let f = filter (\(k,v) -> k /= "code") fields
-                    resp <- runExceptT $ sendAuthorization uri (Just user1) f
+                    let f = filter (\(k,_) -> k /= "code") fields
+                    resp3 <- runExceptT $ sendAuthorization uri (Just user1) f
                     -- TODO(thsutton): FromFormUrlEncoded Code results in this
                     -- terrible error.
-                    resp `shouldBe` (Left "400 Bad Request - invalid request body: Code is a required field.")
+                    resp3 `shouldBe` (Left "400 Bad Request - invalid request body: Code is a required field.")
 
         it "the POST returns an error when the Shibboleth authentication headers identify a mismatched user" $ do
             -- 1. Get the page.
             resp <- runExceptT $ getAuthorizePage base_uri (Just user1) code_request
             resp `shouldSatisfy` isRight
             -- 2. Extract the code.
-            let Right page = resp
-            resp <- runExceptT $ getAuthorizeFields base_uri page
-            case resp of
+            let Right pg = resp
+            resp2 <- runExceptT $ getAuthorizeFields base_uri pg
+            case resp2 of
                 Left _ -> error "No fields"
                 Right (uri, fields) -> do
-                    resp <- runExceptT $ sendAuthorization uri (Just user2) fields
-                    resp `shouldBe` (Left "401 Unauthorized - You are not authorized to approve this request.")
+                    resp3 <- runExceptT $ sendAuthorization uri (Just user2) fields
+                    resp3 `shouldBe` (Left "401 Unauthorized - You are not authorized to approve this request.")
 
         it "the redirect contains a code which can be used to request a token" $ do
             res <- runExceptT $ do
                 -- 1. Get the page.
-                page <- getAuthorizePage base_uri (Just user1) code_request
+                pg <- getAuthorizePage base_uri (Just user1) code_request
 
                 -- 2. Check that the page describes the requested token.
                 liftIO $ do
-                    page `shouldSatisfy` ("Name" `BC.isInfixOf`)
-                    page `shouldSatisfy` ("ID" `BC.isInfixOf`)
-                    page `shouldSatisfy` ("Description" `BC.isInfixOf`)
-                    page `shouldSatisfy` ("App 1" `BC.isInfixOf`)
-                    page `shouldSatisfy` ("Application One" `BC.isInfixOf`)
-                    page `shouldSatisfy` ("missiles:launch" `BC.isInfixOf`)
-                    page `shouldSatisfy` ("login" `BC.isInfixOf`)
+                    pg `shouldSatisfy` ("Name" `BC.isInfixOf`)
+                    pg `shouldSatisfy` ("ID" `BC.isInfixOf`)
+                    pg `shouldSatisfy` ("Description" `BC.isInfixOf`)
+                    pg `shouldSatisfy` ("App 1" `BC.isInfixOf`)
+                    pg `shouldSatisfy` ("Application One" `BC.isInfixOf`)
+                    pg `shouldSatisfy` ("missiles:launch" `BC.isInfixOf`)
+                    pg `shouldSatisfy` ("login" `BC.isInfixOf`)
 
                 -- 3. Extract details from the form.
-                (uri, fields) <- getAuthorizeFields base_uri page
+                (uri, fields) <- getAuthorizeFields base_uri pg
 
                 -- 4. Submit the approval form.
                 let fields' = nubBy ((==) `on` fst) fields
@@ -227,20 +227,20 @@ tests base_uri = do
         it "the redirect contains \"access_denied\" error if declined" $ do
             res <- runExceptT $ do
                 -- 1. Get the page.
-                page <- getAuthorizePage base_uri (Just user1) code_request
+                pg <- getAuthorizePage base_uri (Just user1) code_request
 
                 -- 2. Check that the page describes the requested token.
                 liftIO $ do
-                    page `shouldSatisfy` ("Name" `BC.isInfixOf`)
-                    page `shouldSatisfy` ("ID" `BC.isInfixOf`)
-                    page `shouldSatisfy` ("Description" `BC.isInfixOf`)
-                    page `shouldSatisfy` ("App 1" `BC.isInfixOf`)
-                    page `shouldSatisfy` ("Application One" `BC.isInfixOf`)
-                    page `shouldSatisfy` ("missiles:launch" `BC.isInfixOf`)
-                    page `shouldSatisfy` ("login" `BC.isInfixOf`)
+                    pg `shouldSatisfy` ("Name" `BC.isInfixOf`)
+                    pg `shouldSatisfy` ("ID" `BC.isInfixOf`)
+                    pg `shouldSatisfy` ("Description" `BC.isInfixOf`)
+                    pg `shouldSatisfy` ("App 1" `BC.isInfixOf`)
+                    pg `shouldSatisfy` ("Application One" `BC.isInfixOf`)
+                    pg `shouldSatisfy` ("missiles:launch" `BC.isInfixOf`)
+                    pg `shouldSatisfy` ("login" `BC.isInfixOf`)
 
                 -- 3. Extract details from the form.
-                (uri, fields) <- getAuthorizeFields base_uri page
+                (uri, fields) <- getAuthorizeFields base_uri pg
 
                 -- 4. Submit the approval form.
                 let fields' = nubBy ((==) `on` fst) $ deleteBy ((==) `on` fst) ("action","") fields
@@ -369,8 +369,8 @@ getAuthorizeFields
     :: URI
     -> ByteString
     -> ExceptT String IO (URI, [(ByteString, ByteString)])
-getAuthorizeFields base_uri page = do
-    let doc = parseHtml (BC.unpack page)
+getAuthorizeFields base_uri pg = do
+    let doc = parseHtml (BC.unpack pg)
     form_actions <- liftIO . runX $ doc >>> css "form" ! "action"
     dst_uri <- case form_actions of
         [tgt] ->
@@ -408,7 +408,7 @@ sendAuthorization uri user_m fields = do
                 Nothing -> throwError "No Location header in redirect"
                 Just x' -> return x'
             case UB.parseURI UB.strictURIParserOptions redirect of
-                Left e -> throwError $ "Invalid Location header in redirect: " <> show (redirect, e)
+                Left e' -> throwError $ "Invalid Location header in redirect: " <> show (redirect, e')
                 Right x -> return x
         Right _ -> throwError "No redirect"
 

@@ -9,16 +9,18 @@
 
 {-# LANGUAGE RecordWildCards #-}
 
--- | The main server module.
+-- |
+-- Description: Start an OAuth2 server.
 --
--- This includes the top level interface to run OAuth2 servers.
+-- This module includes the top level interface to run OAuth2 servers.
 --
 -- For now, we hard-code an implementation that uses PostgreSQL and our
 -- particular logic/handlers. The intention is for this to be modular.
 module Network.OAuth2.Server
 (
-    P.version,
     startServer,
+    -- | Version number of the OAuth2 Server.
+    P.version,
     module Network.OAuth2.Server.API,
     module Network.OAuth2.Server.Configuration,
     module Network.OAuth2.Server.Statistics,
@@ -45,7 +47,6 @@ import           Network.Wai.Middleware.Shibboleth
 
 import           Paths_oauth2_server                 as P
 
-
 logName :: String
 logName = "Network.OAuth2.Server"
 
@@ -69,8 +70,12 @@ startStatistics ServerOptions{..} ref counters = do
             debugM logName $ "Stopped EKG"
     return (output, stop)
 
--- | Start the main server, returns an action that can be used to stop the
--- server cleanly.
+-- | Start an OAuth2 server.
+--
+--   This action spawns threads which implement an OAuth2 server and an EKG
+--   statistics server (see "System.Remote.Monitoring" for details).
+--
+--   It returns an IO action which can be used to stop both servers cleanly.
 startServer
     :: ServerOptions      -- ^ Options
     -> IO (IO (Async ())) -- ^ Stop action
