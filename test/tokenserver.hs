@@ -2,7 +2,6 @@
 module Main where
 
 import           Test.Hspec
-import           Test.Hspec.QuickCheck
 import           Test.QuickCheck
 import           Test.QuickCheck.Monadic
 
