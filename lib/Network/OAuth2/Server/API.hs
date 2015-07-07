@@ -7,16 +7,17 @@
 -- the 3-clause BSD licence.
 --
 
-{-# LANGUAGE ConstraintKinds     #-}
-{-# LANGUAGE DataKinds           #-}
-{-# LANGUAGE FlexibleContexts    #-}
-{-# LANGUAGE FlexibleInstances   #-}
-{-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE RankNTypes          #-}
-{-# LANGUAGE RecordWildCards     #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeFamilies        #-}
-{-# LANGUAGE TypeOperators       #-}
+{-# LANGUAGE ConstraintKinds       #-}
+{-# LANGUAGE DataKinds             #-}
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE RankNTypes            #-}
+{-# LANGUAGE RecordWildCards       #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE TypeFamilies          #-}
+{-# LANGUAGE TypeOperators         #-}
 
 -- | OAuth2 API implementation.
 --
@@ -35,7 +36,8 @@ module Network.OAuth2.Server.API (
     TokenEndpoint,
 ) where
 
-import           Control.Concurrent.STM              (atomically, TChan, writeTChan)
+import           Control.Concurrent.STM              (TChan, atomically,
+                                                      writeTChan)
 import           Control.Lens
 import           Control.Monad
 import           Control.Monad.Error.Class           (MonadError (throwError))
@@ -60,9 +62,9 @@ import           Network.OAuth2.Server.Configuration as X
 import           Network.OAuth2.Server.Types         as X
 import           Servant.API                         ((:<|>) (..), (:>),
                                                       AddHeader (addHeader),
-                                                      Capture, FormUrlEncoded, Get,
-                                                      Header, Headers, JSON,
-                                                      OctetStream, Post,
+                                                      Capture, FormUrlEncoded,
+                                                      Get, Header, Headers,
+                                                      JSON, OctetStream, Post,
                                                       QueryParam, ReqBody,
                                                       ToFormUrlEncoded (..))
 import           Servant.HTML.Blaze

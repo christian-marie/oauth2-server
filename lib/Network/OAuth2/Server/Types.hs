@@ -104,7 +104,7 @@ import           Data.Aeson                           (FromJSON (..),
                                                        (.:), (.:?), (.=))
 import           Data.ByteString                      (ByteString)
 import qualified Data.ByteString                      as B (all)
-import           Data.Either                          (lefts,rights)
+import           Data.Either                          (lefts, rights)
 import           Data.Monoid                          ((<>))
 import qualified Data.Set                             as S
 import           Data.Text                            (Text)
