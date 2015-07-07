@@ -181,8 +181,8 @@ processTokenRequest ref t (Just client_auth) req = do
         RequestAuthorizationCode auth_code uri client -> do
             checkClientAuthCode client_id auth_code uri client
         -- http://tools.ietf.org/html/rfc6749#section-4.4.2
-        RequestClientCredentials request_scope ->
-            checkClientCredentials client_id request_scope
+        RequestClientCredentials _ ->
+            unsupportedGrantType "client_credentials is not supported"
         -- http://tools.ietf.org/html/rfc6749#section-6
         RequestRefreshToken tok request_scope ->
             checkRefreshToken client_id tok request_scope
@@ -233,14 +233,6 @@ processTokenRequest ref t (Just client_auth) req = do
                             sformat ("No scope found for code " % shown) request_code
                         invalidScope "No scope found"
                     Just code_scope -> return (Just $ requestCodeUserID rc, code_scope)
-
-    --
-    -- Client has been verified and there's nothing to verify for the
-    -- scope, so this will always succeed unless we get no scope at all.
-    --
-    checkClientCredentials :: ClientID -> Maybe Scope -> m (Maybe UserID, Scope)
-    checkClientCredentials _ Nothing = invalidRequest "No scope supplied."
-    checkClientCredentials client_id (Just request_scope) = return (Nothing, request_scope)
 
     --
     -- Verify scope and request token.
