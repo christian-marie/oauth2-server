@@ -38,7 +38,7 @@ install:
  - cabal --version
  - echo "$(ghc --version) [$(ghc --print-project-git-commit-id 2> /dev/null || echo '?')]"
  - travis_retry cabal update
- - cabal install --jobs --only-dependencies --enable-tests --enable-benchmarks
+ - travis_retry cabal install --jobs --only-dependencies --enable-tests --enable-benchmarks
  - psql $DBNAME < schema/postgresql.sql
  - psql $DBNAME < examples/postgresql-data.sql
  - cat examples/token-server.conf | sed -e "s/DBNAME/$DBNAME/" > $TESTCONF
