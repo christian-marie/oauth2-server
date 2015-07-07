@@ -378,6 +378,10 @@ type PostToken
     :> ReqBody '[FormUrlEncoded] TokenRequest
     :> Post '[HTML] Html
 
+type HealthCheck
+    = "healthcheck"
+    :> Get '[OctetStream] ()
+
 type BaseEndpoint
     = Get '[HTML] Html
 
@@ -393,6 +397,7 @@ type AnchorOAuth2API
     :<|> ListTokens
     :<|> DisplayToken
     :<|> PostToken
+    :<|> HealthCheck
     :<|> BaseEndpoint
 
 anchorOAuth2API :: Proxy AnchorOAuth2API
@@ -408,6 +413,7 @@ server ref serverOpts sink
     :<|> handleShib (serverListTokens ref (optUIPageSize serverOpts))
     :<|> handleShib (serverDisplayToken ref)
     :<|> handleShib (serverPostToken ref)
+    :<|> healthCheck ref
     :<|> redirectToUI
 
 -- | Any shibboleth authed endpoint must have all relevant headers defined, and
@@ -758,3 +764,9 @@ checkClientAuth ref auth = do
         if verifyPass' pass hash
             then (Just client_id)
             else Nothing
+
+-- | Excercises the database to check if everyting is alive.
+healthCheck :: (MonadIO m, TokenStore ref) => ref -> m ()
+healthCheck ref = do
+    StoreStats{..} <- liftIO $ storeGatherStats ref
+    return ()
