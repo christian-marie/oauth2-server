@@ -88,6 +88,7 @@ import           Crypto.Scrypt
 import           Data.Aeson                  (encode)
 import qualified Data.ByteString.Char8       as B
 import           Data.ByteString.Conversion  (ToByteString (..))
+import           Data.Foldable               (traverse_)
 import           Data.Maybe
 import           Data.Monoid
 import           Data.Proxy
@@ -253,10 +254,11 @@ processTokenRequest ref t (Just client_auth) req = do
         Nothing -> unauthorizedClient "Invalid client credentials"
         Just client_id -> return client_id
 
-    (user, modified_scope, cleanup) <- case req of
+    (user, modified_scope, maybe_token_id) <- case req of
         -- https://tools.ietf.org/html/rfc6749#section-4.1.3
         RequestAuthorizationCode auth_code uri client -> do
-            checkClientAuthCode client_id auth_code uri client
+            (user, modified_scope) <- checkClientAuthCode client_id auth_code uri client
+            return (user, modified_scope, Nothing)
         -- http://tools.ietf.org/html/rfc6749#section-4.4.2
         RequestClientCredentials _ ->
             unsupportedGrantType "client_credentials is not supported"
@@ -281,41 +283,42 @@ processTokenRequest ref t (Just client_auth) req = do
     -- Save the new tokens to the store.
     (rid, refresh_details) <- liftIO $ storeCreateToken ref refresh_grant Nothing
     (  _, access_details)  <- liftIO $ storeCreateToken ref access_grant (Just rid)
-    cleanup
+
+    -- Revoke the token iff we got one
+    liftIO $ traverse_ (storeRevokeToken ref) maybe_token_id
+
     return $ grantResponse t access_details (Just $ tokenDetailsToken refresh_details)
   where
     --
     -- Verify client, scope and request code.
     --
-    checkClientAuthCode :: ClientID -> Code -> Maybe RedirectURI -> Maybe ClientID -> m (Maybe UserID, Scope, m ())
+    checkClientAuthCode :: ClientID -> Code -> Maybe RedirectURI -> Maybe ClientID -> m (Maybe UserID, Scope)
     checkClientAuthCode _ _ _ Nothing = invalidRequest "No client ID supplied."
-    checkClientAuthCode client_id request_code uri (Just purported_client) = do
+    checkClientAuthCode client_id auth_code uri (Just purported_client) = do
         when (client_id /= purported_client) $ unauthorizedClient "Invalid client credentials"
-        codes <- liftIO $ storeReadCode ref request_code
-        case codes of
-            Nothing -> invalidGrant "Request code not found"
-            Just rc -> do
-                -- Fail if redirect_uri doesn't match what's in the database.
-                case uri of
-                    Just uri' | uri' /= (requestCodeRedirectURI rc) -> do
-                        debugLog "checkClientAuthCode" $
-                            sformat ("Redirect URI mismatch verifying access token request: requested"
-                                    % shown % " but got " % shown )
-                                    uri (requestCodeRedirectURI rc)
-                        invalidRequest "Invalid redirect URI"
-                    _ -> return ()
+        request_code <- liftM2 fromMaybe (invalidGrant "Request code not found")
+                                         (liftIO $ storeReadCode ref auth_code)
+        -- Fail if redirect_uri doesn't match what's in the database.
+        case uri of
+            Just uri' | uri' /= (requestCodeRedirectURI request_code) -> do
+                debugLog "checkClientAuthCode" $
+                    sformat ("Redirect URI mismatch verifying access token request: requested"
+                            % shown % " but got " % shown )
+                            uri (requestCodeRedirectURI request_code)
+                invalidRequest "Invalid redirect URI"
+            _ -> return ()
 
-                case requestCodeScope rc of
-                    Nothing -> do
-                        debugLog "checkClientAuthCode" $
-                            sformat ("No scope found for code " % shown) request_code
-                        invalidScope "No scope found"
-                    Just code_scope -> return (Just $ requestCodeUserID rc, code_scope, return ())
+        case requestCodeScope request_code of
+            Nothing -> do
+                debugLog "checkClientAuthCode" $
+                    sformat ("No scope found for code " % shown) request_code
+                invalidScope "No scope found"
+            Just code_scope -> return (Just $ requestCodeUserID request_code, code_scope)
 
     --
     -- Verify scope and request token.
     --
-    checkRefreshToken :: ClientID -> Token -> Maybe Scope -> m (Maybe UserID, Scope, m ())
+    checkRefreshToken :: ClientID -> Token -> Maybe Scope -> m (Maybe UserID, Scope, Maybe TokenID)
     checkRefreshToken client_id tok request_scope = do
         previous <- liftIO $ storeReadToken ref (Left tok)
         case previous of
@@ -325,14 +328,14 @@ processTokenRequest ref t (Just client_auth) req = do
                     -- Check scope compatible.
                     -- @TODO(thsutton): The concern with scopes should probably
                     -- be completely removed here.
-                    if compatibleScope scope' tokenDetailsScope
-                    then return (tokenDetailsUserID, scope', liftIO $ storeRevokeToken ref tid)
-                    else do
+                    unless (compatibleScope scope' tokenDetailsScope) $ do
                         debugLog "checkRefreshToken" $
                             sformat ("Refresh requested with incompatible scopes"
                                     % shown % " vs " % shown)
                                     request_scope tokenDetailsScope
                         invalidScope "Incompatible scope"
+                    return (tokenDetailsUserID, scope', Just tid)
+
             -- The old token is dead or client_id doesn't match.
             _ -> do
                 debugLog "checkRefreshToken" $
