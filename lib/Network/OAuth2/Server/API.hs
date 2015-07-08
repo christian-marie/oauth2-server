@@ -54,6 +54,7 @@ module Network.OAuth2.Server.API (
     -- $ These functions each handle a single endpoint in the OAuth2 Server
     -- HTTP API.
 
+    anchorOAuth2API,
     server,
     tokenEndpoint,
     redirectToUI,
@@ -64,17 +65,16 @@ module Network.OAuth2.Server.API (
     serverDisplayToken,
     serverListTokens,
     serverPostToken,
-    anchorOAuth2API,
+    healthCheck,
+
+    -- * Helpers
 
     checkClientAuth,
-    healthCheck,
-    page1,
-    pageSize1,
     processTokenRequest,
-
     throwOAuth2Error,
     handleShib,
-
+    page1,
+    pageSize1,
 ) where
 
 import           Control.Concurrent.STM      (TChan, atomically, writeTChan)
