@@ -34,7 +34,6 @@ import           Text.HandsomeSoup
 import           Text.XML.HXT.Core           (IOSArrow, XmlTree, runX)
 import qualified URI.ByteString              as UB
 
-import           Network.OAuth2.Server       hiding (refreshToken)
 import           Network.OAuth2.Server.Types hiding (refreshToken)
 import qualified Network.OAuth2.Server.Types as OAuth2
 
