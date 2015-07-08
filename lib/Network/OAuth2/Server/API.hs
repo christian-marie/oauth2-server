@@ -31,54 +31,89 @@
 -- The intention is to seperate all OAuth2 specific logic from our particular
 -- way of handling AAA.
 module Network.OAuth2.Server.API (
-    module X,
-    server,
-    anchorOAuth2API,
-    processTokenRequest,
-    tokenEndpoint,
+    NoStore,
+    NoCache,
+
+    -- * API types
+    --
+    -- $ These types describe the OAuth2 Server HTTP API.
+
+    AnchorOAuth2API,
     TokenEndpoint,
+    AuthorizeEndpoint,
+    AuthorizePost,
+    VerifyEndpoint,
+    ListTokens,
+    DisplayToken,
+    PostToken,
+    HealthCheck,
+    BaseEndpoint,
+
+    -- * API handlers
+    --
+    -- $ These functions each handle a single endpoint in the OAuth2 Server
+    -- HTTP API.
+
+    server,
+    tokenEndpoint,
+    redirectToUI,
+    authorizeEndpoint,
+    processAuthorizeGet,
+    authorizePost,
+    verifyEndpoint,
+    serverDisplayToken,
+    serverListTokens,
+    serverPostToken,
+    anchorOAuth2API,
+
+    checkClientAuth,
+    healthCheck,
+    page1,
+    pageSize1,
+    processTokenRequest,
+
+    throwOAuth2Error,
+    handleShib,
+
 ) where
 
-import           Control.Concurrent.STM              (TChan, atomically,
-                                                      writeTChan)
+import           Control.Concurrent.STM      (TChan, atomically, writeTChan)
 import           Control.Lens
 import           Control.Monad
-import           Control.Monad.Error.Class           (MonadError (throwError))
-import           Control.Monad.IO.Class              (MonadIO (liftIO))
+import           Control.Monad.Error.Class   (MonadError (throwError))
+import           Control.Monad.IO.Class      (MonadIO (liftIO))
 import           Control.Monad.Trans.Control
-import           Control.Monad.Trans.Except          (ExceptT, runExceptT)
+import           Control.Monad.Trans.Except  (ExceptT, runExceptT)
 import           Crypto.Scrypt
-import           Data.Aeson                          (encode)
-import qualified Data.ByteString.Char8               as B
-import           Data.ByteString.Conversion          (ToByteString (..))
+import           Data.Aeson                  (encode)
+import qualified Data.ByteString.Char8       as B
+import           Data.ByteString.Conversion  (ToByteString (..))
 import           Data.Maybe
 import           Data.Monoid
 import           Data.Proxy
-import           Data.Text                           (Text)
-import qualified Data.Text                           as T
-import qualified Data.Text.Encoding                  as T
-import           Data.Time.Clock                     (UTCTime, addUTCTime,
-                                                      getCurrentTime)
-import           Formatting                          (sformat, shown, (%))
-import           Network.HTTP.Types                  hiding (Header)
-import           Network.OAuth2.Server.Configuration as X
-import           Network.OAuth2.Server.Types         as X
-import           Servant.API                         ((:<|>) (..), (:>),
-                                                      AddHeader (addHeader),
-                                                      Capture, FormUrlEncoded,
-                                                      Get, Header, Headers,
-                                                      JSON, OctetStream, Post,
-                                                      QueryParam, ReqBody,
-                                                      ToFormUrlEncoded (..))
+import           Data.Text                   (Text)
+import qualified Data.Text                   as T
+import qualified Data.Text.Encoding          as T
+import           Data.Time.Clock             (UTCTime, addUTCTime,
+                                              getCurrentTime)
+import           Formatting                  (sformat, shown, (%))
+import           Network.HTTP.Types          hiding (Header)
+import           Network.OAuth2.Server.Types as X
+import           Servant.API                 ((:<|>) (..), (:>),
+                                              AddHeader (addHeader), Capture,
+                                              FormUrlEncoded, Get, Header,
+                                              Headers, JSON, OctetStream,
+                                              Post, QueryParam, ReqBody,
+                                              ToFormUrlEncoded (..))
 import           Servant.HTML.Blaze
-import           Servant.Server                      (ServantErr (errBody, errHeaders),
-                                                      Server, err302, err400,
-                                                      err401, err403, err404)
+import           Servant.Server              (ServantErr (errBody, errHeaders),
+                                              Server, err302, err400, err401,
+                                              err403, err404)
 import           Servant.Utils.Links
 import           System.Log.Logger
-import           Text.Blaze.Html5                    (Html)
+import           Text.Blaze.Html5            (Html)
 
-import           Network.OAuth2.Server.Store         hiding (logName)
+import           Network.OAuth2.Server.Store hiding (logName)
 import           Network.OAuth2.Server.UI
 
 -- * Logging

@@ -43,6 +43,7 @@ import           Network.OAuth2.Server.API
 import           Network.OAuth2.Server.Configuration
 import           Network.OAuth2.Server.Statistics
 import           Network.OAuth2.Server.Store         hiding (logName)
+import           Network.OAuth2.Server.Types
 import           Network.Wai.Middleware.Shibboleth
 
 import           Paths_oauth2_server                 as P
