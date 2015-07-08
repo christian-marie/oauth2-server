@@ -289,6 +289,9 @@ processTokenRequest ref t (Just client_auth) req = do
 
     return $ grantResponse t access_details (Just $ tokenDetailsToken refresh_details)
   where
+    fromMaybeM :: m a -> m (Maybe a) -> m a
+    fromMaybeM d x = x >>= maybe d return
+
     --
     -- Verify client, scope and request code.
     --
@@ -296,8 +299,8 @@ processTokenRequest ref t (Just client_auth) req = do
     checkClientAuthCode _ _ _ Nothing = invalidRequest "No client ID supplied."
     checkClientAuthCode client_id auth_code uri (Just purported_client) = do
         when (client_id /= purported_client) $ unauthorizedClient "Invalid client credentials"
-        request_code <- liftM2 fromMaybe (invalidGrant "Request code not found")
-                                         (liftIO $ storeReadCode ref auth_code)
+        request_code <- fromMaybeM (invalidGrant "Request code not found")
+                                   (liftIO $ storeReadCode ref auth_code)
         -- Fail if redirect_uri doesn't match what's in the database.
         case uri of
             Just uri' | uri' /= (requestCodeRedirectURI request_code) -> do
