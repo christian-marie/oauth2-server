@@ -195,10 +195,10 @@ tokenEndpoint ref sink auth (Right req) = do
                 RequestRefreshToken{}      -> RefreshGranted
             return . addHeader NoStore . addHeader NoCache $ response
 
--- | Check that the request is valid, if it is, provide an 'AccessResponse',
+-- | Check that the request is valid. If it is we provide an 'AccessResponse',
 -- otherwise we return an 'OAuth2Error'.
 --
--- Any IO exception that are thrown are probably catastrophic and unaccounted
+-- Any IO exceptions that are thrown are probably catastrophic and unaccounted
 -- for, and should not be caught.
 processTokenRequest
     :: forall m ref.
@@ -218,7 +218,7 @@ processTokenRequest ref t (Just client_auth) req = do
         Nothing -> unauthorizedClient "Invalid client credentials"
         Just client_id -> return client_id
 
-    (user, modified_scope) <- case req of
+    (user, modified_scope, cleanup) <- case req of
         -- https://tools.ietf.org/html/rfc6749#section-4.1.3
         RequestAuthorizationCode auth_code uri client -> do
             checkClientAuthCode client_id auth_code uri client
@@ -246,12 +246,13 @@ processTokenRequest ref t (Just client_auth) req = do
     -- Save the new tokens to the store.
     (rid, refresh_details) <- liftIO $ storeCreateToken ref refresh_grant Nothing
     (  _, access_details)  <- liftIO $ storeCreateToken ref access_grant (Just rid)
+    cleanup
     return $ grantResponse t access_details (Just $ tokenDetailsToken refresh_details)
   where
     --
     -- Verify client, scope and request code.
     --
-    checkClientAuthCode :: ClientID -> Code -> Maybe RedirectURI -> Maybe ClientID -> m (Maybe UserID, Scope)
+    checkClientAuthCode :: ClientID -> Code -> Maybe RedirectURI -> Maybe ClientID -> m (Maybe UserID, Scope, m ())
     checkClientAuthCode _ _ _ Nothing = invalidRequest "No client ID supplied."
     checkClientAuthCode client_id request_code uri (Just purported_client) = do
         when (client_id /= purported_client) $ unauthorizedClient "Invalid client credentials"
@@ -274,38 +275,29 @@ processTokenRequest ref t (Just client_auth) req = do
                         debugLog "checkClientAuthCode" $
                             sformat ("No scope found for code " % shown) request_code
                         invalidScope "No scope found"
-                    Just code_scope -> return (Just $ requestCodeUserID rc, code_scope)
+                    Just code_scope -> return (Just $ requestCodeUserID rc, code_scope, return ())
 
     --
     -- Verify scope and request token.
     --
-    checkRefreshToken :: ClientID -> Token -> Maybe Scope -> m (Maybe UserID, Scope)
+    checkRefreshToken :: ClientID -> Token -> Maybe Scope -> m (Maybe UserID, Scope, m ())
     checkRefreshToken client_id tok request_scope = do
         previous <- liftIO $ storeReadToken ref (Left tok)
         case previous of
             Just (tid, TokenDetails{..})
                 | (Just client_id == tokenDetailsClientID) -> do
-                      scope' <- case request_scope of
-                          Nothing -> return tokenDetailsScope
-                          Just scope'
-                              -- Check scope compatible.
-                              -- @TODO(thsutton): The concern with scopes should probably
-                              -- be completely removed here.
-                              | compatibleScope scope' tokenDetailsScope ->
-                                    return scope'
-                              | otherwise -> do
-                                    debugLog "checkRefreshToken" $
-                                        sformat ("Refresh requested with incompatible scopes"
-                                                 % shown % " vs " % shown)
-                                                 request_scope tokenDetailsScope
-
-                                    invalidScope "Incompatible scope"
-
-                      -- TODO(thsutton) Check the result here; better yet,
-                      -- refactor so we revoke *after* creating the new tokens.
-                      liftIO $ storeRevokeToken ref tid
-                      return (tokenDetailsUserID, scope')
-
+                    let scope' = fromMaybe tokenDetailsScope request_scope
+                    -- Check scope compatible.
+                    -- @TODO(thsutton): The concern with scopes should probably
+                    -- be completely removed here.
+                    if compatibleScope scope' tokenDetailsScope
+                    then return (tokenDetailsUserID, scope', liftIO $ storeRevokeToken ref tid)
+                    else do
+                        debugLog "checkRefreshToken" $
+                            sformat ("Refresh requested with incompatible scopes"
+                                    % shown % " vs " % shown)
+                                    request_scope tokenDetailsScope
+                        invalidScope "Incompatible scope"
             -- The old token is dead or client_id doesn't match.
             _ -> do
                 debugLog "checkRefreshToken" $
@@ -511,39 +503,34 @@ processAuthorizeGet ref user_id permissions response_type client_id' redirect sc
 
     -- Required: a supported ResponseType value.
     case response_type of
-        Nothing -> throwError $ ( Just redirect_uri
-                                , OAuth2Error InvalidRequest
-                                              (preview errorDescription "Response type is missing")
-                                              Nothing
-                                )
         Just ResponseTypeCode -> return ()
-        Just _ -> throwError ( Just redirect_uri
-                             , OAuth2Error InvalidRequest
-                                           (preview errorDescription "Invalid response type")
-                                           Nothing
-                             )
+        Just _  -> throwInvalidRequest redirect_uri "Invalid response type"
+        Nothing -> throwInvalidRequest redirect_uri "Response type is missing"
 
     -- Optional (but we currently require): requested scope.
     requested_scope <- case scope' of
-        Nothing ->
-            throwError $ ( Just redirect_uri
-                         , OAuth2Error InvalidRequest
-                                         (preview errorDescription "Scope is missing")
-                                         Nothing
-                         )
-        Just requested_scope ->
-            if requested_scope `compatibleScope` permissions
-                then return requested_scope
-                else throwError ( Just redirect_uri
-                                , OAuth2Error InvalidScope
-                                              (preview errorDescription "Invalid scope")
-                                              Nothing
-                                )
+        Nothing -> throwInvalidRequest redirect_uri "Scope is missing"
+        Just requested_scope
+            | requested_scope `compatibleScope` permissions -> return requested_scope
+            | otherwise -> throwInvalidScope redirect_uri
 
     -- Create a code for this request.
     request_code <- liftIO $ storeCreateCode ref user_id clientClientId redirect_uri requested_scope state
 
     return $ renderAuthorizePage request_code client_details
+  where
+    throwInvalidRequest redirect_uri errDesc =
+        throwError ( Just redirect_uri
+                   , OAuth2Error InvalidRequest
+                                 (preview errorDescription errDesc)
+                                 Nothing
+                   )
+    throwInvalidScope redirect_uri =
+        throwError ( Just redirect_uri
+                   , OAuth2Error InvalidScope
+                                 (preview errorDescription "Invalid scope")
+                                 Nothing
+                   )
 
 -- | Handle the approval or rejection, we get here from the page served in
 -- 'authorizeEndpoint'
@@ -569,7 +556,7 @@ authorizePost ref user_id _scope (AuthorizeDeclined code') = do
     res <- liftIO $ storeReadCode ref code'
     case res of
         Just RequestCode{..} | user_id == requestCodeUserID-> do
-            void .liftIO $ storeDeleteCode ref code'
+            void . liftIO $ storeDeleteCode ref code'
             let e = OAuth2Error AccessDenied Nothing Nothing
                 url = addQueryParameters requestCodeRedirectURI $
                     over (mapped . both) T.encodeUtf8 (toFormUrlEncoded e) <>
@@ -761,11 +748,9 @@ checkClientAuth ref auth = do
     verifyClientSecret client_id secret hash =
         let pass = Pass . T.encodeUtf8 $ review password secret in
         -- Verify with default scrypt params.
-        if verifyPass' pass hash
-            then (Just client_id)
-            else Nothing
+        if verifyPass' pass hash then Just client_id else Nothing
 
--- | Excercises the database to check if everyting is alive.
+-- | Exercises the database to check if everyting is alive.
 healthCheck :: (MonadIO m, TokenStore ref) => ref -> m ()
 healthCheck ref = do
     StoreStats{..} <- liftIO $ storeGatherStats ref
