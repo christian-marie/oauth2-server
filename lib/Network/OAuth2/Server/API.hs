@@ -512,12 +512,7 @@ processAuthorizeGet ref user_id permissions response_type client_id' redirect sc
         Nothing -> throwInvalidRequest redirect_uri "Scope is missing"
         Just requested_scope
             | requested_scope `compatibleScope` permissions -> return requested_scope
-            | otherwise -> throwError
-                ( Just redirect_uri
-                , OAuth2Error InvalidScope
-                              (preview errorDescription "Invalid scope")
-                              Nothing
-                )
+            | otherwise -> throwInvalidScope redirect_uri
 
     -- Create a code for this request.
     request_code <- liftIO $ storeCreateCode ref user_id clientClientId redirect_uri requested_scope state
@@ -528,6 +523,12 @@ processAuthorizeGet ref user_id permissions response_type client_id' redirect sc
         throwError ( Just redirect_uri
                    , OAuth2Error InvalidRequest
                                  (preview errorDescription errDesc)
+                                 Nothing
+                   )
+    throwInvalidScope redirect_uri =
+        throwError ( Just redirect_uri
+                   , OAuth2Error InvalidScope
+                                 (preview errorDescription "Invalid scope")
                                  Nothing
                    )
 
