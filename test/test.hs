@@ -36,6 +36,7 @@ import           Test.QuickCheck.Function
 import           Test.QuickCheck.Instances  ()
 
 import           Network.OAuth2.Server
+import           Network.OAuth2.Server.Types
 
 instance Show Password where
     show = show . review password
