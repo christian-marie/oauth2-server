@@ -103,7 +103,7 @@ import           Data.Aeson                           (FromJSON (..),
                                                        withObject, withText,
                                                        (.:), (.:?), (.=))
 import           Data.ByteString                      (ByteString)
-import qualified Data.ByteString                      as B (all)
+import qualified Data.ByteString                      as B (all, null)
 import           Data.Either                          (lefts, rights)
 import           Data.Monoid                          ((<>))
 import qualified Data.Set                             as S
@@ -209,12 +209,23 @@ instance FromText ResponseType where
     -- @TODO(thsutton): This should probably be Set Text.
     fromText txt     = Just (ResponseTypeExtension txt)
 
+-- | Authorization Code for Authorization Code Grants.
+--
+-- https://tools.ietf.org/html/rfc6749#section-4.1.2
 newtype Code = Code { unCode :: ByteString }
     deriving (Eq, Typeable)
 
+-- code = 1*VSCHAR
+--
+-- https://tools.ietf.org/html/rfc6749#appendix-A.11
 code :: Prism' ByteString Code
-code =
-    prism' unCode (\t -> guard (B.all vschar t) >> return (Code t))
+code = prism' c2b b2c
+  where
+    c2b = unCode
+    b2c b = do
+        guard . not $ B.null b
+        guard $ B.all vschar b
+        return (Code b)
 
 instance Show Code where
     show = show . review code
