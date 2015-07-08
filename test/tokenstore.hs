@@ -137,9 +137,6 @@ testStore ref = do
     prop "lookup clients" (propLookupClients ref)
     prop "create activate and read request codes" (propCreateReadActivateCodes ref)
 
-page1 :: Page
-page1 = (1 :: Int) ^?! page
-
 pageSizeMax :: PageSize
 pageSizeMax = (maxBound :: Int) ^?! pageSize
 

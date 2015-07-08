@@ -11,6 +11,15 @@
 {-# LANGUAGE RecordWildCards   #-}
 
 -- | Description: WAI middleware for Shibboleth-protected applications.
+--
+-- This module defines a simple "Network.Wai" 'Middleware' to protect the
+-- OAuth2 Server application. The middleware is configured with a HTTP header
+-- prefix and a list of IP address ranges. It strips all matching headers from
+-- requests unless the request comes from an IP address which matches one of
+-- the ranges.
+--
+-- We use this to ensure that the HTTP headers which include the user name and
+-- permissions are only provided by trusted Shibboleth SP servers.
 module Network.Wai.Middleware.Shibboleth where
 
 import qualified Data.ByteString      as BS
@@ -30,11 +39,12 @@ data ShibConfig = ShibConfig
     , prefix   :: HeaderName  -- ^ Shibboleth-managed header prefix.
     }
 
--- | A default configuration: trusts only connections from the local machine.
+-- | Default: headers begin with @Identity-@ and connections are trusted from
+--   the local host.
 defaultConfig :: ShibConfig
 defaultConfig =
     let upstream = ["127.0.0.1/32", "::1/128"]
-        prefix = "Shibboleth-"
+        prefix = "Identity-"
     in ShibConfig{..}
 
 -- | Strip Shibboleth headers from requests unless from a trusted upstream.
@@ -44,7 +54,7 @@ shibboleth ShibConfig{..} app req respond =
         then app req respond
         else app (filterHeaders prefix req) respond
 
--- | Inspect a request to determine whether it originated from a trusted
+-- | Inspect a 'Request' to determine whether it originated from a trusted
 --   upstream address.
 fromUpstream :: Request -> [IPRange] -> Bool
 fromUpstream req upstream = any (remoteHost req `isInRange`) upstream
@@ -59,7 +69,7 @@ filterHeaders pre req =
         rHeaders = filter check $ requestHeaders req
     in req { requestHeaders = rHeaders }
 
--- | Check whether the remote end of a socket is contained in a CIDR class.
+-- | Check whether the remote end of a socket is contained in an 'IPRange'.
 isInRange :: SockAddr -> IPRange -> Bool
 isInRange saddr cidr = case (saddr, cidr) of
     (SockAddrInet _ addr, IPv4Range range) ->
