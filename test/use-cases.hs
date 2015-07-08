@@ -24,7 +24,7 @@ main = do
         _ -> do
             putStrLn "First argument must be a server URI."
             putStrLn ""
-            putStrLn "This test relies on ./runit.sh and selenium being run"
+            putStrLn "This test relies on ./runit.sh, ./proxy.sh, and selenium being run"
             putStrLn "To set up a selenium standalone server, download it here:"
             putStrLn "http://docs.seleniumhq.org/download/"
             putStrLn "Then run: java -jar selenium-server-standalone*.jar"
