@@ -22,6 +22,7 @@ extra-source-files:  style.css
                      docs/statistics.md
                      examples/postgresql-data.sql
                      examples/token-server.conf
+                     test/initial-data.sql
 
 source-repository HEAD
   type: git
