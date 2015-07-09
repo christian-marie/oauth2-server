@@ -51,8 +51,7 @@ partialClientDetails client_details = do
     table $
         traverse_
             (uncurry mkRow)
-            [ ("ID", to clientClientId . re clientID . utf8)
-            , ("Name", to clientName)
+            [ ("Name", to clientName)
             , ("Description", to clientDescription)
             , ("App URL", to clientAppUrl . to serializeURI . to toByteString . utf8)
             ]
@@ -72,9 +71,8 @@ partialRequestCode request_code = do
      table $
         traverse_
             (uncurry mkRow)
-            [ ("Expires", to requestCodeExpires . to show . packed)
-            , ("Requested scope", to requestCodeScope . _Just . to scopeToBs . utf8)
-            , ("Redirect URI", to requestCodeRedirectURI . re redirectURI . utf8)
+            [ ("Permissions", to requestCodeScope . _Just . to scopeToBs . utf8)
+            , ("Expires", to requestCodeExpires . to show . packed)
             ]
   where
     mkRow hdr txt_lens =
