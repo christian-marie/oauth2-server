@@ -1,0 +1,4 @@
+ul.inline, ul.inline li { display: inline; }
+
+ul.inline li:before { content: ", "; }
+ul.inline li:first-child:before { content: none !important; }
