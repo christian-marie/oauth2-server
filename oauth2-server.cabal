@@ -91,6 +91,7 @@ Library
                      , vector
                      , wai
                      , warp
+                     , yesod-core
 
   ghc-options: -Wall -fwarn-tabs -funbox-strict-fields
 

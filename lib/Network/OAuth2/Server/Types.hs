@@ -69,7 +69,6 @@ module Network.OAuth2.Server.Types (
   TokenID(..),
   TokenDetails(..),
   TokenGrant(..),
-  TokenRequest(..),
   TokenType(..),
   tokenDetails,
   unicodecharnocrlf,
@@ -620,27 +619,3 @@ instance FromRow RequestCode where
                           <*> field
                           <*> field
                           <*> field
-
-data TokenRequest = DeleteRequest TokenID
-                  | CreateRequest Scope
-
--- | Decode something like: method=delete/create;scope=thing.
-instance FromFormUrlEncoded TokenRequest where
-    fromFormUrlEncoded o = case lookup "method" o of
-        Nothing -> Left "method field missing"
-        Just "delete" -> case lookup "token_id" o of
-            Nothing   -> Left "token_id field missing"
-            Just t_id -> case fromText t_id of
-                Nothing    -> Left "Invalid Token ID"
-                Just t_id' -> Right $ DeleteRequest t_id'
-        Just "create" -> do
-            let processScope x = case (T.encodeUtf8 x) ^? scopeToken of
-                    Nothing -> Left $ T.unpack x
-                    Just ts -> Right ts
-            let scopes = map (processScope . snd) $ filter (\x -> fst x == "scope") o
-            case lefts scopes of
-                [] -> case S.fromList (rights scopes) ^? scope of
-                    Nothing -> Left "empty scope is invalid"
-                    Just s  -> Right $ CreateRequest s
-                es -> Left $ "invalid scopes: " <> show es
-        Just x        -> Left . T.unpack $ "Invalid method field value, got: " <> x

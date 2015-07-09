@@ -10,16 +10,17 @@
 {-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE GADTs                 #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE QuasiQuotes           #-}
 {-# LANGUAGE RankNTypes            #-}
 {-# LANGUAGE RecordWildCards       #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE TypeFamilies          #-}
 {-# LANGUAGE TypeOperators         #-}
-
--- This should be removed when the 'HasLink (Headers ...)' instance is removed.
-{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE ViewPatterns          #-}
 
 -- | OAuth2 Web application.
 --
@@ -32,31 +33,14 @@
 module Network.OAuth2.Server.App (
     NoStore,
     NoCache,
-
-    -- * API types
-    --
-    -- $ These types describe the OAuth2 Server HTTP API.
-
-    AnchorOAuth2API,
-    TokenEndpoint,
-    AuthorizeEndpoint,
-    AuthorizePost,
-    VerifyEndpoint,
-    ListTokens,
-    DisplayToken,
-    PostToken,
-    HealthCheck,
-    BaseEndpoint,
+    OAuth2Server(..),
 
     -- * API handlers
     --
     -- $ These functions each handle a single endpoint in the OAuth2 Server
     -- HTTP API.
 
-    anchorOAuth2API,
-    serverAnchorOAuth2API,
     tokenEndpoint,
-    redirectToUI,
     authorizeEndpoint,
     processAuthorizeGet,
     authorizePost,
@@ -79,29 +63,31 @@ module Network.OAuth2.Server.App (
 import           Control.Concurrent.STM      (TChan)
 import           Control.Lens
 import           Control.Monad
-import           Control.Monad.Error.Class   (MonadError (throwError))
 import           Control.Monad.IO.Class      (MonadIO (liftIO))
-import           Control.Monad.Trans.Control
-import qualified Data.ByteString.Char8       as B
+import           Control.Monad.Reader.Class  (ask)
+import           Data.Either                 (lefts, rights)
 import           Data.Maybe
 import           Data.Monoid
 import           Data.Proxy
+import qualified Data.Set                    as S
+import           Data.String
 import           Data.Text                   (Text)
 import qualified Data.Text                   as T
+import qualified Data.Text.Encoding          as T
 import           Formatting                  (sformat, shown, (%))
-import           Network.HTTP.Types          hiding (Header)
+import           GHC.TypeLits
 import           Network.OAuth2.Server.Types as X
-import           Servant.API                 ((:<|>) (..), (:>), Capture,
-                                              FormUrlEncoded, Get, Header,
-                                              OctetStream, Post, QueryParam,
-                                              ReqBody)
-import           Servant.HTML.Blaze
-import           Servant.Server              (ServantErr (errBody, errHeaders),
-                                              Server, err302, err400, err403,
-                                              err404)
-import           Servant.Utils.Links
+import           Servant.API                 (fromText)
+import           Servant.Server              (serve)
 import           System.Log.Logger
 import           Text.Blaze.Html5            (Html)
+import           Yesod.Core                  (RenderRoute (..),
+                                              WaiSubsite (..), Yesod,
+                                              invalidArgs, lookupGetParam,
+                                              lookupHeader, lookupPostParam,
+                                              lookupPostParams, mkYesod,
+                                              notFound, parseRoutes,
+                                              permissionDenied, redirect)
 
 import           Network.OAuth2.Server.API
 import           Network.OAuth2.Server.Store hiding (logName)
@@ -121,73 +107,89 @@ wrapLogger :: MonadIO m => (String -> String -> IO a) -> String -> Text -> m a
 wrapLogger logger component msg = do
     liftIO $ logger (logName <> " " <> component <> ": ") (T.unpack msg)
 
--- | Facilitates human-readable token listing.
---
--- This endpoint allows an authorized client to view their tokens as well as
--- revoke them individually.
-type ListTokens
-    = "tokens"
-    :> Header OAuthUserHeader UserID
-    :> Header OAuthUserScopeHeader Scope
-    :> QueryParam "page" Page
-    :> Get '[HTML] Html
+data OAuth2Server where
+    OAuth2Server :: TokenStore ref => ref -> ServerOptions -> (TChan GrantEvent) -> OAuth2Server
 
-type DisplayToken
-    = "tokens"
-    :> Header OAuthUserHeader UserID
-    :> Header OAuthUserScopeHeader Scope
-    :> Capture "token_id" TokenID
-    :> Get '[HTML] Html
+instance Yesod OAuth2Server
 
-type PostToken
-    = "tokens"
-    :> Header OAuthUserHeader UserID
-    :> Header OAuthUserScopeHeader Scope
-    :> ReqBody '[FormUrlEncoded] TokenRequest
-    :> Post '[HTML] Html
+mkYesod "OAuth2Server" [parseRoutes|
+/oauth2          OAuth2R      WaiSubsite oAuth2SubAPI
+/                BaseR
+/tokens/#TokenID ShowTokenR   GET
+/tokens          TokensR      GET POST
+/healthcheck     HealthCheckR
+|]
 
-type HealthCheck
-    = "healthcheck"
-    :> Get '[OctetStream] ()
+oAuth2SubAPI :: OAuth2Server -> WaiSubsite
+oAuth2SubAPI (OAuth2Server ref serverOpts sink) =
+    WaiSubsite $ serve oAuth2API $ oAuth2APIserver ref serverOpts sink
 
-type BaseEndpoint
-    = Get '[HTML] Html
+handleBaseR :: Handler ()
+handleBaseR = redirect TokensR
 
--- | OAuth2 Server HTTP endpoints.
---
--- Includes endpoints defined in RFC6749 describing OAuth2, plus application
--- specific extensions.
-type AnchorOAuth2API
-       = "oauth2" :> OAuth2API
-    :<|> ListTokens
-    :<|> DisplayToken
-    :<|> PostToken
-    :<|> HealthCheck
-    :<|> BaseEndpoint
+getShowTokenR :: TokenID -> Handler Html
+getShowTokenR tid = do
+    (OAuth2Server ref _ _) <- ask
+    (uid, sc) <- checkShibHeaders
+    serverDisplayToken ref uid sc tid
 
-anchorOAuth2API :: Proxy AnchorOAuth2API
-anchorOAuth2API = Proxy
+getTokensR :: Handler Html
+getTokensR = do
+    (OAuth2Server ref serverOpts _) <- ask
+    (u, s) <- checkShibHeaders
+    maybe_p <- lookupGetParam "page"
+    let p = preview page . read . T.unpack =<< maybe_p
+    serverListTokens ref (optUIPageSize serverOpts) u s p
 
--- | Construct a server of the entire API from an initial state
-serverAnchorOAuth2API :: TokenStore ref => ref -> ServerOptions -> TChan GrantEvent -> Server AnchorOAuth2API
-serverAnchorOAuth2API ref serverOpts sink
-       = oAuth2APIserver ref serverOpts sink
-    :<|> handleShib (serverListTokens ref (optUIPageSize serverOpts))
-    :<|> handleShib (serverDisplayToken ref)
-    :<|> handleShib (serverPostToken ref)
-    :<|> healthCheck ref
-    :<|> redirectToUI
+data TokenRequest = DeleteRequest TokenID
+                  | CreateRequest Scope
 
--- | If the user hits / redirect them to the tokens UI
-redirectToUI
-    :: ( MonadIO m
-       , MonadBaseControl IO m
-       , MonadError ServantErr m
-       )
-    => m Html
-redirectToUI =
-    let link = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy ListTokens) page1
-    in throwError err302{errHeaders = [(hLocation, B.pack $ show link)]} --Redirect to tokens page
+postTokensR :: Handler Html
+postTokensR = do
+    (OAuth2Server ref _ _) <- ask
+    (user_id, sc) <- checkShibHeaders
+    req <- do
+        method <- lookupPostParam "method"
+        token_id <- lookupPostParam "token_id"
+        scopes <- lookupPostParams "scope"
+        case method of
+            Nothing -> invalidArgs ["method field missing"]
+            Just "delete" -> case token_id of
+                Nothing   -> invalidArgs ["token_id field missing"]
+                Just t_id -> case fromText t_id of
+                    Nothing    -> invalidArgs ["Invalid Token ID"]
+                    Just t_id' -> return $ DeleteRequest t_id'
+            Just "create" -> do
+                let processScope x = case (T.encodeUtf8 x) ^? scopeToken of
+                        Nothing -> Left $ T.unpack x
+                        Just ts -> Right ts
+                let scopes' = map processScope scopes
+                case lefts scopes' of
+                    [] -> case S.fromList (rights scopes') ^? scope of
+                        Nothing -> invalidArgs ["empty scope is invalid"]
+                        Just s  -> return $ CreateRequest s
+                    es -> invalidArgs $ [T.pack $ "invalid scopes: " <> show es]
+            Just x        -> invalidArgs ["Invalid method field value, got: " <> x]
+    serverPostToken ref user_id sc req
+
+handleHealthCheckR :: Handler ()
+handleHealthCheckR = do
+    (OAuth2Server ref _ _) <- ask
+    healthCheck ref
+
+checkShibHeaders :: Handler (UserID, Scope)
+checkShibHeaders = do
+    let uh = fromString $ symbolVal (Proxy :: Proxy OAuthUserHeader)
+        sh = fromString $ symbolVal (Proxy :: Proxy OAuthUserScopeHeader)
+    uh' <- lookupHeader uh
+    uid <- case preview userID =<< uh' of
+        Nothing -> error "Shibboleth User header missing"
+        Just uid -> return uid
+    sh' <- lookupHeader sh
+    sc <- case bsToScope =<< sh' of
+        Nothing -> error "Shibboleth User Scope header missing"
+        Just sc -> return sc
+    return (uid,sc)
 
 -- | Page 1 is totally a valid page, promise.
 page1 :: Page
@@ -199,40 +201,31 @@ pageSize1 = (1 :: Integer) ^?! pageSize
 
 -- | Display a given token, if the user is allowed to do so.
 serverDisplayToken
-    :: ( MonadIO m
-       , MonadBaseControl IO m
-       , MonadError ServantErr m
-       , TokenStore ref
-       )
+    :: TokenStore ref
     => ref
     -> UserID
     -> Scope
     -> TokenID
-    -> m Html
+    -> Handler Html
 serverDisplayToken ref uid s tid = do
     res <- liftIO $ storeReadToken ref (Right tid)
-    maybe nothingHere renderPage $ do
+    maybe notFound renderPage $ do
         (_, token_details) <- res
         guard (token_details `belongsToUser` uid)
         return token_details
   where
-    nothingHere = throwError err404{errBody = "There's nothing here! =("}
     renderPage token_details = return $
         renderTokensPage s pageSize1 page1 ([(tid, token_details)], 1)
 
 -- | List all tokens for a given user, paginated.
 serverListTokens
-    :: ( MonadIO m
-       , MonadBaseControl IO m
-       , MonadError ServantErr m
-       , TokenStore ref
-       )
+    :: TokenStore ref
     => ref
     -> PageSize
     -> UserID
     -> Scope
     -> Maybe Page
-    -> m Html
+    -> Handler Html
 serverListTokens ref size u s p = do
     let p' = fromMaybe page1 p
     res <- liftIO $ storeListTokens ref (Just u) size p'
@@ -240,28 +233,23 @@ serverListTokens ref size u s p = do
 
 -- | Handle a token create/delete request.
 serverPostToken
-    :: ( MonadIO m
-       , MonadBaseControl IO m
-       , MonadError ServantErr m
-       , TokenStore ref
-       )
+    :: TokenStore ref
     => ref
     -> UserID
     -> Scope
     -> TokenRequest
-    -> m Html
+    -> Handler Html
 -- | Revoke a given token
 serverPostToken ref user_id _ (DeleteRequest token_id) = do
     -- TODO(thsutton) Must check that the supplied user_id has permission to
     -- revoke the supplied token_id.
     maybe_tok <- liftIO $ storeReadToken ref (Right token_id)
     tok <- case maybe_tok of
-        Nothing -> invalidReq
+        Nothing -> invalidArgs []
         Just (_, tok) -> return tok
     if tok `belongsToUser` user_id then do
         liftIO $ storeRevokeToken ref token_id
-        let link = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy ListTokens) page1
-        throwError err302{errHeaders = [(hLocation, B.pack $ show link)]} --Redirect to tokens page
+        redirect TokensR
     else do
         errorLog "serverPostToken" $ case tokenDetailsUserID tok of
             Nothing ->
@@ -272,10 +260,7 @@ serverPostToken ref user_id _ (DeleteRequest token_id) = do
                 sformat ("user_id " % shown % " tried to revoke token_id " %
                           shown % ", which had user_id " % shown)
                         user_id token_id user_id'
-        invalidReq
-  where
-    -- We don't want to leak information, so just throw a generic error
-    invalidReq = throwError err400 { errBody = "Invalid request" }
+        invalidArgs []
 
 -- | Create a new token
 serverPostToken ref user_id user_scope (CreateRequest req_scope) =
@@ -285,10 +270,9 @@ serverPostToken ref user_id user_scope (CreateRequest req_scope) =
             grantUserID    = Just user_id
             grantClientID  = Nothing
             grantScope     = req_scope
-        (TokenID t, _) <- liftIO $ storeCreateToken ref TokenGrant{..} Nothing
-        let link = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy DisplayToken) (TokenID t)
-        throwError err302{errHeaders = [(hLocation, B.pack $ show link)]} --Redirect to tokens page
-    else throwError err403{errBody = "Invalid requested token scope"}
+        (t, _) <- liftIO $ storeCreateToken ref TokenGrant{..} Nothing
+        redirect (ShowTokenR t)
+    else permissionDenied "Invalid requested token scope"
 
 -- | Exercises the database to check if everyting is alive.
 healthCheck :: (MonadIO m, TokenStore ref) => ref -> m ()
