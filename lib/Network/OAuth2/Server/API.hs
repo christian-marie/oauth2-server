@@ -7,7 +7,6 @@
 -- the 3-clause BSD licence.
 --
 
-{-# LANGUAGE ConstraintKinds       #-}
 {-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
@@ -33,39 +32,31 @@
 module Network.OAuth2.Server.API (
     NoStore,
     NoCache,
+    OAuthUserHeader,
+    OAuthUserScopeHeader,
 
     -- * API types
     --
     -- $ These types describe the OAuth2 Server HTTP API.
 
-    AnchorOAuth2API,
+    OAuth2API,
     TokenEndpoint,
     AuthorizeEndpoint,
     AuthorizePost,
     VerifyEndpoint,
-    ListTokens,
-    DisplayToken,
-    PostToken,
-    HealthCheck,
-    BaseEndpoint,
 
     -- * API handlers
     --
     -- $ These functions each handle a single endpoint in the OAuth2 Server
     -- HTTP API.
 
-    anchorOAuth2API,
-    server,
+    oAuth2API,
+    oAuth2APIserver,
     tokenEndpoint,
-    redirectToUI,
     authorizeEndpoint,
     processAuthorizeGet,
     authorizePost,
     verifyEndpoint,
-    serverDisplayToken,
-    serverListTokens,
-    serverPostToken,
-    healthCheck,
 
     -- * Helpers
 
@@ -73,8 +64,6 @@ module Network.OAuth2.Server.API (
     processTokenRequest,
     throwOAuth2Error,
     handleShib,
-    page1,
-    pageSize1,
 ) where
 
 import           Control.Concurrent.STM      (TChan, atomically, writeTChan)
@@ -86,7 +75,6 @@ import           Control.Monad.Trans.Control
 import           Control.Monad.Trans.Except  (ExceptT, runExceptT)
 import           Crypto.Scrypt
 import           Data.Aeson                  (encode)
-import qualified Data.ByteString.Char8       as B
 import           Data.ByteString.Conversion  (ToByteString (..))
 import           Data.Foldable               (traverse_)
 import           Data.Maybe
@@ -101,7 +89,7 @@ import           Formatting                  (sformat, shown, (%))
 import           Network.HTTP.Types          hiding (Header)
 import           Network.OAuth2.Server.Types as X
 import           Servant.API                 ((:<|>) (..), (:>),
-                                              AddHeader (addHeader), Capture,
+                                              AddHeader (addHeader),
                                               FormUrlEncoded, Get, Header,
                                               Headers, JSON, OctetStream,
                                               Post, QueryParam, ReqBody,
@@ -109,7 +97,7 @@ import           Servant.API                 ((:<|>) (..), (:>),
 import           Servant.HTML.Blaze
 import           Servant.Server              (ServantErr (errBody, errHeaders),
                                               Server, err302, err400, err401,
-                                              err403, err404)
+                                              err404)
 import           Servant.Utils.Links
 import           System.Log.Logger
 import           Text.Blaze.Html5            (Html)
@@ -386,68 +374,26 @@ type VerifyEndpoint
     :> ReqBody '[OctetStream] Token
     :> Post '[JSON] (Headers CachingHeaders AccessResponse)
 
--- | Facilitates human-readable token listing.
---
--- This endpoint allows an authorized client to view their tokens as well as
--- revoke them individually.
-type ListTokens
-    = "tokens"
-    :> Header OAuthUserHeader UserID
-    :> Header OAuthUserScopeHeader Scope
-    :> QueryParam "page" Page
-    :> Get '[HTML] Html
-
-type DisplayToken
-    = "tokens"
-    :> Header OAuthUserHeader UserID
-    :> Header OAuthUserScopeHeader Scope
-    :> Capture "token_id" TokenID
-    :> Get '[HTML] Html
-
-type PostToken
-    = "tokens"
-    :> Header OAuthUserHeader UserID
-    :> Header OAuthUserScopeHeader Scope
-    :> ReqBody '[FormUrlEncoded] TokenRequest
-    :> Post '[HTML] Html
-
-type HealthCheck
-    = "healthcheck"
-    :> Get '[OctetStream] ()
-
-type BaseEndpoint
-    = Get '[HTML] Html
-
 -- | OAuth2 Server HTTP endpoints.
 --
 -- Includes endpoints defined in RFC6749 describing OAuth2, plus application
 -- specific extensions.
-type AnchorOAuth2API
-       = "oauth2" :> TokenEndpoint  -- From oauth2-server
-    :<|> "oauth2" :> VerifyEndpoint
-    :<|> "oauth2" :> AuthorizeEndpoint
-    :<|> "oauth2" :> AuthorizePost
-    :<|> ListTokens
-    :<|> DisplayToken
-    :<|> PostToken
-    :<|> HealthCheck
-    :<|> BaseEndpoint
+type OAuth2API
+       = TokenEndpoint
+    :<|> VerifyEndpoint
+    :<|> AuthorizeEndpoint
+    :<|> AuthorizePost
 
-anchorOAuth2API :: Proxy AnchorOAuth2API
-anchorOAuth2API = Proxy
+oAuth2API :: Proxy OAuth2API
+oAuth2API = Proxy
 
 -- | Construct a server of the entire API from an initial state
-server :: TokenStore ref => ref -> ServerOptions -> TChan GrantEvent -> Server AnchorOAuth2API
-server ref serverOpts sink
+oAuth2APIserver :: TokenStore ref => ref -> ServerOptions -> TChan GrantEvent -> Server OAuth2API
+oAuth2APIserver ref serverOpts sink
        = tokenEndpoint ref sink
     :<|> verifyEndpoint ref serverOpts
     :<|> handleShib (authorizeEndpoint ref)
     :<|> handleShib (authorizePost ref)
-    :<|> handleShib (serverListTokens ref (optUIPageSize serverOpts))
-    :<|> handleShib (serverDisplayToken ref)
-    :<|> handleShib (serverPostToken ref)
-    :<|> healthCheck ref
-    :<|> redirectToUI
 
 -- | Any shibboleth authed endpoint must have all relevant headers defined, and
 -- any other case is an internal error. handleShib consolidates checking these
@@ -459,17 +405,6 @@ handleShib
     -> a
 handleShib f (Just u) (Just s) = f u s
 handleShib _ _        _        = error "Expected Shibbloleth headers"
-
--- | If the user hits / redirect them to the tokens UI
-redirectToUI
-    :: ( MonadIO m
-       , MonadBaseControl IO m
-       , MonadError ServantErr m
-       )
-    => m Html
-redirectToUI =
-    let link = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy ListTokens) page1
-    in throwError err302{errHeaders = [(hLocation, B.pack $ show link)]} --Redirect to tokens page
 
 -- | Implement the OAuth2 authorize endpoint.
 --
@@ -663,107 +598,6 @@ verifyEndpoint ref ServerOptions{..} (Just auth) token' = do
                    , errBody = "Login to validate a token."
                    }
 
--- | Page 1 is totally a valid page, promise.
-page1 :: Page
-page1 = (1 :: Integer) ^?! page
-
--- | Page sizes of 1 are totally valid, promise.
-pageSize1 :: PageSize
-pageSize1 = (1 :: Integer) ^?! pageSize
-
--- | Display a given token, if the user is allowed to do so.
-serverDisplayToken
-    :: ( MonadIO m
-       , MonadBaseControl IO m
-       , MonadError ServantErr m
-       , TokenStore ref
-       )
-    => ref
-    -> UserID
-    -> Scope
-    -> TokenID
-    -> m Html
-serverDisplayToken ref uid s tid = do
-    res <- liftIO $ storeReadToken ref (Right tid)
-    maybe nothingHere renderPage $ do
-        (_, token_details) <- res
-        guard (token_details `belongsToUser` uid)
-        return token_details
-  where
-    nothingHere = throwError err404{errBody = "There's nothing here! =("}
-    renderPage token_details = return $
-        renderTokensPage s pageSize1 page1 ([(tid, token_details)], 1)
-
--- | List all tokens for a given user, paginated.
-serverListTokens
-    :: ( MonadIO m
-       , MonadBaseControl IO m
-       , MonadError ServantErr m
-       , TokenStore ref
-       )
-    => ref
-    -> PageSize
-    -> UserID
-    -> Scope
-    -> Maybe Page
-    -> m Html
-serverListTokens ref size u s p = do
-    let p' = fromMaybe page1 p
-    res <- liftIO $ storeListTokens ref (Just u) size p'
-    return $ renderTokensPage s size p' res
-
--- | Handle a token create/delete request.
-serverPostToken
-    :: ( MonadIO m
-       , MonadBaseControl IO m
-       , MonadError ServantErr m
-       , TokenStore ref
-       )
-    => ref
-    -> UserID
-    -> Scope
-    -> TokenRequest
-    -> m Html
--- | Revoke a given token
-serverPostToken ref user_id _ (DeleteRequest token_id) = do
-    -- TODO(thsutton) Must check that the supplied user_id has permission to
-    -- revoke the supplied token_id.
-    maybe_tok <- liftIO $ storeReadToken ref (Right token_id)
-    tok <- case maybe_tok of
-        Nothing -> invalidReq
-        Just (_, tok) -> return tok
-    if tok `belongsToUser` user_id then do
-        liftIO $ storeRevokeToken ref token_id
-        let link = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy ListTokens) page1
-        throwError err302{errHeaders = [(hLocation, B.pack $ show link)]} --Redirect to tokens page
-    else do
-        errorLog "serverPostToken" $ case tokenDetailsUserID tok of
-            Nothing ->
-                sformat ("user_id " % shown % " tried to revoke token_id " %
-                          shown % ", which did not have a user_id")
-                        user_id token_id
-            Just user_id' ->
-                sformat ("user_id " % shown % " tried to revoke token_id " %
-                          shown % ", which had user_id " % shown)
-                        user_id token_id user_id'
-        invalidReq
-  where
-    -- We don't want to leak information, so just throw a generic error
-    invalidReq = throwError err400 { errBody = "Invalid request" }
-
--- | Create a new token
-serverPostToken ref user_id user_scope (CreateRequest req_scope) =
-    if compatibleScope req_scope user_scope then do
-        let grantTokenType = Bearer
-            grantExpires   = Nothing
-            grantUserID    = Just user_id
-            grantClientID  = Nothing
-            grantScope     = req_scope
-        (TokenID t, _) <- liftIO $ storeCreateToken ref TokenGrant{..} Nothing
-        let link = safeLink (Proxy :: Proxy AnchorOAuth2API) (Proxy :: Proxy DisplayToken) (TokenID t)
-        throwError err302{errHeaders = [(hLocation, B.pack $ show link)]} --Redirect to tokens page
-    else throwError err403{errBody = "Invalid requested token scope"}
-
 -- | Given an AuthHeader sent by a client, verify that it authenticates.
 --   If it does, return the authenticated ClientID; otherwise, Nothing.
 checkClientAuth
@@ -790,9 +624,3 @@ checkClientAuth ref auth = do
         let pass = Pass . T.encodeUtf8 $ review password secret in
         -- Verify with default scrypt params.
         if verifyPass' pass hash then Just client_id else Nothing
-
--- | Exercises the database to check if everyting is alive.
-healthCheck :: (MonadIO m, TokenStore ref) => ref -> m ()
-healthCheck ref = do
-    StoreStats{..} <- liftIO $ storeGatherStats ref
-    return ()

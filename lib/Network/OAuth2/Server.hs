@@ -21,7 +21,7 @@ module Network.OAuth2.Server
     startServer,
     -- | Version number of the OAuth2 Server.
     P.version,
-    module Network.OAuth2.Server.API,
+    module Network.OAuth2.Server.App,
     module Network.OAuth2.Server.Configuration,
     module Network.OAuth2.Server.Statistics,
 ) where
@@ -39,7 +39,7 @@ import           Servant.Server
 import           System.Log.Logger
 import qualified System.Remote.Monitoring            as EKG
 
-import           Network.OAuth2.Server.API
+import           Network.OAuth2.Server.App
 import           Network.OAuth2.Server.Configuration
 import           Network.OAuth2.Server.Statistics
 import           Network.OAuth2.Server.Store         hiding (logName)
@@ -95,7 +95,7 @@ startServer serverOpts@ServerOptions{..} = do
     let settings = setPort optServicePort $ setHost optServiceHost $ defaultSettings
     apiSrv <- async $ do
         debugM logName $ "Starting API Server"
-        runSettingsSocket settings sock . shibboleth optShibboleth $ serve anchorOAuth2API (server ref serverOpts serverEventSink)
+        runSettingsSocket settings sock . shibboleth optShibboleth $ serve anchorOAuth2API (serverAnchorOAuth2API ref serverOpts serverEventSink)
     let serverServiceStop = do
             debugM logName $ "Closing API Socket"
             S.close sock
