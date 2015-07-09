@@ -29,6 +29,7 @@ import           Network.OAuth2.Server.Types
 import           Prelude                     hiding (head)
 import           Prelude                     hiding (head)
 import           Text.Blaze.Html5            hiding (code, div, map, p)
+import qualified Text.Blaze.Html5            as HTML
 import           Text.Blaze.Html5.Attributes hiding (form, scope, size, style,
                                               title)
 import qualified Text.Blaze.Html5.Attributes as Blaze
@@ -110,14 +111,15 @@ renderAuthorizePage req@RequestCode{..} client_details = docTypeHtml $ do
 renderTokensPage :: Scope -> PageSize -> Page -> ([(TokenID, TokenDetails)], Int) -> Html
 renderTokensPage userScope (review pageSize -> size) (review page -> p) (ts, numTokens) = docTypeHtml $ do
     head $ do
-        title "Such Token"
+        title "Your Tokens"
         style ! type_ "text/css" $ toHtml stylesheet
     body $
         if validPage then do
-            htmlCreateTokenForm userScope
+            h1 "Your Tokens"
             htmlTokens ts
             when prevPages htmlPrevPageButton
             when nextPages htmlNextPageButton
+            htmlCreateTokenForm userScope
         else
             htmlInvalidPage
   where
@@ -135,43 +137,45 @@ renderTokensPage userScope (review pageSize -> size) (review page -> p) (ts, num
 htmlCreateTokenForm :: Scope -> Html
 htmlCreateTokenForm s = do
     let scopeTokens = map (T.decodeUtf8 . review scopeToken) $ S.toList $ scope # s
-    form ! method "POST" ! action "/tokens" $ do
+    form ! method "POST" ! action "/tokens" ! class_ "create-token" $ do
+        h2 "Create a token"
         input ! type_ "hidden" ! name "method" ! value "create"
         forM_ scopeTokens $ \t -> do
-            input ! type_ "checkbox" ! name "scope" ! value (toValue t)
-            toHtml t
+            checkbox "scope" t t
+            br
         br
         input ! type_ "submit" ! value "Create Token"
+  where
+    checkbox the_name the_value the_label = do
+       HTML.label $ do
+           input ! type_ "checkbox" ! name the_name ! value (toValue the_value)
+           toHtml the_label
 
 htmlTokens :: [(TokenID, TokenDetails)] -> Html
 htmlTokens [] = h2 "You have no tokens!"
 htmlTokens ts = do
-    br
-    a "Tokens List" ! href "/tokens"
-    br
-    br
+    h1 "Tokens List"
     table ! class_ "zebra" $ do
         tokHeader
         mapM_ htmlToken ts
   where
     tokHeader = thead $ do
-        th "client id"
-        th "scope"
-        th "token"
+        th "Client"
+        th "Expires"
+        th "Permissions"
         th ""
 
 htmlToken :: (TokenID, TokenDetails) -> Html
 htmlToken (tid, TokenDetails{..}) = tr $ do
     td htmlCid
+    td htmlExpires
     td htmlScope
-    td htmlToken'
-    td htmlRevokeButton
+    td htmlDetailsLink
   where
-    htmlCid    = toHtml $ T.decodeUtf8 $ maybe "None" (review clientID) tokenDetailsClientID
+    htmlCid    = toHtml $ T.decodeUtf8 $ maybe "Any client" (review clientID) tokenDetailsClientID
     htmlScope  = toHtml $ T.decodeUtf8 $ scopeToBs tokenDetailsScope
-    htmlToken' = toHtml $ T.decodeUtf8 $ token # tokenDetailsToken
-    htmlRevokeButton =
-        form ! method "POST" ! action "/tokens" $ do
-            input ! type_ "hidden" ! name "method" ! value "delete"
-            input ! type_ "hidden" ! name "token_id" ! value (toValue tid)
-            input ! type_ "submit" ! value "Revoke Token"
+    htmlExpires = toHtml $ case tokenDetailsExpires of
+        Nothing -> "Never"
+        Just d  -> show d
+    htmlDetailsLink = a ! class_ "details" ! href ("/tokens/" <> tokenURL) $ "Details"
+    tokenURL   = toValue tid
