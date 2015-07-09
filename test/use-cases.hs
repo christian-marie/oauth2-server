@@ -12,8 +12,8 @@
 module Main where
 
 import           Network.URI
-import           System.Environment     (getArgs, withArgs)
-import           System.FilePath.Posix  (splitFileName)
+import           System.Environment    (getArgs, withArgs)
+import           System.FilePath.Posix (splitFileName)
 import           Test.Hspec.WebDriver
 
 main :: IO ()
