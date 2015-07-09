@@ -141,6 +141,9 @@ getTokensR = do
     let p = preview page . read . T.unpack =<< maybe_p
     serverListTokens ref (optUIPageSize serverOpts) u s p
 
+data TokenRequest = DeleteRequest TokenID
+                  | CreateRequest Scope
+
 postTokensR :: Handler Html
 postTokensR = do
     (OAuth2Server ref _ _) <- ask
@@ -198,7 +201,7 @@ pageSize1 = (1 :: Integer) ^?! pageSize
 
 -- | Display a given token, if the user is allowed to do so.
 serverDisplayToken
-    :: ( TokenStore ref )
+    :: TokenStore ref
     => ref
     -> UserID
     -> Scope
@@ -216,7 +219,7 @@ serverDisplayToken ref uid s tid = do
 
 -- | List all tokens for a given user, paginated.
 serverListTokens
-    :: ( TokenStore ref )
+    :: TokenStore ref
     => ref
     -> PageSize
     -> UserID
@@ -230,7 +233,7 @@ serverListTokens ref size u s p = do
 
 -- | Handle a token create/delete request.
 serverPostToken
-    :: ( TokenStore ref )
+    :: TokenStore ref
     => ref
     -> UserID
     -> Scope
