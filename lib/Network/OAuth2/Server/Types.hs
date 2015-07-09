@@ -87,15 +87,13 @@ module Network.OAuth2.Server.Types (
   invalidRequest,
 ) where
 
-import           Blaze.ByteString.Builder             (toByteString)
 import           Control.Applicative                  (Applicative ((<*>), pure),
                                                        (<$>))
 import           Control.Lens.Fold                    (preview, (^?))
-import           Control.Lens.Operators               ((%~), (&), (^.))
+import           Control.Lens.Operators               ((^.))
 import           Control.Lens.Prism                   (Prism', prism')
 import           Control.Lens.Review                  (re, review)
 import           Control.Monad                        (guard)
-import           Crypto.Scrypt
 import           Data.Aeson                           (FromJSON (..),
                                                        ToJSON (..),
                                                        Value (String), object,
@@ -103,39 +101,30 @@ import           Data.Aeson                           (FromJSON (..),
                                                        (.:), (.:?), (.=))
 import           Data.ByteString                      (ByteString)
 import qualified Data.ByteString                      as B (all, null)
-import           Data.Either                          (lefts, rights)
 import           Data.Monoid                          ((<>))
-import qualified Data.Set                             as S
 import           Data.Text                            (Text)
 import qualified Data.Text                            as T (toLower, unpack)
 import qualified Data.Text.Encoding                   as T (decodeUtf8,
                                                             encodeUtf8)
 import           Data.Time.Clock                      (UTCTime, diffUTCTime)
 import           Data.Typeable                        (Typeable)
-import qualified Data.Vector                          as V
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.FromField
 import           Database.PostgreSQL.Simple.FromRow
 import           Database.PostgreSQL.Simple.ToField
 import           Database.PostgreSQL.Simple.ToRow
-import           Network.Wai.Handler.Warp             hiding (Connection)
-import           Servant.API                          (FromFormUrlEncoded (..),
-                                                       FromText (..),
-                                                       ToFormUrlEncoded (..),
-                                                       ToText (..))
-import           URI.ByteString                       (URI, parseURI,
-                                                       queryPairsL,
-                                                       serializeURI,
-                                                       strictURIParserOptions,
-                                                       uriFragmentL,
-                                                       uriQueryL)
-
 import           Network.OAuth2.Server.Types.Auth
+import           Network.OAuth2.Server.Types.Client
 import           Network.OAuth2.Server.Types.Common
 import           Network.OAuth2.Server.Types.Error
 import           Network.OAuth2.Server.Types.Scope
 import           Network.OAuth2.Server.Types.Token
+import           Network.Wai.Handler.Warp             hiding (Connection)
 import           Network.Wai.Middleware.Shibboleth
+import           Servant.API                          (FromFormUrlEncoded (..),
+                                                       FromText (..),
+                                                       ToFormUrlEncoded (..),
+                                                       ToText (..))
 
 -- | Page number for paginated user interfaces.
 --
@@ -180,17 +169,6 @@ data GrantEvent
     | ClientCredentialsGranted -- ^ Issued token from client password request.
     | ExtensionGranted -- ^ Issued token from extension grant request.
     | RefreshGranted -- ^ Issued token from refresh grant request.
-
-data ClientDetails = ClientDetails
-    { clientClientId     :: ClientID
-    , clientSecret       :: EncryptedPass
-    , clientConfidential :: Bool
-    , clientRedirectURI  :: [RedirectURI]
-    , clientName         :: Text
-    , clientDescription  :: Text
-    , clientAppUrl       :: URI
-    }
-  deriving (Eq, Show)
 
 -- | Response type requested by client when using the authorize endpoint.
 --
@@ -240,31 +218,6 @@ instance FromJSON Code where
         case T.encodeUtf8 t ^? code of
             Nothing -> fail $ T.unpack t <> " is not a valid Code."
             Just s -> return s
-
-newtype ClientState = ClientState { unClientState :: ByteString }
-    deriving (Eq, Typeable)
-
-clientState :: Prism' ByteString ClientState
-clientState =
-    prism' unClientState (\t -> guard (B.all vschar t) >> return (ClientState t))
-
-instance Show ClientState where
-    show = show . review clientState
-
-instance Read ClientState where
-    readsPrec n s = [ (x,rest) | (t,rest) <- readsPrec n s, Just x <- [t ^? clientState]]
-
-instance ToJSON ClientState where
-    toJSON c = String . T.decodeUtf8 $ c ^.re clientState
-
-instance FromJSON ClientState where
-    parseJSON = withText "ClientState" $ \t ->
-        case T.encodeUtf8 t ^? clientState of
-            Nothing -> fail $ T.unpack t <> " is not a valid ClientState."
-            Just s -> return s
-
-instance FromText ClientState where
-    fromText t = T.encodeUtf8 t ^? clientState
 
 -- | Details of an authorization request.
 --
@@ -509,36 +462,6 @@ instance FromFormUrlEncoded AuthorizePostRequest where
                 Nothing -> Left "invalid code"
                 Just c -> Right $ cons c
 
--- | Redirect URIs as used in the OAuth2 RFC.
---
--- @TODO(thsutton): The RFC requires that they be absolute and also not include
--- fragments, we should probably enforce that.
-newtype RedirectURI = RedirectURI { unRedirectURI :: URI }
-  deriving (Eq, Show, Typeable)
-
-addQueryParameters :: RedirectURI -> [(ByteString, ByteString)] -> RedirectURI
-addQueryParameters (RedirectURI uri) params = RedirectURI $ uri & uriQueryL . queryPairsL %~ (<> params)
-
-redirectURI :: Prism' ByteString RedirectURI
-redirectURI = prism' fromRedirect toRedirect
-  where
-    fromRedirect :: RedirectURI -> ByteString
-    fromRedirect = toByteString . serializeURI . unRedirectURI
-
-    toRedirect :: ByteString -> Maybe RedirectURI
-    toRedirect bs = case parseURI strictURIParserOptions bs of
-        Left _ -> Nothing
-        Right uri -> case uri ^. uriFragmentL of
-            Just _ -> Nothing
-            Nothing -> Just $ RedirectURI uri
-
-instance FromText RedirectURI where
-    fromText = preview redirectURI . T.encodeUtf8
-
-instance ToText RedirectURI where
-    toText = T.decodeUtf8 . review redirectURI
-
-
 -- * Database Instances
 
 -- $ Here we implement support for, e.g., sorting oauth2-server types in
@@ -562,42 +485,6 @@ instance FromRow TokenDetails where
                            <*> field
                            <*> field
                            <*> field
-
-instance FromField RedirectURI where
-    fromField f bs = do
-        x <- fromField f bs
-        case x ^? redirectURI of
-            Nothing -> returnError ConversionFailed f $ "Prism failed to conver URI: " <> show x
-            Just uris -> return uris
-
-instance ToField RedirectURI where
-    toField = toField . review redirectURI
-
-fromFieldURI :: FieldParser URI
-fromFieldURI f bs = do
-    x <- fromField f bs
-    case parseURI strictURIParserOptions x of
-        Left e -> returnError ConversionFailed f (show e)
-        Right uri -> return uri
-
-instance FromRow ClientDetails where
-    fromRow = ClientDetails <$> field
-                            <*> (EncryptedPass <$> field)
-                            <*> field
-                            <*> (V.toList <$> field)
-                            <*> field
-                            <*> field
-                            <*> fieldWith fromFieldURI
-
-instance FromField ClientState where
-    fromField f bs = do
-        s <- fromField f bs
-        case preview clientState s of
-            Nothing -> returnError ConversionFailed f "Unable to parse ClientState"
-            Just state -> return state
-
-instance ToField ClientState where
-    toField x = toField $ x ^.re clientState
 
 instance FromField Code where
     fromField f bs = do
