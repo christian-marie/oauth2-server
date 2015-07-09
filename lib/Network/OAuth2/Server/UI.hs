@@ -91,6 +91,7 @@ renderAuthorizePage req@RequestCode{..} client_details = docTypeHtml $ do
         title "Token authorization"
         style ! type_ "text/css" $ toHtml stylesheet
     body $ do
+        h1 "Token requested"
         h2 "This client:"
         partialClientDetails client_details
 
