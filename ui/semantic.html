@@ -1,0 +1,68 @@
+<html lang="en"><head>
+    <meta charset="utf-8">
+    <title>Anchor Web Login</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+
+    <link rel="stylesheet" href="semantic.css">
+    <link rel="stylesheet" href="stylesheet.css">
+</head>
+<body>
+<div id="app"><div class="ui page grid">
+
+<!-- PAGE HEADER -->
+<header class="sixteen wide column">
+    <div class="centered ten wide column">
+        <img class="ui image centered" src="anchor.png" alt="Anchor">
+        <h1 class="ui centered header">Anchor Token Server</h1>
+
+        <p>You are logged in as <a href="#">Thomas Sutton</a>. <a href="#">Logout</a></p>
+    </div>
+</header>
+
+
+<!-- PAGE BODY -->
+<section class="sixteen wide column"><div class="ui stackable grid"><div class="centered wide column">
+
+    <!-- FORMS -->
+    <form class="ui form raised blue segment top attached" action="" method="post">
+        <h2 class="ui centered header">Create a token</h2>
+
+        <div class="field ui grid">
+            <label class="ui header" for="scope">Granted permissions</label>
+
+            <div class="four wide column"><div class="ui checkbox">
+                <input id="missiles:launch" name="scope" value="missiles:launch" type="checkbox">
+                <label for="missiles:launch">missiles:launch</label>
+            </div></div>
+            <div class="four wide column"><div class="ui checkbox">
+                <input id="missiles:launch" name="scope" value="missiles:launch" type="checkbox">
+                <label for="missiles:launch">missiles:launch</label>
+            </div></div>
+            <div class="four wide column"><div class="ui checkbox">
+                <input id="missiles:launch" name="scope" value="missiles:launch" type="checkbox">
+                <label for="missiles:launch">missiles:launch</label>
+            </div></div>
+            <div class="four wide column"><div class="ui checkbox">
+                <input id="missiles:launch" name="scope" value="missiles:launch" type="checkbox">
+                <label for="missiles:launch">missiles:launch</label>
+            </div></div>
+
+        </div>
+
+
+        <button class="ui right floated blue button" type="submit" name="_eventId_proceed">Log in</button>
+    </form>
+
+    <!-- ERROR MESSAGES -->
+    
+
+</div></div></section>
+
+<!-- PAGE FOOTER -->
+<footer class="sixteen wide column"><div class="ui stackable grid"><div class="ten wide column centered">
+<p class="footer-text">© <a href="http://www.anchor.com.au/">Anchor Cloud Hosting</a>.</p>
+</div></div></footer>
+
+</div></div>
+
+</body></html>
