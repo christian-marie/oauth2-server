@@ -208,6 +208,7 @@ serverDisplayToken
     -> TokenID
     -> Handler Html
 serverDisplayToken ref uid s tid = do
+    debugLog logName $ "Got a request to display a token from " <> T.pack (show uid)
     res <- liftIO $ storeReadToken ref (Right tid)
     maybe notFound renderPage $ do
         (_, token_details) <- res
@@ -227,6 +228,7 @@ serverListTokens
     -> Maybe Page
     -> Handler Html
 serverListTokens ref size u s p = do
+    debugLog logName $ "Got a request to list tokens from " <> T.pack (show u)
     let p' = fromMaybe page1 p
     res <- liftIO $ storeListTokens ref (Just u) size p'
     return $ renderTokensPage s size p' res
@@ -241,6 +243,7 @@ serverPostToken
     -> Handler Html
 -- | Revoke a given token
 serverPostToken ref user_id _ (DeleteRequest token_id) = do
+    debugLog logName $ "Got a request to revoke a token from " <> T.pack (show user_id)
     -- TODO(thsutton) Must check that the supplied user_id has permission to
     -- revoke the supplied token_id.
     maybe_tok <- liftIO $ storeReadToken ref (Right token_id)
@@ -263,7 +266,8 @@ serverPostToken ref user_id _ (DeleteRequest token_id) = do
         invalidArgs []
 
 -- | Create a new token
-serverPostToken ref user_id user_scope (CreateRequest req_scope) =
+serverPostToken ref user_id user_scope (CreateRequest req_scope) = do
+    debugLog logName $ "Got request to create a token from " <> T.pack (show user_id) <> " for scope " <> T.pack (show user_scope)
     if compatibleScope req_scope user_scope then do
         let grantTokenType = Bearer
             grantExpires   = Nothing
@@ -277,5 +281,6 @@ serverPostToken ref user_id user_scope (CreateRequest req_scope) =
 -- | Exercises the database to check if everyting is alive.
 healthCheck :: (MonadIO m, TokenStore ref) => ref -> m ()
 healthCheck ref = do
+    debugLog logName $ "Got a healthcheck request."
     StoreStats{..} <- liftIO $ storeGatherStats ref
     return ()
