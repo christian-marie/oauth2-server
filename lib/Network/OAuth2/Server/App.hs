@@ -183,11 +183,11 @@ checkShibHeaders = do
         sh = fromString $ symbolVal (Proxy :: Proxy OAuthUserScopeHeader)
     uh' <- lookupHeader uh
     uid <- case preview userID =<< uh' of
-        Nothing -> error "Shibboleth User header missing"
+        Nothing -> error "Shibboleth User header missing or invalid."
         Just uid -> return uid
     sh' <- lookupHeader sh
     sc <- case bsToScope =<< sh' of
-        Nothing -> error "Shibboleth User Scope header missing"
+        Nothing -> error "Shibboleth User Scope header missing or invalid."
         Just sc -> return sc
     return (uid,sc)
 
