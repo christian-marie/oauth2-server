@@ -40,11 +40,7 @@ module Network.OAuth2.Server.App (
     -- $ These functions each handle a single endpoint in the OAuth2 Server
     -- HTTP API.
 
-    tokenEndpoint,
-    authorizeEndpoint,
     processAuthorizeGet,
-    authorizePost,
-    verifyEndpoint,
     serverDisplayToken,
     serverListTokens,
     serverPostToken,
@@ -54,8 +50,6 @@ module Network.OAuth2.Server.App (
 
     checkClientAuth,
     processTokenRequest,
-    throwOAuth2Error,
-    handleShib,
     page1,
     pageSize1,
 ) where
@@ -67,21 +61,17 @@ import           Control.Monad.Reader.Class       (ask)
 import           Data.Either                      (lefts, rights)
 import           Data.Maybe
 import           Data.Monoid
-import           Data.Proxy
 import qualified Data.Set                         as S
-import           Data.String
 import           Data.Text                        (Text)
 import qualified Data.Text                        as T
 import qualified Data.Text.Encoding               as T
 import           Formatting                       (sformat, shown, (%))
-import           GHC.TypeLits
 import           Network.OAuth2.Server.Types      as X
 import           Servant.API                      (fromText)
 import           System.Log.Logger
 import           Text.Blaze.Html5                 (Html)
 import           Yesod.Core                       (invalidArgs,
                                                    lookupGetParam,
-                                                   lookupHeader,
                                                    lookupPostParam,
                                                    lookupPostParams,
                                                    mkYesodDispatch, notFound,
@@ -161,20 +151,6 @@ handleHealthCheckR :: Handler ()
 handleHealthCheckR = do
     (OAuth2Server ref _ _) <- ask
     healthCheck ref
-
-checkShibHeaders :: Handler (UserID, Scope)
-checkShibHeaders = do
-    let uh = fromString $ symbolVal (Proxy :: Proxy OAuthUserHeader)
-        sh = fromString $ symbolVal (Proxy :: Proxy OAuthUserScopeHeader)
-    uh' <- lookupHeader uh
-    uid <- case preview userID =<< uh' of
-        Nothing -> error "Shibboleth User header missing"
-        Just uid -> return uid
-    sh' <- lookupHeader sh
-    sc <- case bsToScope =<< sh' of
-        Nothing -> error "Shibboleth User Scope header missing"
-        Just sc -> return sc
-    return (uid,sc)
 
 -- | Page 1 is totally a valid page, promise.
 page1 :: Page

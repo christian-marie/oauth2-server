@@ -58,6 +58,7 @@ Library
                      , bytestring
                      , bytestring-conversion
                      , case-insensitive
+                     , conduit
                      , configurator
                      , containers
                      , errors

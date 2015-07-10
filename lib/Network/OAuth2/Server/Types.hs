@@ -21,6 +21,7 @@
 -- | Description: Data types for OAuth2 server.
 module Network.OAuth2.Server.Types (
   AccessRequest(..),
+  decodeAccessRequest,
   AccessResponse(..),
   addQueryParameters,
   OAuth2Error(..),
@@ -313,8 +314,8 @@ data AccessRequest
 -- If the request can't be decoded (because it uses a grant type we don't
 -- support, or is otherwise invalid) then return an 'OAuth2Error' describing
 -- the problem instead.
-instance FromFormUrlEncoded (Either OAuth2Error AccessRequest) where
-    fromFormUrlEncoded xs = return $ do
+decodeAccessRequest :: [(Text, Text)] -> Either OAuth2Error AccessRequest
+decodeAccessRequest xs = do
         grant_type <- lookupEither "grant_type" xs
         case grant_type of
             "authorization_code" -> do
@@ -374,11 +375,6 @@ lookupEither v vs = case lookup v vs of
                                   (preview errorDescription $ "missing required key " <> T.encodeUtf8 v)
                                   Nothing
     Just x -> Right x
-
-
-instance FromFormUrlEncoded AccessRequest where
-    fromFormUrlEncoded xs = either Left (either (Left . show) Right) $
-        (fromFormUrlEncoded xs :: Either String (Either OAuth2Error AccessRequest))
 
 instance ToFormUrlEncoded AccessRequest where
     toFormUrlEncoded RequestAuthorizationCode{..} =
