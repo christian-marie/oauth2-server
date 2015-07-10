@@ -7,13 +7,21 @@
 -- the 3-clause BSD licence.
 --
 
--- | OAuth2 token storage class and data definitions
-module Network.OAuth2.Server.Store.Base where
+-- | Description: OAuth2 token storage class and data definitions
+--
+-- OAuth2 token storage class and data definitions
+module Network.OAuth2.Server.Store.Base (
+  TokenStore(..),
+  StoreStats(..),
+  defaultStoreStats,
+  logName,
+) where
 
 import           Data.Int                    (Int64)
 
 import           Network.OAuth2.Server.Types
 
+-- | Standard logging name for store-related actions
 logName :: String
 logName = "Network.OAuth2.Server.Store"
 

@@ -19,6 +19,8 @@
 {-# LANGUAGE ViewPatterns               #-}
 
 -- | Description: Data types for OAuth2 server.
+--
+-- Data types for OAuth2 server.
 module Network.OAuth2.Server.Types (
   AccessRequest(..),
   decodeAccessRequest,
@@ -67,7 +69,7 @@ module Network.OAuth2.Server.Types (
   ToHTTPHeaders(..),
   Token,
   token,
-  TokenID(..),
+  TokenID,
   TokenDetails(..),
   TokenGrant(..),
   TokenType(..),
@@ -88,15 +90,13 @@ module Network.OAuth2.Server.Types (
   invalidRequest,
 ) where
 
-import           Blaze.ByteString.Builder             (toByteString)
 import           Control.Applicative                  (Applicative ((<*>), pure),
                                                        (<$>))
 import           Control.Lens.Fold                    (preview, (^?))
-import           Control.Lens.Operators               ((%~), (&), (^.))
+import           Control.Lens.Operators               ((^.))
 import           Control.Lens.Prism                   (Prism', prism')
 import           Control.Lens.Review                  (re, review)
 import           Control.Monad                        (guard)
-import           Crypto.Scrypt
 import           Data.Aeson                           (FromJSON (..),
                                                        ToJSON (..),
                                                        Value (String), object,
@@ -104,16 +104,13 @@ import           Data.Aeson                           (FromJSON (..),
                                                        (.:), (.:?), (.=))
 import           Data.ByteString                      (ByteString)
 import qualified Data.ByteString                      as B (all, null)
-import           Data.Either                          (lefts, rights)
 import           Data.Monoid                          ((<>))
-import qualified Data.Set                             as S
 import           Data.Text                            (Text)
 import qualified Data.Text                            as T (toLower, unpack)
 import qualified Data.Text.Encoding                   as T (decodeUtf8,
                                                             encodeUtf8)
 import           Data.Time.Clock                      (UTCTime, diffUTCTime)
 import           Data.Typeable                        (Typeable)
-import qualified Data.Vector                          as V
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.FromField
 import           Database.PostgreSQL.Simple.FromRow
@@ -124,14 +121,9 @@ import           Servant.API                          (FromFormUrlEncoded (..),
                                                        FromText (..),
                                                        ToFormUrlEncoded (..),
                                                        ToText (..))
-import           URI.ByteString                       (URI, parseURI,
-                                                       queryPairsL,
-                                                       serializeURI,
-                                                       strictURIParserOptions,
-                                                       uriFragmentL,
-                                                       uriQueryL)
 
 import           Network.OAuth2.Server.Types.Auth
+import           Network.OAuth2.Server.Types.Client
 import           Network.OAuth2.Server.Types.Common
 import           Network.OAuth2.Server.Types.Error
 import           Network.OAuth2.Server.Types.Scope
@@ -144,14 +136,14 @@ import           Network.Wai.Middleware.Shibboleth
 newtype Page = Page { unpackPage :: Integer }
   deriving (Eq, Ord, Show, FromText, ToText)
 
--- | Prism for constructing a page, must be > 0
+-- | Prism for constructing a page, must be > 0.
 page :: Integral n => Prism' n Page
 page = prism' (fromIntegral . unpackPage)
               (\(toInteger -> i) -> guard (i > 0) >> return (Page i))
 
 -- | Page size for paginated user interfaces.
 --
--- Page sizes must be positive integers
+-- Page sizes must be positive integers.
 newtype PageSize = PageSize { unpackPageSize :: Integer }
   deriving (Eq, Ord, Show, FromText, ToText)
 
@@ -175,23 +167,12 @@ data ServerOptions = ServerOptions
 -- | Describes events which should be tracked by the monitoring statistics
 -- system.
 data GrantEvent
-    = CodeGranted  -- ^ Issued token from code request
-    | ImplicitGranted -- ^ Issued token from implicit request.
-    | OwnerCredentialsGranted -- ^ Issued token from owner password request.
+    = CodeGranted              -- ^ Issued token from code request
+    | ImplicitGranted          -- ^ Issued token from implicit request.
+    | OwnerCredentialsGranted  -- ^ Issued token from owner password request.
     | ClientCredentialsGranted -- ^ Issued token from client password request.
-    | ExtensionGranted -- ^ Issued token from extension grant request.
-    | RefreshGranted -- ^ Issued token from refresh grant request.
-
-data ClientDetails = ClientDetails
-    { clientClientId     :: ClientID
-    , clientSecret       :: EncryptedPass
-    , clientConfidential :: Bool
-    , clientRedirectURI  :: [RedirectURI]
-    , clientName         :: Text
-    , clientDescription  :: Text
-    , clientAppUrl       :: URI
-    }
-  deriving (Eq, Show)
+    | ExtensionGranted         -- ^ Issued token from extension grant request.
+    | RefreshGranted           -- ^ Issued token from refresh grant request.
 
 -- | Response type requested by client when using the authorize endpoint.
 --
@@ -241,31 +222,6 @@ instance FromJSON Code where
         case T.encodeUtf8 t ^? code of
             Nothing -> fail $ T.unpack t <> " is not a valid Code."
             Just s -> return s
-
-newtype ClientState = ClientState { unClientState :: ByteString }
-    deriving (Eq, Typeable)
-
-clientState :: Prism' ByteString ClientState
-clientState =
-    prism' unClientState (\t -> guard (B.all vschar t) >> return (ClientState t))
-
-instance Show ClientState where
-    show = show . review clientState
-
-instance Read ClientState where
-    readsPrec n s = [ (x,rest) | (t,rest) <- readsPrec n s, Just x <- [t ^? clientState]]
-
-instance ToJSON ClientState where
-    toJSON c = String . T.decodeUtf8 $ c ^.re clientState
-
-instance FromJSON ClientState where
-    parseJSON = withText "ClientState" $ \t ->
-        case T.encodeUtf8 t ^? clientState of
-            Nothing -> fail $ T.unpack t <> " is not a valid ClientState."
-            Just s -> return s
-
-instance FromText ClientState where
-    fromText t = T.encodeUtf8 t ^? clientState
 
 -- | Details of an authorization request.
 --
@@ -368,13 +324,14 @@ decodeAccessRequest xs = do
             x -> Left $ OAuth2Error InvalidRequest
                                     (preview errorDescription $ "unsupported grant_type " <> T.encodeUtf8 x)
                                     Nothing
-
-lookupEither :: Text -> [(Text,b)] -> Either OAuth2Error b
-lookupEither v vs = case lookup v vs of
-    Nothing -> Left $ OAuth2Error InvalidRequest
-                                  (preview errorDescription $ "missing required key " <> T.encodeUtf8 v)
-                                  Nothing
-    Just x -> Right x
+      where
+        lookupEither :: Text -> [(Text,b)] -> Either OAuth2Error b
+        lookupEither v vs = case lookup v vs of
+            Just x  -> Right x
+            Nothing ->
+                Left $ OAuth2Error InvalidRequest
+                                   (preview errorDescription $ "missing required key " <> T.encodeUtf8 v)
+                                   Nothing
 
 instance ToFormUrlEncoded AccessRequest where
     toFormUrlEncoded RequestAuthorizationCode{..} =
@@ -408,7 +365,6 @@ data AccessResponse = AccessResponse
   deriving (Eq, Show, Typeable)
 
 -- | A token grant.
---
 data TokenGrant = TokenGrant
     { grantTokenType :: TokenType
     , grantExpires   :: Maybe UTCTime
@@ -419,19 +375,20 @@ data TokenGrant = TokenGrant
   deriving (Eq, Show, Typeable)
 
 -- | Token details.
+--
 --   This is recorded in the OAuth2 server and used to verify tokens in the
 --   future.
---
 data TokenDetails = TokenDetails
-    { tokenDetailsTokenType :: TokenType
-    , tokenDetailsToken     :: Token
-    , tokenDetailsExpires   :: Maybe UTCTime
-    , tokenDetailsUserID    :: Maybe UserID
-    , tokenDetailsClientID  :: Maybe ClientID
-    , tokenDetailsScope     :: Scope
+    { tokenDetailsTokenType :: TokenType      -- ^ The type of token (Bearer/Refresh)
+    , tokenDetailsToken     :: Token          -- ^ The actual token
+    , tokenDetailsExpires   :: Maybe UTCTime  -- ^ The expiry time of the token
+    , tokenDetailsUserID    :: Maybe UserID   -- ^ The user to which this token belongs
+    , tokenDetailsClientID  :: Maybe ClientID -- ^ The client to which this token is for
+    , tokenDetailsScope     :: Scope          -- ^ The scope of the client
     }
   deriving (Eq, Show, Typeable)
 
+-- | Constructs a TokenDetails out of a Token and TokenGrant
 tokenDetails :: Token -> TokenGrant -> TokenDetails
 tokenDetails tok TokenGrant{..}
   = TokenDetails
@@ -442,6 +399,7 @@ tokenDetails tok TokenGrant{..}
   , tokenDetailsClientID  = grantClientID
   , tokenDetailsScope     = grantScope
   }
+
 -- | Whether or not a token belongs to a User
 belongsToUser :: TokenDetails -> UserID -> Bool
 belongsToUser TokenDetails{..} uid = case tokenDetailsUserID of
@@ -473,7 +431,7 @@ instance ToJSON AccessResponse where
                   , "expires_in" .= tokenExpiresIn
                   , "scope" .= tokenScope
                   ]
-            ref = maybe [] (\t -> ["refresh_token" .= T.decodeUtf8 (unToken t)]) refreshToken
+            ref = maybe [] (\t -> ["refresh_token" .= T.decodeUtf8 (review token t)]) refreshToken
             uid = maybe [] (\s -> ["user_id" .= toJSON s]) tokenUserID
             client = maybe [] (\s -> ["client_id" .= toJSON s]) tokenClientID
         in object . concat $ [tok, ref, uid, client]
@@ -488,6 +446,7 @@ instance FromJSON AccessResponse where
         <*> o .:? "client_id"
         <*> o .: "scope"
 
+-- | Type to represent the approval or declination of a Code
 data AuthorizePostRequest
     = AuthorizeApproved Code
     | AuthorizeDeclined Code
@@ -504,36 +463,6 @@ instance FromFormUrlEncoded AuthorizePostRequest where
             Just x -> case T.encodeUtf8 x ^? code of
                 Nothing -> Left "invalid code"
                 Just c -> Right $ cons c
-
--- | Redirect URIs as used in the OAuth2 RFC.
---
--- @TODO(thsutton): The RFC requires that they be absolute and also not include
--- fragments, we should probably enforce that.
-newtype RedirectURI = RedirectURI { unRedirectURI :: URI }
-  deriving (Eq, Show, Typeable)
-
-addQueryParameters :: RedirectURI -> [(ByteString, ByteString)] -> RedirectURI
-addQueryParameters (RedirectURI uri) params = RedirectURI $ uri & uriQueryL . queryPairsL %~ (<> params)
-
-redirectURI :: Prism' ByteString RedirectURI
-redirectURI = prism' fromRedirect toRedirect
-  where
-    fromRedirect :: RedirectURI -> ByteString
-    fromRedirect = toByteString . serializeURI . unRedirectURI
-
-    toRedirect :: ByteString -> Maybe RedirectURI
-    toRedirect bs = case parseURI strictURIParserOptions bs of
-        Left _ -> Nothing
-        Right uri -> case uri ^. uriFragmentL of
-            Just _ -> Nothing
-            Nothing -> Just $ RedirectURI uri
-
-instance FromText RedirectURI where
-    fromText = preview redirectURI . T.encodeUtf8
-
-instance ToText RedirectURI where
-    toText = T.decodeUtf8 . review redirectURI
-
 
 -- * Database Instances
 
@@ -558,42 +487,6 @@ instance FromRow TokenDetails where
                            <*> field
                            <*> field
                            <*> field
-
-instance FromField RedirectURI where
-    fromField f bs = do
-        x <- fromField f bs
-        case x ^? redirectURI of
-            Nothing -> returnError ConversionFailed f $ "Prism failed to conver URI: " <> show x
-            Just uris -> return uris
-
-instance ToField RedirectURI where
-    toField = toField . review redirectURI
-
-fromFieldURI :: FieldParser URI
-fromFieldURI f bs = do
-    x <- fromField f bs
-    case parseURI strictURIParserOptions x of
-        Left e -> returnError ConversionFailed f (show e)
-        Right uri -> return uri
-
-instance FromRow ClientDetails where
-    fromRow = ClientDetails <$> field
-                            <*> (EncryptedPass <$> field)
-                            <*> field
-                            <*> (V.toList <$> field)
-                            <*> field
-                            <*> field
-                            <*> fieldWith fromFieldURI
-
-instance FromField ClientState where
-    fromField f bs = do
-        s <- fromField f bs
-        case preview clientState s of
-            Nothing -> returnError ConversionFailed f "Unable to parse ClientState"
-            Just state -> return state
-
-instance ToField ClientState where
-    toField x = toField $ x ^.re clientState
 
 instance FromField Code where
     fromField f bs = do

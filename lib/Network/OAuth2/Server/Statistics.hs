@@ -10,7 +10,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 
--- | Monitoring and reporting statistics.
+-- | Description: Monitoring and reporting statistics.
+--
+-- Monitoring and reporting statistics.
 module Network.OAuth2.Server.Statistics where
 
 import           Control.Applicative

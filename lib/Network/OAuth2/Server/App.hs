@@ -22,7 +22,9 @@
 {-# LANGUAGE TypeOperators         #-}
 {-# LANGUAGE ViewPatterns          #-}
 
--- | OAuth2 Web application.
+-- | Description: OAuth2 Web application.
+--
+-- OAuth2 Web application.
 --
 -- This implementation assumes the use of Shibboleth, which doesn't actually
 -- mean anything all that specific. This just means that we expect a particular

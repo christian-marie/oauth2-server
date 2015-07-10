@@ -12,13 +12,22 @@
 {-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE OverloadedStrings          #-}
 
--- | Internal representation of OAuth2 tokens, token identifiers and token types
+-- | Description: Internal representation of OAuth2 tokens, token identifiers and token types
+--
+-- Internal representation of OAuth2 tokens, token identifiers and token types
 --
 -- Relevant syntax specific things
 --
 -- Access/Bearer tokens: https://tools.ietf.org/html/rfc6749#appendix-A.12
 -- Refresh       tokens: https://tools.ietf.org/html/rfc6749#appendix-A.17
-module Network.OAuth2.Server.Types.Token where
+module Network.OAuth2.Server.Types.Token (
+-- * Types
+  Token,
+  TokenType(..),
+  TokenID,
+-- * ByteString Encoding and Decoding
+  token
+) where
 
 import           Control.Applicative                  ((<|>))
 import           Control.Lens.Fold                    ((^?))
@@ -58,34 +67,38 @@ import           Network.OAuth2.Server.Types.Common
 
 --------------------------------------------------------------------------------
 
--- Types
+-- * Types
 
 -- | A token is a unique piece of text, opaque to users.
--- There are access and refresh tokens, but with respect to
--- internal representation they are identical
+--
+--   There are access and refresh tokens, but with respect to
+--   internal representation they are identical.
 newtype Token = Token { unToken :: ByteString }
   deriving (Eq, Ord, Typeable)
 
--- http://tools.ietf.org/html/rfc6749#section-7.1
--- Tokens can be either access/bearer tokens or refresh tokens
+-- | Tokens can be either access/bearer tokens or refresh tokens
+--
+--   http://tools.ietf.org/html/rfc6749#section-7.1
 data TokenType
     = Bearer
     | Refresh
   deriving (Eq, Typeable)
 
--- Unique identifier for a token. Identifiers are only useful for revocation
--- requests, and so when such actions are exposed to users, TokenIDs are used
--- over actual tokens
+-- | Unique identifier for a token. Identifiers are only useful for revocation
+--   requests, and so when such actions are exposed to users, TokenIDs are used
+--   over actual tokens
 newtype TokenID = TokenID { unTokenID :: UUID }
     deriving (Eq, Read, Show, Ord, ToField, FromField)
 
 --------------------------------------------------------------------------------
 
--- ByteString Encoding and Decoding
+-- * ByteString Encoding and Decoding
 
 -- | Token ByteString encode/decode prism
--- access-token  = 1*VSCHAR
--- refresh-token = 1*VSCHAR
+--
+--   access-token  = 1*VSCHAR
+--
+--   refresh-token = 1*VSCHAR
 token :: Prism' ByteString Token
 token = prism' t2b b2t
   where

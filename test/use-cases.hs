@@ -7,14 +7,30 @@
 -- the 3-clause BSD licence.
 --
 
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeFamilies      #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Main where
 
 import           Network.URI
-import           System.Environment    (getArgs, withArgs)
-import           System.FilePath.Posix (splitFileName)
-import           Test.Hspec.WebDriver
+import           System.Environment          (getArgs, withArgs)
+import           System.FilePath.Posix       (splitFileName)
+import           Test.Hspec.WebDriver        hiding (BrowserDefaults (..))
+import           Test.WebDriver.Capabilities
+
+-- http://hackage.haskell.org/package/hspec-webdriver-1.0.2/docs/Test-Hspec-WebDriver.html#t:BrowserDefaults
+instance Using Browser where
+    type UsingList Browser = [Browser]
+    using d s = ([d], s)
+
+instance Using [Browser] where
+    type UsingList [Browser] = [Browser]
+    using d s = (d, s)
+
+instance TestCapabilities Browser where
+    newCaps b = return defaultCaps{ browser = b }
 
 main :: IO ()
 main = do
@@ -30,9 +46,14 @@ main = do
             putStrLn "Then run: java -jar selenium-server-standalone*.jar"
 
 spec :: URI -> Spec
-spec uri =
+spec uri = do
+    let browsers =
+            [ HTMLUnit
+            , firefox
+            , chrome
+            ]
     describe "As a user," $ do
-        session "I can create a token with a subset of my scope" $ using [Firefox, Chrome] $ do
+        session "I can create a token with a subset of my scope" $ using browsers $ do
             it "loads the page" . runWD $
                 openPage $ show uri { uriPath = "/tokens" }
 

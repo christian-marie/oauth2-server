@@ -27,6 +27,7 @@
 -- The intention is to seperate all OAuth2 specific logic from our particular
 -- way of handling AAA.
 module Network.OAuth2.Server.API (
+    -- * HTTP Headers
     NoStore,
     NoCache,
     oAuthUserHeader,
@@ -81,7 +82,7 @@ import           Network.OAuth2.Server.Foundation
 import           Network.OAuth2.Server.Store      hiding (logName)
 import           Network.OAuth2.Server.UI
 
--- * Logging
+-- Logging
 
 logName :: String
 logName = "Network.OAuth2.Server.API"
@@ -275,7 +276,7 @@ processTokenRequest ref t (Just client_auth) req = do
                         invalidScope "Incompatible scope"
                     return (tokenDetailsUserID, scope', Just tid)
 
-             -- The old token is dead or client_id doesn't match.
+            -- The old token is dead or client_id doesn't match.
             _ -> do
                 debugLog "checkRefreshToken" $
                     sformat ("Got passed invalid token " % shown) tok

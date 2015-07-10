@@ -12,7 +12,25 @@
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE RecordWildCards            #-}
 
-module Network.OAuth2.Server.Types.Auth where
+-- | Description: Types for use with authentication and identification.
+--
+-- Types for use with authentication and identification.
+module Network.OAuth2.Server.Types.Auth (
+-- * Types
+  Password,
+  UserID,
+  ClientID,
+  HTTPAuthRealm(..),
+  HTTPAuthChallenge(..),
+  AuthHeader(..),
+-- * ByteString Encoding and Decoding
+  password,
+  userID,
+  clientID,
+-- * HTTP headers, encoding and escaping
+  quotedString,
+  authDetails,
+) where
 
 import           Control.Applicative                  (Applicative ((<*), (<*>), pure),
                                                        (<$>))
@@ -48,16 +66,18 @@ import           Network.OAuth2.Server.Types.Common
 
 --------------------------------------------------------------------------------
 
--- Types
+-- * Types
 
+-- | Basic auth password
 newtype Password = Password { unPassword :: Text }
     deriving (Eq, Typeable)
 
--- | Unique identifier for a user.
+-- | Unique identifier for a user via Shibboleth.
 newtype UserID = UserID
     { unpackUserID :: ByteString }
   deriving (Eq, Ord, Typeable)
 
+-- | Unique identifier for a client.
 newtype ClientID = ClientID { unClientID :: ByteString }
     deriving (Eq, Typeable)
 
@@ -71,23 +91,31 @@ newtype HTTPAuthChallenge
 
 -- | HTTP authentication header received from a client.
 data AuthHeader = AuthHeader
-    { authScheme :: ByteString
-    , authParam  :: ByteString
+    { authScheme :: ByteString -- ^ The header scheme, i.e. the section before the colon
+    , authParam  :: ByteString -- ^ The header parameter, i.e. the section after the colon
     }
   deriving (Eq, Show, Typeable)
 
 --------------------------------------------------------------------------------
 
--- ByteString Encoding and Decoding
+-- * ByteString Encoding and Decoding
 
+-- | https://tools.ietf.org/html/rfc6749#appendix-A.16
+--
+--   password = *UNICODECHARNOCRLF
 password :: Prism' Text Password
 password =
     prism' unPassword (\t -> guard (T.all unicodecharnocrlf t) >> return (Password t))
 
+
+-- | user-id = *NQCHAR
 userID :: Prism' ByteString UserID
 userID = prism' unpackUserID
                 (\t -> guard (B.all nqchar t) >> return (UserID t))
 
+-- | https://tools.ietf.org/html/rfc6749#appendix-A.1
+--
+--   client-id = *VSCHAR
 clientID :: Prism' ByteString ClientID
 clientID =
     prism' unClientID (\t -> guard (B.all vschar t) >> return (ClientID t))
@@ -179,7 +207,7 @@ instance FromJSON ClientID where
 
 --------------------------------------------------------------------------------
 
--- Just HTTPy Things - justhttpythings.tumblr.com
+-- * HTTP headers, encoding and escaping
 
 -- | Quote a string, as described in the RFC2616 HTTP/1.1
 --
@@ -194,6 +222,7 @@ instance ToHTTPHeaders HTTPAuthChallenge where
     toHeaders (BasicAuth (Realm realm)) =
         [ ("WWW-Authenticate", "Basic realm=" <> quotedString realm) ]
 
+-- | Prism between HTTP basic auth header and a (ClientID, Password) pair
 authDetails :: Prism' AuthHeader (ClientID, Password)
 authDetails =
     prism' fromPair toPair

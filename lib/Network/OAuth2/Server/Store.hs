@@ -7,7 +7,9 @@
 -- the 3-clause BSD licence.
 --
 
--- | OAuth2 token storage
+-- | Description: OAuth2 token storage
+--
+-- OAuth2 token storage
 module Network.OAuth2.Server.Store (
   module Network.OAuth2.Server.Store.Base,
   module Network.OAuth2.Server.Store.PostgreSQL
