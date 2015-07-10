@@ -15,25 +15,25 @@ import           Control.Monad
 import           Control.Monad.Error.Class
 import           Control.Monad.Trans.Writer
 import           Data.Aeson
-import qualified Data.ByteString            as B
-import qualified Data.ByteString.Char8      as BC
-import qualified Data.ByteString.Lazy.Char8 as BLC
+import qualified Data.ByteString             as B
+import qualified Data.ByteString.Char8       as BC
+import qualified Data.ByteString.Lazy.Char8  as BLC
 import           Data.Monoid
 import           Data.Proxy
-import qualified Data.Set                   as S
-import qualified Data.Text                  as T
-import           Network.HTTP.Client        hiding (Proxy)
-import           Network.OAuth.OAuth2       hiding (URI)
-import           Network.Wai.Handler.Warp   hiding (Connection)
-import           Servant.API                hiding (URI)
+import qualified Data.Set                    as S
+import qualified Data.Text                   as T
+import           Network.HTTP.Client         hiding (Proxy)
+import           Network.OAuth.OAuth2        hiding (URI)
+import           Network.Wai.Handler.Warp    hiding (Connection)
+import           Servant.API                 hiding (URI)
 import           Servant.Server
 import           URI.ByteString
 
 import           Test.Hspec
 import           Test.Hspec.QuickCheck
-import           Test.QuickCheck            hiding (Result (..))
+import           Test.QuickCheck             hiding (Result (..))
 import           Test.QuickCheck.Function
-import           Test.QuickCheck.Instances  ()
+import           Test.QuickCheck.Instances   ()
 
 import           Network.OAuth2.Server
 import           Network.OAuth2.Server.Types

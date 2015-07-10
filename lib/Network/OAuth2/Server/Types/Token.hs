@@ -52,6 +52,7 @@ import           Servant.API                          (FromText (..),
                                                        OctetStream,
                                                        ToText (..))
 import           Text.Blaze.Html5                     (ToValue, toValue)
+import           Yesod.Core                           (PathPiece (..))
 
 import           Network.OAuth2.Server.Types.Common
 
@@ -76,7 +77,7 @@ data TokenType
 -- requests, and so when such actions are exposed to users, TokenIDs are used
 -- over actual tokens
 newtype TokenID = TokenID { unTokenID :: UUID }
-    deriving (Eq, Show, Ord, ToField, FromField)
+    deriving (Eq, Read, Show, Ord, ToField, FromField)
 
 --------------------------------------------------------------------------------
 
@@ -130,6 +131,10 @@ instance FromText TokenID where
 
 instance ToText TokenID where
     toText = T.decodeUtf8 . U.toASCIIBytes . unTokenID
+
+instance PathPiece TokenID where
+    fromPathPiece = fromText
+    toPathPiece = toText
 
 --------------------------------------------------------------------------------
 

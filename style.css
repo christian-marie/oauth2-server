@@ -1,5 +1,10 @@
+table.zebra {
+    border-collapse: collapse;
+}
+
 .zebra td, .zebra th {
     padding: 10px;
+    margin: 0px;
     border-bottom: 1px solid #f2f2f2;    
 }
 

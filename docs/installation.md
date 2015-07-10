@@ -64,6 +64,10 @@ Update the `ui` group to control the user interface behaviour. The only
 parameter currently supported is `page_size`; which controls the maximum number
 of items listed on each page.
 
+Note that the server will store session data in its current working
+directory, and therefore must run as a user with sufficient permission
+to write to it.
+
 [libpq]: http://www.postgresql.org/docs/current/static/libpq-connect.html#LIBPQ-CONNSTRING
 
 Shibboleth

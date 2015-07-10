@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 # WARNING
 #
@@ -9,10 +10,18 @@ DBDESC="Transient database for token server testing"
 
 TESTCONF="/tmp/token-server-$$.conf"
 
+STACK=$(which stack)
+
 cd $(dirname $0)
 
 # Build first, so we don't wait for the DB only to bail out.
-cabal build tokenserver
+if [ -z "$STACK" ]; then
+    cabal build tokenserver
+    BUILD_DIR=dist/build
+else
+    stack build
+    BUILD_DIR=$(stack path --dist-dir)/build
+fi
 
 # Clean up our mess from last time
 dropdb --if-exists $DBNAME
@@ -29,7 +38,7 @@ cat examples/token-server.conf \
 # Trap the interrupt so that we can clean up.
 trap "echo interrupted" INT TERM
 
-dist/build/tokenserver/tokenserver "$TESTCONF"
+$BUILD_DIR/tokenserver/tokenserver "$TESTCONF"
 
 # Clean up our mess
 echo "Cleaning up!"
