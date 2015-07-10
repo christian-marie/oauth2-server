@@ -22,7 +22,9 @@
 {-# LANGUAGE TypeOperators         #-}
 {-# LANGUAGE ViewPatterns          #-}
 
--- | OAuth2 Web application.
+-- | Description: OAuth2 Web application.
+--
+-- OAuth2 Web application.
 --
 -- This implementation assumes the use of Shibboleth, which doesn't actually
 -- mean anything all that specific. This just means that we expect a particular
@@ -107,6 +109,7 @@ wrapLogger :: MonadIO m => (String -> String -> IO a) -> String -> Text -> m a
 wrapLogger logger component msg = do
     liftIO $ logger (logName <> " " <> component <> ": ") (T.unpack msg)
 
+-- | Data type for a Yesod OAuth2 Server
 data OAuth2Server where
     OAuth2Server :: TokenStore ref => ref -> ServerOptions -> (TChan GrantEvent) -> OAuth2Server
 

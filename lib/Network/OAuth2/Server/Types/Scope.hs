@@ -11,19 +11,24 @@
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
--- | Types representing scope for access tokens
+-- | Description: Types representing scope for access tokens
+--
+-- Types representing scope for access tokens
 --
 -- The definitions are mentioned here:
 --
 -- https://tools.ietf.org/html/rfc6749#section-3.3
 module Network.OAuth2.Server.Types.Scope (
-  bsToScope,
-  compatibleScope,
-  Scope,
-  scope,
-  scopeToBs,
+-- * Types
   ScopeToken,
+  Scope,
+-- * ByteString Encoding and Decoding
   scopeToken,
+  scope,
+  bsToScope,
+  scopeToBs,
+-- * Core operations on scopes
+  compatibleScope,
 ) where
 
 import           Control.Applicative                  (Applicative ((<*), pure),
@@ -61,21 +66,22 @@ import           Network.OAuth2.Server.Types.Common
 
 --------------------------------------------------------------------------------
 
--- Types
+-- * Types
 
 -- | A scope-tokens is a case sensitive server-defined string which represents
--- some server-defined permission
+--   some server-defined permission
 newtype ScopeToken = ScopeToken { unScopeToken :: ByteString }
   deriving (Eq, Ord, Typeable)
 
 -- | A scope is a non-empty set of `ScopeToken`s
--- It is represented as a space-separated list
+--
+--   It is represented as a space-separated list
 newtype Scope = Scope { unScope :: Set ScopeToken }
   deriving (Eq, Read, Show, Typeable)
 
 --------------------------------------------------------------------------------
 
--- ByteString Encoding and Decoding
+-- * ByteString Encoding and Decoding
 
 -- | ScopeToken ByteString encode/decode prism
 scopeToken :: Prism' ByteString ScopeToken
@@ -88,22 +94,26 @@ scopeToken =
     b2s b = either fail return $ parseOnly (scopeTokenParser <* endOfInput) b
 
 -- | A scope token is a non-empty, case-sensitive string
--- scope-token = 1*nqchar
+--
+--   scope-token = 1*nqchar
 scopeTokenParser :: Parser ScopeToken
 scopeTokenParser = ScopeToken <$> takeWhile1 nqchar
 
 -- | A scope is a non-empty list of valid scope-tokens
--- scope = scope-token *( SP scope-token )
+--
+--   scope = scope-token *( SP scope-token )
 scope :: Prism' (Set ScopeToken) Scope
 scope = prism' unScope (\x -> (guard . not . S.null $ x) >> return (Scope x))
 
--- | A scope is represented as a list of space separated scope-tokens
+-- | Parse a space delimited list of scope tokens from a ByteString and convert
+--   it into a scope.
 bsToScope :: ByteString -> Maybe Scope
 bsToScope b = either fail return $ parseOnly (scopeParser <* endOfInput) b
   where
     scopeParser :: Parser Scope
     scopeParser = Scope . S.fromList <$> sepBy1 scopeTokenParser (word8 0x20 {- SP -})
 
+-- | Convert a scope into a space delimited bytestring
 scopeToBs :: Scope -> ByteString
 scopeToBs =
     B.intercalate " " . fmap (review scopeToken) . S.toList .  unScope
@@ -166,11 +176,11 @@ instance FromJSON Scope where
 
 --------------------------------------------------------------------------------
 
--- Core operations on scopes
+-- * Core operations on scopes
 
 -- | Check that a 'Scope' is compatible with another.
 --
--- Essentially, scope1 is a subset of scope2.
+--   Essentially, scope1 is a subset of scope2.
 compatibleScope
     :: Scope
     -> Scope

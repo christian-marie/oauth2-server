@@ -9,7 +9,8 @@
 
 {-# LANGUAGE RecordWildCards #-}
 
--- |
+-- | Description: Start an OAuth2 server.
+--
 -- Description: Start an OAuth2 server.
 --
 -- This module includes the top level interface to run OAuth2 servers.
@@ -19,8 +20,6 @@
 module Network.OAuth2.Server
 (
     startServer,
-    -- | Version number of the OAuth2 Server.
-    P.version,
     module Network.OAuth2.Server.App,
     module Network.OAuth2.Server.Configuration,
     module Network.OAuth2.Server.Statistics,
@@ -45,8 +44,6 @@ import           Network.OAuth2.Server.Statistics
 import           Network.OAuth2.Server.Store         hiding (logName)
 import           Network.OAuth2.Server.Types
 import           Network.Wai.Middleware.Shibboleth
-
-import           Paths_oauth2_server                 as P
 
 logName :: String
 logName = "Network.OAuth2.Server"

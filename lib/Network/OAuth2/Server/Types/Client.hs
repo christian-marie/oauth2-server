@@ -10,10 +10,14 @@
 {-# LANGUAGE DeriveDataTypeable         #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
--- | Types representing OAuth2 clients
+-- | Description: Types representing OAuth2 clients
+--
+--   Types representing OAuth2 clients
 module Network.OAuth2.Server.Types.Client (
-  ClientDetails(..),
+-- * Types
   ClientState,
+  ClientDetails(..),
+-- * ByteString Encoding and Decoding
   clientState,
 ) where
 
@@ -48,32 +52,36 @@ import           Network.OAuth2.Server.Types.Common
 
 --------------------------------------------------------------------------------
 
--- Types
+-- * Types
 
 -- | Opaque value used by the client to maintain state between request and
--- response. Used to prevent cross-site request forgery as defined:
--- https://tools.ietf.org/html/rfc6749#section-10.12
+--   response. Used to prevent cross-site request forgery as defined here:
+--
+--   https://tools.ietf.org/html/rfc6749#section-10.12
 newtype ClientState = ClientState { unClientState :: ByteString }
     deriving (Eq, Typeable)
 
+-- | Details relevant to a client.
 data ClientDetails = ClientDetails
-    { clientClientId     :: ClientID
-    , clientSecret       :: EncryptedPass
-    , clientConfidential :: Bool
-    , clientRedirectURI  :: [RedirectURI]
-    , clientName         :: Text
-    , clientDescription  :: Text
-    , clientAppUrl       :: URI
+    { clientClientId     :: ClientID      -- ^ Unique identifier for client
+    , clientSecret       :: EncryptedPass -- ^ Client secret
+    , clientConfidential :: Bool          -- ^ Whether the client is confidential or not
+    , clientRedirectURI  :: [RedirectURI] -- ^ The registered redirection URIs for the client
+    , clientName         :: Text          -- ^ The human readable name for the client
+    , clientDescription  :: Text          -- ^ The human readable description for the client
+    , clientAppUrl       :: URI           -- ^ The URL for the client application
     }
   deriving (Eq, Show)
 
 --------------------------------------------------------------------------------
 
--- ByteString Encoding and Decoding
+-- * ByteString Encoding and Decoding
 
--- | Client state is an opaque non-empty value defined:
--- https://tools.ietf.org/html/rfc6749#appendix-A.5
--- state = 1*VSCHAR
+-- | Client state is an opaque non-empty value as defined here:
+--
+--   https://tools.ietf.org/html/rfc6749#appendix-A.5
+--
+--   state = 1*VSCHAR
 clientState :: Prism' ByteString ClientState
 clientState = prism' cs2b b2cs
   where
