@@ -5,6 +5,7 @@
 
     <link rel="stylesheet" href="semantic.css">
     <link rel="stylesheet" href="stylesheet.css">
+    <link rel="stylesheet" href="navbar.css">
 </head>
 <body>
 <div id="app"><div class="ui page grid">
@@ -25,43 +26,167 @@
 
     <!-- FORMS -->
     <form class="ui form raised blue segment top attached" action="" method="post">
-        <h2 class="ui centered header">Create a token</h2>
+      <h2 class="ui centered header">Create a token</h2>
 
-        <div class="field ui grid">
+        <div class="field ui scope">
             <label class="ui header" for="scope">Granted permissions</label>
 
-            <div class="four wide column"><div class="ui checkbox">
+	    <div class="ui scrollerise segment">
+	    <ul class="ui list stackable three column grid">
+	      <li class="column"><div class="ui checkbox">
+                <input id="missiles:launch" name="scope" value="missiles:launch" type="checkbox">
+                <label for="missiles:launch">
+		  missiles:<wbr>launch:<wbr>poop:<wbr>at:<wbr>the:<wbr>monkeys:<wbr>launch:<wbr>poop:<wbr>at:<wbr>the:<wbr>monkeys:<wbr>launch:<wbr>poop:<wbr>at:<wbr>the:<wbr>monkeys:<wbr>launch:<wbr>poop:<wbr>at:<wbr>the:<wbr>monkeys
+		</label>
+              </div></li>
+	      <li class="column"><div class="ui checkbox">
                 <input id="missiles:launch" name="scope" value="missiles:launch" type="checkbox">
                 <label for="missiles:launch">missiles:launch</label>
-            </div></div>
-            <div class="four wide column"><div class="ui checkbox">
+              </div></li>
+	      <li class="column"><div class="ui checkbox">
+                <input id="missiles:launch3" name="scope" value="missiles:launch" type="checkbox">
+                <label for="missiles:launch3">missiles:launch</label>
+              </div></li>
+	      <li class="column"><div class="ui checkbox">
                 <input id="missiles:launch" name="scope" value="missiles:launch" type="checkbox">
                 <label for="missiles:launch">missiles:launch</label>
-            </div></div>
-            <div class="four wide column"><div class="ui checkbox">
+              </div></li>
+	      <li class="column"><div class="ui checkbox">
                 <input id="missiles:launch" name="scope" value="missiles:launch" type="checkbox">
                 <label for="missiles:launch">missiles:launch</label>
-            </div></div>
-            <div class="four wide column"><div class="ui checkbox">
+              </div></li>
+	      <li class="column"><div class="ui checkbox">
+                <input id="missiles:launch3" name="scope" value="missiles:launch" type="checkbox">
+                <label for="missiles:launch3">missiles:launch</label>
+              </div></li>
+	      <li class="column"><div class="ui checkbox">
                 <input id="missiles:launch" name="scope" value="missiles:launch" type="checkbox">
                 <label for="missiles:launch">missiles:launch</label>
-            </div></div>
-
+              </div></li>
+	      <li class="column"><div class="ui checkbox">
+                <input id="missiles:launch" name="scope" value="missiles:launch" type="checkbox">
+                <label for="missiles:launch">missiles:launch</label>
+              </div></li>
+	      <li class="column"><div class="ui checkbox">
+                <input id="missiles:launch3" name="scope" value="missiles:launch" type="checkbox">
+                <label for="missiles:launch3">missiles:launch</label>
+              </div></li>
+	      <li class="column"><div class="ui checkbox">
+                <input id="missiles:launch" name="scope" value="missiles:launch" type="checkbox">
+                <label for="missiles:launch">missiles:launch</label>
+              </div></li>
+	      <li class="column"><div class="ui checkbox">
+                <input id="missiles:launch" name="scope" value="missiles:launch" type="checkbox">
+                <label for="missiles:launch">missiles:launch</label>
+              </div></li>
+	      <li class="column"><div class="ui checkbox">
+                <input id="missiles:launch3" name="scope" value="missiles:launch" type="checkbox">
+                <label for="missiles:launch3">missiles:launch</label>
+              </div></li>
+	      <li class="column"><div class="ui checkbox">
+                <input id="missiles:launch" name="scope" value="missiles:launch" type="checkbox">
+                <label for="missiles:launch">missiles:launch</label>
+              </div></li>
+	      <li class="column"><div class="ui checkbox">
+                <input id="missiles:launch" name="scope" value="missiles:launch" type="checkbox">
+                <label for="missiles:launch">missiles:launch</label>
+              </div></li>
+	      <li class="column"><div class="ui checkbox">
+                <input id="missiles:launch3" name="scope" value="missiles:launch" type="checkbox">
+                <label for="missiles:launch3">missiles:launch</label>
+              </div></li>
+	    </ul>
+	    </div>
         </div>
 
-
-        <button class="ui right floated blue button" type="submit" name="_eventId_proceed">Log in</button>
+        <button class="ui right floated blue button" type="submit" name="_eventId_proceed">
+	  Create
+	</button>
     </form>
 
-    <!-- ERROR MESSAGES -->
-    
+    <div class="ui raised blue segment attached">
+      <h2 class="ui centered header">Your tokens</h2>
 
+      <table class="ui celled table">
+	<thead>
+	  <tr>
+	    <th scope=row>Client</th>
+	    <th scope=row>Permissions</th>
+	    <th scope=row>Expires</th>
+	    <th scope=row></th>
+	  </tr>
+	</thead>
+	<tbody>
+	  <tr>
+	    <td><a href="#" class="client">Client 1</a></td>
+	    <td>
+	      <ul class="scope">
+		<li>verify_token</li>
+		<li>missiles:launch</li>
+	      </ul>
+	    </td>
+	    <td>2015-12-25 23:59:59 UTC</td>
+	    <td>
+	      <a href="/token/poop" class="arse">Details</a>
+	    </td>
+	  </tr>
+	  <tr>
+	    <td><a href="#" class="client">Client 1</a></td>
+	    <td>
+	      <ul class="scope">
+		<li>verify_token</li>
+		<li>missiles:launch</li>
+	      </ul>
+	    </td>
+	    <td>2015-12-25 23:59:59 UTC</td>
+	    <td>
+	      <a href="/token/poop" class="arse">Details</a>
+	    </td>
+	  </tr>
+	  <tr>
+	    <td><a href="#" class="client">Client 1</a></td>
+	    <td>
+	      <ul class="scope">
+		<li>verify_token</li><li>missiles:launch</li>
+	      </ul>
+	    </td>
+	    <td>2015-12-25 23:59:59 UTC</td>
+	    <td>
+	      <a href="/token/poop" class="arse">Details</a>
+	    </td>
+	  </tr>
+	</tbody>
+	<tfoot>
+	  <tr><th colspan="4">
+	      <div class="ui right floated pagination menu">
+		<a class="icon item">
+		  <i class="left chevron icon"></i>
+		</a>
+		<a class="item">1</a>
+		<a class="item">2</a>
+		<a class="item">3</a>
+		<a class="item">4</a>
+		<a class="icon item">
+		  <i class="right chevron icon"></i>
+		</a>
+	      </div>
+	    </th>
+	</tr></tfoot>
+      </table>
+    </div>
+
+
+    <!-- ERROR MESSAGES -->
 </div></div></section>
 
 <!-- PAGE FOOTER -->
-<footer class="sixteen wide column"><div class="ui stackable grid"><div class="ten wide column centered">
-<p class="footer-text">© <a href="http://www.anchor.com.au/">Anchor Cloud Hosting</a>.</p>
-</div></div></footer>
+<footer class="ui footer">
+  <div class="ui stackable grid">
+    <div class="column">
+      <p class="footer-text">© <a href="http://www.anchor.com.au/">Anchor Cloud Hosting</a>.</p>
+    </div>
+  </div>
+</footer>
 
 </div></div>
 

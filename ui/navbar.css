@@ -1,4 +1,23 @@
+/* For the bootstrap one */
 ul.inline, ul.inline li { display: inline; }
-
 ul.inline li:before { content: ", "; }
 ul.inline li:first-child:before { content: none !important; }
+
+/* For the semantic one */
+ul.scope, ul.scope li { display: inline !important; margin:0; padding: 0; }
+ul.scope li:before { content: ", "; }
+ul.scope li:first-child:before { content: none !important; }
+
+.field.scope ul li:before { content: none !important; }
+.scrollerise {
+    position: relative;
+    overflow: auto;
+    height: 10em;
+    padding: 1ex;
+    margin: 0;
+}
+.scrollerise ul.list {
+    margin: 0; padding: 0;
+}
+.scrollerise ul.list .column {
+}
