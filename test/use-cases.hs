@@ -20,6 +20,7 @@ import           System.FilePath.Posix       (splitFileName)
 import           Test.Hspec.WebDriver        hiding (BrowserDefaults (..))
 import           Test.WebDriver.Capabilities
 
+-- http://hackage.haskell.org/package/hspec-webdriver-1.0.2/docs/Test-Hspec-WebDriver.html#t:BrowserDefaults
 instance Using Browser where
     type UsingList Browser = [Browser]
     using d s = ([d], s)
