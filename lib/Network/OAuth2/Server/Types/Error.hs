@@ -17,7 +17,9 @@
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE TemplateHaskell            #-}
 
--- | Types representing OAuth2 Error Responses
+-- | Description: Types representing OAuth2 Error Responses
+--
+-- Types representing OAuth2 Error Responses
 --
 -- Error responses are defined in multiple places in the RFC
 --
@@ -29,7 +31,27 @@
 --
 -- Format definition:
 -- http://tools.ietf.org/html/rfc6749#section-5.2
-module Network.OAuth2.Server.Types.Error where
+module Network.OAuth2.Server.Types.Error (
+-- * Types
+  OAuth2Error(..),
+  ErrorCode(..),
+  ErrorDescription,
+-- * ByteString Encoding and Decoding
+  errorCode,
+  errorDescription,
+-- * Throwing errors
+-- $helpers
+  unsupportedGrantType,
+  invalidGrant,
+  invalidClient,
+  temporarilyUnavailable,
+  serverError,
+  invalidScope,
+  unsupportedResponseType,
+  accessDenied,
+  unauthorizedClient,
+  invalidRequest,
+) where
 
 import           Blaze.ByteString.Builder           (toByteString)
 import           Control.Applicative                (pure, (<$>), (<*>))
@@ -63,24 +85,24 @@ import           Network.OAuth2.Server.Types.Common
 
 --------------------------------------------------------------------------------
 
--- Types
+-- * Types
 
 -- | Standard OAuth2 errors.
 --
--- The creator should supply a human-readable message explaining the specific
--- error which will be returned to the client.
+--   The creator should supply a human-readable message explaining the specific
+--   error which will be returned to the client.
 --
--- http://tools.ietf.org/html/rfc6749#section-5.2
+--   http://tools.ietf.org/html/rfc6749#section-5.2
 data OAuth2Error = OAuth2Error
-    { oauth2ErrorCode        :: ErrorCode
-    , oauth2ErrorDescription :: Maybe ErrorDescription
-    , oauth2ErrorURI         :: Maybe URI
+    { oauth2ErrorCode        :: ErrorCode              -- ^ Code specifying what went wrong
+    , oauth2ErrorDescription :: Maybe ErrorDescription -- ^ Optional human readable description of error
+    , oauth2ErrorURI         :: Maybe URI              -- ^ Optional human readable web page with information about the error
     }
   deriving (Eq, Show, Typeable)
 
 -- | OAuth2 error codes.
 --
--- These codes are defined in the OAuth2 RFC and returned to clients.
+--   These codes are defined in the OAuth2 RFC and returned to clients.
 data ErrorCode
     -- Authorisation Code Grant and Implicit Grant Error Codes
     -- http://tools.ietf.org/html/rfc6749#section-4.1.2.1
@@ -107,7 +129,7 @@ newtype ErrorDescription = ErrorDescription
 
 --------------------------------------------------------------------------------
 
--- ByteString Encoding and Decoding
+-- * ByteString Encoding and Decoding
 
 -- | ErrorCode ByteString encode/decode prism
 errorCode :: Prism' ByteString ErrorCode
@@ -141,7 +163,7 @@ errorCode = prism' fromErrorCode toErrorCode
         _ -> fail $ show err_code <> " is not a valid error code."
 
 -- | Error Descriptions are human readable ASCII
--- error_description = *nqschar
+--   error_description = *nqschar
 errorDescription :: Prism' ByteString ErrorDescription
 errorDescription =
     prism' unErrorDescription $ \b -> do
@@ -191,8 +213,6 @@ instance FromFormUrlEncoded OAuth2Error where
 
 -- JSON/Aeson Encoding and Decoding
 
---------------------------------------------------------------------------------
-
 instance ToJSON OAuth2Error where
     toJSON OAuth2Error{..} = object $
         [ "error" .= oauth2ErrorCode ] <>
@@ -225,11 +245,12 @@ instance FromJSON ErrorDescription where
             Nothing -> fail $ T.unpack t <> " is not a valid ErrorDescription."
             Just s -> return s
 
---------------------------------------------------------------------------------
+-----------------------------------------------------------------------------
 
 -- * Throwing errors
 
--- $ These helper functions construct an 'OAuth2Error' with the appropriate
+-- $helpers
+-- These helper functions construct an 'OAuth2Error' with the appropriate
 -- 'ErrorCode' and supplied error description, and throw it.
 
 -- This will output one helper function per `ErrorCode`.

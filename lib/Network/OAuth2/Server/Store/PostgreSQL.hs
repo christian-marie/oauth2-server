@@ -1,9 +1,3 @@
-{-# LANGUAGE FlexibleInstances   #-}
-{-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE RecordWildCards     #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE ViewPatterns        #-}
-
 --
 -- Copyright © 2013-2015 Anchor Systems, Pty Ltd and Others
 --
@@ -13,9 +7,18 @@
 -- the 3-clause BSD licence.
 --
 
+{-# LANGUAGE FlexibleInstances   #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE RecordWildCards     #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ViewPatterns        #-}
 
--- | OAuth2 token storage instance for PostgreSQL
-module Network.OAuth2.Server.Store.PostgreSQL where
+-- | Description: OAuth2 token storage instance for PostgreSQL
+--
+-- OAuth2 token storage instance for PostgreSQL
+module Network.OAuth2.Server.Store.PostgreSQL (
+  PSQLConnPool(..),
+) where
 
 import           Control.Applicative              ((<$>), (<*>))
 import           Control.Exception                (SomeException, throw, try)
@@ -32,6 +35,7 @@ import           System.Log.Logger                (criticalM, debugM, errorM,
 import           Network.OAuth2.Server.Store.Base
 import           Network.OAuth2.Server.Types
 
+-- | A wrapped Data.Pool of PostgreSQL.Simple Connections
 newtype PSQLConnPool = PSQLConnPool (Pool Connection)
 
 instance TokenStore PSQLConnPool where

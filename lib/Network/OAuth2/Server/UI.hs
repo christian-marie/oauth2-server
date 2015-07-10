@@ -12,7 +12,14 @@
 {-# LANGUAGE TemplateHaskell   #-}
 {-# LANGUAGE ViewPatterns      #-}
 
-module Network.OAuth2.Server.UI where
+-- | Description: Simple HTML rendering for user interaction
+--
+-- Simple HTML rendering for user interaction
+module Network.OAuth2.Server.UI (
+-- * UI Pages
+  renderAuthorizePage,
+  renderTokensPage,
+) where
 
 import           Blaze.ByteString.Builder    (toByteString)
 import           Control.Lens
@@ -79,6 +86,7 @@ partialRequestCode request_code = do
                     th hdr ! Blaze.scope "row"
                     td (text txt)
 
+-- | Render the authorisation page for users to approve or reject code requests.
 renderAuthorizePage :: RequestCode -> ClientDetails -> Html
 renderAuthorizePage req@RequestCode{..} client_details = docTypeHtml $ do
     head $ do
@@ -108,6 +116,7 @@ renderAuthorizePage req@RequestCode{..} client_details = docTypeHtml $ do
                   ! value "Decline"
                   ! alt "No, do not issue this token."
 
+-- | Render the tokens page for users to view and revoke their tokens.
 renderTokensPage :: Scope -> PageSize -> Page -> ([(TokenID, TokenDetails)], Int) -> Html
 renderTokensPage userScope (review pageSize -> size) (review page -> p) (ts, numTokens) = docTypeHtml $ do
     head $ do

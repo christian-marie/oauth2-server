@@ -21,7 +21,9 @@
 -- This should be removed when the 'HasLink (Headers ...)' instance is removed.
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
--- | OAuth2 API implementation.
+-- | Description: OAuth2 API implementation.
+--
+-- OAuth2 API implementation.
 --
 -- This implementation assumes the use of Shibboleth, which doesn't actually
 -- mean anything all that specific. This just means that we expect a particular
@@ -30,6 +32,7 @@
 -- The intention is to seperate all OAuth2 specific logic from our particular
 -- way of handling AAA.
 module Network.OAuth2.Server.API (
+    -- * HTTP Headers
     NoStore,
     NoCache,
     OAuthUserHeader,
@@ -105,7 +108,7 @@ import           Text.Blaze.Html5            (Html)
 import           Network.OAuth2.Server.Store hiding (logName)
 import           Network.OAuth2.Server.UI
 
--- * Logging
+-- Logging
 
 logName :: String
 logName = "Network.OAuth2.Server.API"
@@ -197,6 +200,7 @@ type TokenEndpoint
 
 -- | Encode an 'OAuth2Error' and throw it to servant.
 --
+
 -- TODO: Fix the name/behaviour. Terrible name for something that 400s.
 throwOAuth2Error :: MonadError ServantErr m => OAuth2Error -> m a
 throwOAuth2Error e =
@@ -384,6 +388,7 @@ type OAuth2API
     :<|> AuthorizeEndpoint
     :<|> AuthorizePost
 
+-- | Servant API for OAuth2
 oAuth2API :: Proxy OAuth2API
 oAuth2API = Proxy
 
@@ -404,18 +409,18 @@ handleShib
     -> Maybe Scope
     -> a
 handleShib f (Just u) (Just s) = f u s
-handleShib _ _        _        = error "Expected Shibbloleth headers"
+handleShib _ _        _        = error "Expected Shibboleth headers"
 
--- | Implement the OAuth2 authorize endpoint.
+-- | Implements the OAuth2 authorize endpoint.
 --
 --   This handler must be protected by Shibboleth (or other mechanism in the
 --   front-end proxy). It decodes the client request and presents a UI allowing
 --   the user to approve or reject a grant request.
 --
+--   http://tools.ietf.org/html/rfc6749#section-3.1
+
 --   TODO: Handle the validation of things more nicely here, preferably
 --   shifting them out of here entirely.
---
---   http://tools.ietf.org/html/rfc6749#section-3.1
 authorizeEndpoint
     :: ( MonadIO m
        , MonadBaseControl IO m
@@ -442,6 +447,7 @@ authorizeEndpoint ref user_id permissions response_type client_id' redirect scop
             throwError err302{ errHeaders = [(hLocation, url ^.re redirectURI)] }
         Right x -> return x
 
+-- | Process a GET request for the authorize endpoint.
 processAuthorizeGet
     :: ( MonadIO m
        , MonadBaseControl IO m
@@ -449,13 +455,13 @@ processAuthorizeGet
        , TokenStore ref
        )
     => ref
-    -> UserID
-    -> Scope
-    -> Maybe ResponseType
-    -> Maybe ClientID
-    -> Maybe RedirectURI
-    -> Maybe Scope
-    -> Maybe ClientState
+    -> UserID             -- ^ Authenticated user
+    -> Scope              -- ^ Authenticated permissions
+    -> Maybe ResponseType -- ^ Requested response type.
+    -> Maybe ClientID     -- ^ Requesting Client ID.
+    -> Maybe RedirectURI  -- ^ Requested redirect URI.
+    -> Maybe Scope        -- ^ Requested scope.
+    -> Maybe ClientState  -- ^ State from requesting client.
     -> m Html
 processAuthorizeGet ref user_id permissions response_type client_id' redirect scope' state = do
     -- Required: a ClientID value, which identifies a client.

@@ -11,22 +11,25 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ViewPatterns               #-}
 
--- | Common types and encoding for OAuth2 Types
+-- | Description: Common types and encoding for OAuth2 Types
+--
+-- Common types and encoding for OAuth2 Types
 module Network.OAuth2.Server.Types.Common (
-  -- Syntax Descriptions
+-- * Syntax Descriptions for OAuth2
+  vschar,
   nqchar,
   nqschar,
   unicodecharnocrlf,
-  vschar,
-  -- Redirect URIs
-  addQueryParameters,
-  fromFieldURI,
+-- * Redirect URIs
   RedirectURI,
+  addQueryParameters,
   redirectURI,
-  -- URI Aeson,
-  uriFromJSON,
+-- * Postgres parsing for URIs
+  fromFieldURI,
+-- * URI JSON/Aeson Encoding/Decoding
   uriToJSON,
-  -- HTTP Headers
+  uriFromJSON,
+-- * Commonly used typeclasses
   ToHTTPHeaders(..),
 ) where
 
@@ -59,18 +62,18 @@ import           URI.ByteString                       (URI, parseURI,
 
 --------------------------------------------------------------------------------
 
--- Syntax Descriptions for OAuth2
+-- * Syntax Descriptions for OAuth2
 --
 -- Defined here https://tools.ietf.org/html/rfc6749#appendix-A
 --
 -- Uses Augmented Backus-Nuar Form (ABNF) Syntax
 -- ABNF RFC is found here: https://tools.ietf.org/html/rfc5234
 
--- VSCHAR = %x20-7E
+-- | VSCHAR = %x20-7E
 vschar :: Word8 -> Bool
 vschar c = c>=0x20 && c<=0x7E
 
--- NQCHAR = %x21 / %x23-5B / %x5D-7E
+-- | NQCHAR = %x21 / %x23-5B / %x5D-7E
 nqchar :: Word8 -> Bool
 nqchar c = or
     [ c==0x21
@@ -78,7 +81,7 @@ nqchar c = or
     , c>=0x5D && c<=0x7E
     ]
 
--- NQSCHAR    = %x20-21 / %x23-5B / %x5D-7E
+-- | NQSCHAR    = %x20-21 / %x23-5B / %x5D-7E
 nqschar :: Word8 -> Bool
 nqschar c = or
     [ c>=0x20 && c<=0x21
@@ -86,8 +89,8 @@ nqschar c = or
     , c>=0x5D && c<=0x7E
     ]
 
--- UNICODECHARNOCRLF = %x09 /%x20-7E / %x80-D7FF /
---                     %xE000-FFFD / %x10000-10FFFF
+-- | UNICODECHARNOCRLF = %x09 /%x20-7E / %x80-D7FF /
+--                       %xE000-FFFD / %x10000-10FFFF
 unicodecharnocrlf :: Char -> Bool
 unicodecharnocrlf (ord -> c) = or
     [ c==0x09
@@ -99,20 +102,22 @@ unicodecharnocrlf (ord -> c) = or
 
 --------------------------------------------------------------------------------
 
--- Commonly used types
+-- * Redirect URIs
 
 -- | Redirect URIs as used in the OAuth2 RFC.
 newtype RedirectURI = RedirectURI { unRedirectURI :: URI }
   deriving (Eq, Show, Typeable)
 
 -- | Helper function to safely add query parameters without having to use the
--- exposed prism to convert to and from Bytestrings and RedirectURIs
+--   exposed prism to convert to and from Bytestrings and RedirectURIs
 addQueryParameters :: RedirectURI -> [(ByteString, ByteString)] -> RedirectURI
 addQueryParameters (RedirectURI uri) params = RedirectURI $ uri & uriQueryL . queryPairsL %~ (<> params)
 
--- | Redirect URIs must be absolute and have no fragment as defined:
--- https://tools.ietf.org/html/rfc6749#section-3.1.2
--- https://tools.ietf.org/html/rfc3986#section-4.3
+-- | Redirect URIs must be absolute and have no fragment as defined at:
+--
+--   https://tools.ietf.org/html/rfc6749#section-3.1.2
+--
+--   https://tools.ietf.org/html/rfc3986#section-4.3
 redirectURI :: Prism' ByteString RedirectURI
 redirectURI = prism' fromRedirect toRedirect
   where
@@ -140,12 +145,18 @@ instance FromField RedirectURI where
     fromField f bs = do
         x <- fromField f bs
         case x ^? redirectURI of
-            Nothing -> returnError ConversionFailed f $ "Prism failed to conver URI: " <> show x
+            Nothing -> returnError ConversionFailed f $ "Prism failed to convert URI: " <> show x
             Just uris -> return uris
 
 instance ToField RedirectURI where
     toField = toField . review redirectURI
 
+-- * Postgres parsing for URIs
+
+-- | FromField parser for URI.
+--
+--   Similar to the one used in the FromField instance for RedirectURI but
+--   allowing URI fragments.
 fromFieldURI :: FieldParser URI
 fromFieldURI f bs = do
     x <- fromField f bs
@@ -155,11 +166,13 @@ fromFieldURI f bs = do
 
 --------------------------------------------------------------------------------
 
--- URI JSON/Aeson Encoding/Decoding
+-- * URI JSON/Aeson Encoding/Decoding
 
+-- | Convert a URI to an Aeson Value
 uriToJSON :: URI -> Value
 uriToJSON = toJSON . T.decodeUtf8 . toByteString . serializeURI
 
+-- | Parse a URI from an Aeson Value
 uriFromJSON :: Value -> Aeson.Parser URI
 uriFromJSON = withText "URI" $ \t ->
     case parseURI strictURIParserOptions $ T.encodeUtf8 t of
@@ -167,6 +180,8 @@ uriFromJSON = withText "URI" $ \t ->
         Right u -> return u
 
 --------------------------------------------------------------------------------
+
+-- * Commonly used typeclasses
 
 -- | Produce headers to be included in a request.
 class ToHTTPHeaders a where

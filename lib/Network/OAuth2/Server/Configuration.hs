@@ -12,7 +12,12 @@
 {-# LANGUAGE RecordWildCards   #-}
 
 -- | Description: Configuration parsing.
-module Network.OAuth2.Server.Configuration where
+--
+-- Configuration parsing.
+module Network.OAuth2.Server.Configuration (
+  defaultServerOptions,
+  loadOptions,
+) where
 
 import           Control.Applicative
 import           Control.Lens.Operators            ((^?), (^?!))

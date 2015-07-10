@@ -19,6 +19,8 @@
 {-# LANGUAGE ViewPatterns               #-}
 
 -- | Description: Data types for OAuth2 server.
+--
+-- Data types for OAuth2 server.
 module Network.OAuth2.Server.Types (
   AccessRequest(..),
   AccessResponse(..),
@@ -66,7 +68,7 @@ module Network.OAuth2.Server.Types (
   ToHTTPHeaders(..),
   Token,
   token,
-  TokenID(..),
+  TokenID,
   TokenDetails(..),
   TokenGrant(..),
   TokenType(..),
@@ -132,14 +134,14 @@ import           Servant.API                          (FromFormUrlEncoded (..),
 newtype Page = Page { unpackPage :: Integer }
   deriving (Eq, Ord, Show, FromText, ToText)
 
--- | Prism for constructing a page, must be > 0
+-- | Prism for constructing a page, must be > 0.
 page :: Integral n => Prism' n Page
 page = prism' (fromIntegral . unpackPage)
               (\(toInteger -> i) -> guard (i > 0) >> return (Page i))
 
 -- | Page size for paginated user interfaces.
 --
--- Page sizes must be positive integers
+-- Page sizes must be positive integers.
 newtype PageSize = PageSize { unpackPageSize :: Integer }
   deriving (Eq, Ord, Show, FromText, ToText)
 
@@ -163,12 +165,12 @@ data ServerOptions = ServerOptions
 -- | Describes events which should be tracked by the monitoring statistics
 -- system.
 data GrantEvent
-    = CodeGranted  -- ^ Issued token from code request
-    | ImplicitGranted -- ^ Issued token from implicit request.
-    | OwnerCredentialsGranted -- ^ Issued token from owner password request.
+    = CodeGranted              -- ^ Issued token from code request
+    | ImplicitGranted          -- ^ Issued token from implicit request.
+    | OwnerCredentialsGranted  -- ^ Issued token from owner password request.
     | ClientCredentialsGranted -- ^ Issued token from client password request.
-    | ExtensionGranted -- ^ Issued token from extension grant request.
-    | RefreshGranted -- ^ Issued token from refresh grant request.
+    | ExtensionGranted         -- ^ Issued token from extension grant request.
+    | RefreshGranted           -- ^ Issued token from refresh grant request.
 
 -- | Response type requested by client when using the authorize endpoint.
 --
@@ -242,6 +244,7 @@ data RequestCode = RequestCode
 -- 'AccessRequest' constructors are not implemented.
 data AccessRequest
     -- | grant_type=authorization_code
+    --
     --   http://tools.ietf.org/html/rfc6749#section-4.1.3
     = RequestAuthorizationCode
         { requestCode        :: Code
@@ -249,11 +252,13 @@ data AccessRequest
         , requestClientID    :: Maybe ClientID
         }
     -- | grant_type=client_credentials
+    --
     --   http://tools.ietf.org/html/rfc6749#section-4.4.2
     | RequestClientCredentials
         { requestScope :: Maybe Scope
         }
     -- | grant_type=refresh_token
+    --
     --   http://tools.ietf.org/html/rfc6749#section-6
     | RequestRefreshToken
         { requestRefreshToken :: Token
@@ -320,14 +325,14 @@ instance FromFormUrlEncoded (Either OAuth2Error AccessRequest) where
             x -> Left $ OAuth2Error InvalidRequest
                                     (preview errorDescription $ "unsupported grant_type " <> T.encodeUtf8 x)
                                     Nothing
-
-lookupEither :: Text -> [(Text,b)] -> Either OAuth2Error b
-lookupEither v vs = case lookup v vs of
-    Nothing -> Left $ OAuth2Error InvalidRequest
-                                  (preview errorDescription $ "missing required key " <> T.encodeUtf8 v)
-                                  Nothing
-    Just x -> Right x
-
+      where
+        lookupEither :: Text -> [(Text,b)] -> Either OAuth2Error b
+        lookupEither v vs = case lookup v vs of
+            Just x  -> Right x
+            Nothing ->
+                Left $ OAuth2Error InvalidRequest
+                                   (preview errorDescription $ "missing required key " <> T.encodeUtf8 v)
+                                   Nothing
 
 instance FromFormUrlEncoded AccessRequest where
     fromFormUrlEncoded xs = either Left (either (Left . show) Right) $
@@ -365,7 +370,6 @@ data AccessResponse = AccessResponse
   deriving (Eq, Show, Typeable)
 
 -- | A token grant.
---
 data TokenGrant = TokenGrant
     { grantTokenType :: TokenType
     , grantExpires   :: Maybe UTCTime
@@ -376,19 +380,20 @@ data TokenGrant = TokenGrant
   deriving (Eq, Show, Typeable)
 
 -- | Token details.
+--
 --   This is recorded in the OAuth2 server and used to verify tokens in the
 --   future.
---
 data TokenDetails = TokenDetails
-    { tokenDetailsTokenType :: TokenType
-    , tokenDetailsToken     :: Token
-    , tokenDetailsExpires   :: Maybe UTCTime
-    , tokenDetailsUserID    :: Maybe UserID
-    , tokenDetailsClientID  :: Maybe ClientID
-    , tokenDetailsScope     :: Scope
+    { tokenDetailsTokenType :: TokenType      -- ^ The type of token (Bearer/Refresh)
+    , tokenDetailsToken     :: Token          -- ^ The actual token
+    , tokenDetailsExpires   :: Maybe UTCTime  -- ^ The expiry time of the token
+    , tokenDetailsUserID    :: Maybe UserID   -- ^ The user to which this token belongs
+    , tokenDetailsClientID  :: Maybe ClientID -- ^ The client to which this token is for
+    , tokenDetailsScope     :: Scope          -- ^ The scope of the client
     }
   deriving (Eq, Show, Typeable)
 
+-- | Constructs a TokenDetails out of a Token and TokenGrant
 tokenDetails :: Token -> TokenGrant -> TokenDetails
 tokenDetails tok TokenGrant{..}
   = TokenDetails
@@ -399,6 +404,7 @@ tokenDetails tok TokenGrant{..}
   , tokenDetailsClientID  = grantClientID
   , tokenDetailsScope     = grantScope
   }
+
 -- | Whether or not a token belongs to a User
 belongsToUser :: TokenDetails -> UserID -> Bool
 belongsToUser TokenDetails{..} uid = case tokenDetailsUserID of
@@ -430,7 +436,7 @@ instance ToJSON AccessResponse where
                   , "expires_in" .= tokenExpiresIn
                   , "scope" .= tokenScope
                   ]
-            ref = maybe [] (\t -> ["refresh_token" .= T.decodeUtf8 (unToken t)]) refreshToken
+            ref = maybe [] (\t -> ["refresh_token" .= T.decodeUtf8 (review token t)]) refreshToken
             uid = maybe [] (\s -> ["user_id" .= toJSON s]) tokenUserID
             client = maybe [] (\s -> ["client_id" .= toJSON s]) tokenClientID
         in object . concat $ [tok, ref, uid, client]
@@ -445,6 +451,7 @@ instance FromJSON AccessResponse where
         <*> o .:? "client_id"
         <*> o .: "scope"
 
+-- | Type to represent the approval or declination of a Code
 data AuthorizePostRequest
     = AuthorizeApproved Code
     | AuthorizeDeclined Code
@@ -462,13 +469,11 @@ instance FromFormUrlEncoded AuthorizePostRequest where
                 Nothing -> Left "invalid code"
                 Just c -> Right $ cons c
 
--- * Database Instances
+-- Database Instances
 
--- $ Here we implement support for, e.g., sorting oauth2-server types in
+-- Here we implement support for, e.g., sorting oauth2-server types in
 -- PostgreSQL databases.
 --
-
-
 instance ToRow TokenGrant where
     toRow (TokenGrant ty ex uid cid sc) = toRow
         ( ty
