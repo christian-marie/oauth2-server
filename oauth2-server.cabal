@@ -34,6 +34,7 @@ Library
   exposed-modules:     Network.OAuth2.Server
                      , Network.OAuth2.Server.API
                      , Network.OAuth2.Server.App
+                     , Network.OAuth2.Server.Foundation
                      , Network.OAuth2.Server.Configuration
                      , Network.OAuth2.Server.Statistics
                      , Network.OAuth2.Server.Store
