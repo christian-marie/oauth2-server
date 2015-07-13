@@ -43,7 +43,7 @@ import qualified Text.Blaze.Html5.Attributes as Blaze
 import           URI.ByteString              (serializeURI)
 
 stylesheet :: String
-stylesheet = BS.unpack $(embedFile "style.css")
+stylesheet = BS.unpack $(embedFile "static/stylesheet.css")
 
 -- | Helper for displaying client details
 partialClientDetails :: ClientDetails -> Html
