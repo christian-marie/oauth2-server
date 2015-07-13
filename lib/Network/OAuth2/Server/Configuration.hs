@@ -28,10 +28,13 @@ import           Data.IP
 import           Data.Maybe
 import           Data.String
 import qualified Data.Text                         as T
+import           System.FilePath
+import           System.IO.Unsafe
 import           Text.Read
 
 import           Network.OAuth2.Server.Types
 import           Network.Wai.Middleware.Shibboleth as S
+import qualified Paths_oauth2_server               as P
 
 -- | Some (in?)sane defaults for an oauth server, run on localhost:8080, with
 -- stats being served on *:8888.
@@ -39,15 +42,16 @@ import           Network.Wai.Middleware.Shibboleth as S
 -- You'll want to set optDBString at minimum.
 defaultServerOptions :: ServerOptions
 defaultServerOptions =
-    let optDBString = ""
-        optStatsHost = "localhost"
-        optStatsPort = 8888
-        optServiceHost = "*"
-        optServicePort = 8080
-        optUIPageSize = (10 :: Integer) ^?! pageSize
-        optVerifyRealm = "verify-token"
-        optShibboleth = S.defaultConfig
-    in ServerOptions{..}
+    let optDBString     = ""
+        optStatsHost    = "localhost"
+        optStatsPort    = 8888
+        optServiceHost  = "*"
+        optServicePort  = 8080
+        optUIPageSize   = (10 :: Integer) ^?! pageSize
+        optUIStaticPath = unsafePerformIO P.getDataDir </> "static"
+        optVerifyRealm  = "verify-token"
+        optShibboleth   = S.defaultConfig
+   in ServerOptions{..}
 
 -- | Load some server options, overwriting defaults in 'defaultServerOptions'.
 loadOptions :: Config -> IO ServerOptions
@@ -58,6 +62,7 @@ loadOptions conf = do
     optServiceHost <- maybe (optServiceHost defaultServerOptions) fromString <$> C.lookup conf "api.host"
     optServicePort <- ldef optServicePort "api.port"
     optUIPageSize <- maybe (optUIPageSize defaultServerOptions) unwrapNonOrphan <$>  C.lookup conf "ui.page_size"
+    optUIStaticPath <- ldef optUIStaticPath "ui.elephant"
     optVerifyRealm <- ldef optVerifyRealm "api.verify_realm"
     shibhdr <- ldef (CI.foldedCase . S.prefix . optShibboleth) "shibboleth.header_prefix"
     upstream <- C.lookup conf "shibboleth.upstream"
