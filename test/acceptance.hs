@@ -44,6 +44,10 @@ main = do
         (uri:rest) | Just x <- parseURI uri -> withArgs rest $ hspec (tests x)
         _ -> putStrLn "First argument must be a server URI."
 
+onLeft :: (a -> Bool) -> Either a b -> Bool
+onLeft f (Left x)  = f x
+onLeft _ (Right _) = False
+
 tests :: URI -> Spec
 tests base_uri = do
     describe "verify endpoint" $ do
@@ -54,19 +58,19 @@ tests base_uri = do
 
         it "returns an error when given valid credentials and a token from another client" $ do
             resp <- verifyToken base_uri client2 (fst tokenVV)
-            resp `shouldBe` Left "404 Not Found - This is not a valid token."
+            resp `shouldSatisfy` onLeft ("404 Not Found" `isPrefixOf`)
 
         it "returns an error when given invalid client credentials" $ do
             resp <- verifyToken base_uri client3 (fst tokenVV)
-            resp `shouldBe` Left "401 Unauthorized - Login to validate a token."
+            resp `shouldSatisfy` onLeft ("401 Unauthorized" `isPrefixOf`)
 
         it "returns an error when given a token which has been revoked" $ do
             resp <- verifyToken base_uri client1 (fst tokenRV)
-            resp `shouldBe` Left "404 Not Found - This is not a valid token."
+            resp `shouldSatisfy` onLeft ("404 Not Found" `isPrefixOf`)
 
         it "returns an error when given a token which is not valid" $ do
             resp <- verifyToken base_uri client1 (fst tokenDERP)
-            resp `shouldBe` Left "404 Not Found - This is not a valid token."
+            resp `shouldSatisfy` onLeft ("404 Not Found" `isPrefixOf`)
 
     describe "token endpoint" $ do
         it "uses the same details when refreshing a token" $ do
@@ -88,11 +92,11 @@ tests base_uri = do
             -- If we got a new refresh token, the old one should be revoked.
             when (isJust $ OAuth2.refreshToken t2) $ do
                     r1 <- verifyToken base_uri client1 (snd tokenVV)
-                    r1 `shouldBe` Left "404 Not Found - This is not a valid token."
+                    r1 `shouldSatisfy` onLeft ("404 Not Found" `isPrefixOf`)
 
             -- The original bearer token should now be revoked.
             t1'' <- verifyToken base_uri client1 (fst tokenVV)
-            t1'' `shouldBe` Left "404 Not Found - This is not a valid token."
+            t1'' `shouldSatisfy` onLeft ("404 Not Found" `isPrefixOf`)
 
             -- Compare them in all the respects which should be identical.
             (shouldBe `on` tokenType) t1 t2
@@ -125,12 +129,12 @@ tests base_uri = do
 
             -- The old bearer token should now be invalid.
             t1_2' <- verifyToken base_uri client1 (fst tok)
-            t1_2' `shouldBe` Left "404 Not Found - This is not a valid token."
+            t1_2' `shouldSatisfy` onLeft ("404 Not Found" `isPrefixOf`)
 
             -- If we got a new refresh token, the old one should be revoked.
             when (isJust $ OAuth2.refreshToken t2) $ do
                     r1 <- verifyToken base_uri client1 (snd tok)
-                    r1 `shouldBe` Left "404 Not Found - This is not a valid token."
+                    r1 `shouldSatisfy` onLeft ("404 Not Found" `isPrefixOf`)
 
         it "restricts new tokens to the client which granted them"
             pending
@@ -142,7 +146,7 @@ tests base_uri = do
 
         it "returns an error when Shibboleth authentication headers are missing" $ do
             resp <- runExceptT $ getAuthorizePage base_uri Nothing code_request
-            resp `shouldBe` Left "500 Internal Server Error - Something went wrong"
+            resp `shouldSatisfy` onLeft ("500 Internal Server Error" `isPrefixOf`)
 
         it "the POST returns an error when Shibboleth authentication headers are missing" $ do
             -- 1. Get the page.
@@ -172,7 +176,7 @@ tests base_uri = do
                     resp3 <- runExceptT $ sendAuthorization uri (Just user1) f
                     -- TODO(thsutton): FromFormUrlEncoded Code results in this
                     -- terrible error.
-                    resp3 `shouldBe` (Left "400 Bad Request - invalid request body: Code is a required field.")
+                    resp3 `shouldSatisfy` onLeft ("400 Bad Request" `isPrefixOf`)
 
         it "the POST returns an error when the Shibboleth authentication headers identify a mismatched user" $ do
             -- 1. Get the page.
@@ -185,7 +189,7 @@ tests base_uri = do
                 Left _ -> error "No fields"
                 Right (uri, fields) -> do
                     resp3 <- runExceptT $ sendAuthorization uri (Just user2) fields
-                    resp3 `shouldBe` (Left "401 Unauthorized - You are not authorized to approve this request.")
+                    resp3 `shouldSatisfy` onLeft ("403 Forbidden" `isPrefixOf`)
 
         it "the redirect contains a code which can be used to request a token" $ do
             res <- runExceptT $ do

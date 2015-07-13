@@ -23,6 +23,7 @@
 -- Data types for OAuth2 server.
 module Network.OAuth2.Server.Types (
   AccessRequest(..),
+  decodeAccessRequest,
   AccessResponse(..),
   addQueryParameters,
   OAuth2Error(..),
@@ -115,18 +116,19 @@ import           Database.PostgreSQL.Simple.FromField
 import           Database.PostgreSQL.Simple.FromRow
 import           Database.PostgreSQL.Simple.ToField
 import           Database.PostgreSQL.Simple.ToRow
+import           Network.Wai.Handler.Warp             hiding (Connection)
+import           Servant.API                          (FromFormUrlEncoded (..),
+                                                       FromText (..),
+                                                       ToFormUrlEncoded (..),
+                                                       ToText (..))
+
 import           Network.OAuth2.Server.Types.Auth
 import           Network.OAuth2.Server.Types.Client
 import           Network.OAuth2.Server.Types.Common
 import           Network.OAuth2.Server.Types.Error
 import           Network.OAuth2.Server.Types.Scope
 import           Network.OAuth2.Server.Types.Token
-import           Network.Wai.Handler.Warp             hiding (Connection)
 import           Network.Wai.Middleware.Shibboleth
-import           Servant.API                          (FromFormUrlEncoded (..),
-                                                       FromText (..),
-                                                       ToFormUrlEncoded (..),
-                                                       ToText (..))
 
 -- | Page number for paginated user interfaces.
 --
@@ -244,7 +246,6 @@ data RequestCode = RequestCode
 -- 'AccessRequest' constructors are not implemented.
 data AccessRequest
     -- | grant_type=authorization_code
-    --
     --   http://tools.ietf.org/html/rfc6749#section-4.1.3
     = RequestAuthorizationCode
         { requestCode        :: Code
@@ -252,13 +253,11 @@ data AccessRequest
         , requestClientID    :: Maybe ClientID
         }
     -- | grant_type=client_credentials
-    --
     --   http://tools.ietf.org/html/rfc6749#section-4.4.2
     | RequestClientCredentials
         { requestScope :: Maybe Scope
         }
     -- | grant_type=refresh_token
-    --
     --   http://tools.ietf.org/html/rfc6749#section-6
     | RequestRefreshToken
         { requestRefreshToken :: Token
@@ -271,8 +270,8 @@ data AccessRequest
 -- If the request can't be decoded (because it uses a grant type we don't
 -- support, or is otherwise invalid) then return an 'OAuth2Error' describing
 -- the problem instead.
-instance FromFormUrlEncoded (Either OAuth2Error AccessRequest) where
-    fromFormUrlEncoded xs = return $ do
+decodeAccessRequest :: [(Text, Text)] -> Either OAuth2Error AccessRequest
+decodeAccessRequest xs = do
         grant_type <- lookupEither "grant_type" xs
         case grant_type of
             "authorization_code" -> do
@@ -333,10 +332,6 @@ instance FromFormUrlEncoded (Either OAuth2Error AccessRequest) where
                 Left $ OAuth2Error InvalidRequest
                                    (preview errorDescription $ "missing required key " <> T.encodeUtf8 v)
                                    Nothing
-
-instance FromFormUrlEncoded AccessRequest where
-    fromFormUrlEncoded xs = either Left (either (Left . show) Right) $
-        (fromFormUrlEncoded xs :: Either String (Either OAuth2Error AccessRequest))
 
 instance ToFormUrlEncoded AccessRequest where
     toFormUrlEncoded RequestAuthorizationCode{..} =
@@ -469,11 +464,13 @@ instance FromFormUrlEncoded AuthorizePostRequest where
                 Nothing -> Left "invalid code"
                 Just c -> Right $ cons c
 
--- Database Instances
+-- * Database Instances
 
--- Here we implement support for, e.g., sorting oauth2-server types in
+-- $ Here we implement support for, e.g., sorting oauth2-server types in
 -- PostgreSQL databases.
 --
+
+
 instance ToRow TokenGrant where
     toRow (TokenGrant ty ex uid cid sc) = toRow
         ( ty

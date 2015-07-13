@@ -33,8 +33,6 @@
 -- The intention is to seperate all OAuth2 specific logic from our particular
 -- way of handling AAA.
 module Network.OAuth2.Server.App (
-    NoStore,
-    NoCache,
     OAuth2Server(..),
 
     -- * API handlers
@@ -42,11 +40,7 @@ module Network.OAuth2.Server.App (
     -- $ These functions each handle a single endpoint in the OAuth2 Server
     -- HTTP API.
 
-    tokenEndpoint,
-    authorizeEndpoint,
     processAuthorizeGet,
-    authorizePost,
-    verifyEndpoint,
     serverDisplayToken,
     serverListTokens,
     serverPostToken,
@@ -56,43 +50,36 @@ module Network.OAuth2.Server.App (
 
     checkClientAuth,
     processTokenRequest,
-    throwOAuth2Error,
-    handleShib,
     page1,
     pageSize1,
 ) where
 
-import           Control.Concurrent.STM      (TChan)
 import           Control.Lens
 import           Control.Monad
-import           Control.Monad.IO.Class      (MonadIO (liftIO))
-import           Control.Monad.Reader.Class  (ask)
-import           Data.Either                 (lefts, rights)
+import           Control.Monad.IO.Class           (MonadIO (liftIO))
+import           Control.Monad.Reader.Class       (ask)
+import           Data.Either                      (lefts, rights)
 import           Data.Maybe
 import           Data.Monoid
-import           Data.Proxy
-import qualified Data.Set                    as S
-import           Data.String
-import           Data.Text                   (Text)
-import qualified Data.Text                   as T
-import qualified Data.Text.Encoding          as T
-import           Formatting                  (sformat, shown, (%))
-import           GHC.TypeLits
-import           Network.OAuth2.Server.Types as X
-import           Servant.API                 (fromText)
-import           Servant.Server              (serve)
+import qualified Data.Set                         as S
+import           Data.Text                        (Text)
+import qualified Data.Text                        as T
+import qualified Data.Text.Encoding               as T
+import           Formatting                       (sformat, shown, (%))
+import           Network.OAuth2.Server.Types      as X
+import           Servant.API                      (fromText)
 import           System.Log.Logger
-import           Text.Blaze.Html5            (Html)
-import           Yesod.Core                  (RenderRoute (..),
-                                              WaiSubsite (..), Yesod,
-                                              invalidArgs, lookupGetParam,
-                                              lookupHeader, lookupPostParam,
-                                              lookupPostParams, mkYesod,
-                                              notFound, parseRoutes,
-                                              permissionDenied, redirect)
+import           Text.Blaze.Html5                 (Html)
+import           Yesod.Core                       (invalidArgs,
+                                                   lookupGetParam,
+                                                   lookupPostParam,
+                                                   lookupPostParams,
+                                                   mkYesodDispatch, notFound,
+                                                   permissionDenied, redirect)
 
 import           Network.OAuth2.Server.API
-import           Network.OAuth2.Server.Store hiding (logName)
+import           Network.OAuth2.Server.Foundation
+import           Network.OAuth2.Server.Store      hiding (logName)
 import           Network.OAuth2.Server.UI
 
 -- * Logging
@@ -109,23 +96,8 @@ wrapLogger :: MonadIO m => (String -> String -> IO a) -> String -> Text -> m a
 wrapLogger logger component msg = do
     liftIO $ logger (logName <> " " <> component <> ": ") (T.unpack msg)
 
--- | Data type for a Yesod OAuth2 Server
-data OAuth2Server where
-    OAuth2Server :: TokenStore ref => ref -> ServerOptions -> (TChan GrantEvent) -> OAuth2Server
-
-instance Yesod OAuth2Server
-
-mkYesod "OAuth2Server" [parseRoutes|
-/oauth2          OAuth2R      WaiSubsite oAuth2SubAPI
-/                BaseR
-/tokens/#TokenID ShowTokenR   GET
-/tokens          TokensR      GET POST
-/healthcheck     HealthCheckR
-|]
-
-oAuth2SubAPI :: OAuth2Server -> WaiSubsite
-oAuth2SubAPI (OAuth2Server ref serverOpts sink) =
-    WaiSubsite $ serve oAuth2API $ oAuth2APIserver ref serverOpts sink
+-- YesodDispatch instance.
+mkYesodDispatch "OAuth2Server" routes
 
 handleBaseR :: Handler ()
 handleBaseR = redirect TokensR
@@ -179,20 +151,6 @@ handleHealthCheckR :: Handler ()
 handleHealthCheckR = do
     (OAuth2Server ref _ _) <- ask
     healthCheck ref
-
-checkShibHeaders :: Handler (UserID, Scope)
-checkShibHeaders = do
-    let uh = fromString $ symbolVal (Proxy :: Proxy OAuthUserHeader)
-        sh = fromString $ symbolVal (Proxy :: Proxy OAuthUserScopeHeader)
-    uh' <- lookupHeader uh
-    uid <- case preview userID =<< uh' of
-        Nothing -> error "Shibboleth User header missing or invalid."
-        Just uid -> return uid
-    sh' <- lookupHeader sh
-    sc <- case bsToScope =<< sh' of
-        Nothing -> error "Shibboleth User Scope header missing or invalid."
-        Just sc -> return sc
-    return (uid,sc)
 
 -- | Page 1 is totally a valid page, promise.
 page1 :: Page

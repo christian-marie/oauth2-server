@@ -18,12 +18,7 @@
 {-# LANGUAGE TypeFamilies          #-}
 {-# LANGUAGE TypeOperators         #-}
 
--- This should be removed when the 'HasLink (Headers ...)' instance is removed.
-{-# OPTIONS_GHC -fno-warn-orphans #-}
-
--- | Description: OAuth2 API implementation.
---
--- OAuth2 API implementation.
+-- | OAuth2 API implementation.
 --
 -- This implementation assumes the use of Shibboleth, which doesn't actually
 -- mean anything all that specific. This just means that we expect a particular
@@ -33,79 +28,55 @@
 -- way of handling AAA.
 module Network.OAuth2.Server.API (
     -- * HTTP Headers
-    NoStore,
-    NoCache,
-    OAuthUserHeader,
-    OAuthUserScopeHeader,
-
-    -- * API types
-    --
-    -- $ These types describe the OAuth2 Server HTTP API.
-
-    OAuth2API,
-    TokenEndpoint,
-    AuthorizeEndpoint,
-    AuthorizePost,
-    VerifyEndpoint,
+    oAuthUserHeader,
+    oAuthUserScopeHeader,
 
     -- * API handlers
     --
     -- $ These functions each handle a single endpoint in the OAuth2 Server
     -- HTTP API.
 
-    oAuth2API,
-    oAuth2APIserver,
-    tokenEndpoint,
-    authorizeEndpoint,
+    postTokenEndpointR,
+    getAuthorizeEndpointR,
     processAuthorizeGet,
-    authorizePost,
-    verifyEndpoint,
+    postAuthorizeEndpointR,
+    postVerifyEndpointR,
 
     -- * Helpers
 
     checkClientAuth,
     processTokenRequest,
-    throwOAuth2Error,
-    handleShib,
+    checkShibHeaders,
 ) where
 
-import           Control.Concurrent.STM      (TChan, atomically, writeTChan)
+import           Control.Applicative
+import           Control.Concurrent.STM           (atomically, writeTChan)
 import           Control.Lens
 import           Control.Monad
-import           Control.Monad.Error.Class   (MonadError (throwError))
-import           Control.Monad.IO.Class      (MonadIO (liftIO))
+import           Control.Monad.Error.Class        (MonadError (throwError))
+import           Control.Monad.Reader.Class       (ask)
 import           Control.Monad.Trans.Control
-import           Control.Monad.Trans.Except  (ExceptT, runExceptT)
+import           Control.Monad.Trans.Except       (ExceptT, runExceptT)
 import           Crypto.Scrypt
-import           Data.Aeson                  (encode)
-import           Data.ByteString.Conversion  (ToByteString (..))
-import           Data.Foldable               (traverse_)
+import           Data.Conduit
+import           Data.Conduit.List
+import           Data.Foldable                    (traverse_)
 import           Data.Maybe
 import           Data.Monoid
-import           Data.Proxy
-import           Data.Text                   (Text)
-import qualified Data.Text                   as T
-import qualified Data.Text.Encoding          as T
-import           Data.Time.Clock             (UTCTime, addUTCTime,
-                                              getCurrentTime)
-import           Formatting                  (sformat, shown, (%))
-import           Network.HTTP.Types          hiding (Header)
-import           Network.OAuth2.Server.Types as X
-import           Servant.API                 ((:<|>) (..), (:>),
-                                              AddHeader (addHeader),
-                                              FormUrlEncoded, Get, Header,
-                                              Headers, JSON, OctetStream,
-                                              Post, QueryParam, ReqBody,
-                                              ToFormUrlEncoded (..))
-import           Servant.HTML.Blaze
-import           Servant.Server              (ServantErr (errBody, errHeaders),
-                                              Server, err302, err400, err401,
-                                              err404)
-import           Servant.Utils.Links
+import           Data.Text                        (Text)
+import qualified Data.Text                        as T
+import qualified Data.Text.Encoding               as T
+import           Data.Time.Clock                  (UTCTime, addUTCTime,
+                                                   getCurrentTime)
+import           Formatting                       (sformat, shown, (%))
+import           Network.HTTP.Types               hiding (Header)
+import           Network.OAuth2.Server.Types      as X
+import           Servant.API
 import           System.Log.Logger
-import           Text.Blaze.Html5            (Html)
+import           Yesod.Core
 
-import           Network.OAuth2.Server.Store hiding (logName)
+import           Network.OAuth2.Server.Foundation
+import           Network.OAuth2.Server.Store      hiding (logName)
 import           Network.OAuth2.Server.UI
 
 -- Logging
@@ -127,60 +98,53 @@ wrapLogger logger component msg = do
 -- $ The OAuth2 Server API uses HTTP headers to exchange information between
 -- system components and to control caching behaviour.
 
--- TODO: Move this into some servant common package
-
--- | HTTP implementations should not store this request.
---
---   http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.9.2
---
---   The purpose of the no-store directive is to prevent the inadvertent
---   release retention of sensitive information (for example, on backup tapes).
-
-data NoStore = NoStore
-instance ToByteString NoStore where
-    builder _ = "no-store"
-
--- | HTTP implementations should not cache this request.
---
---   http://tools.ietf.org/html/rfc2616#section-14.32
---
---   We use this in Pragma headers, for compatibilty.
-data NoCache = NoCache
-instance ToByteString NoCache where
-    builder _ = "no-cache"
-
--- | Temporary instance to create links with headers pending
---   servant 0.4.3/0.5
---
---   When this is removed, also delete the -fno-warn-orphans option above.
-instance HasLink sub => HasLink (Header sym a :> sub) where
-    type MkLink (Header sym a :> sub) = MkLink sub
-    toLink _ = toLink (Proxy :: Proxy sub)
-
 -- | Shibboleth will pass us the UID of the authenticated user in this header.
-type OAuthUserHeader = "Identity-OAuthUser"
+oAuthUserHeader :: HeaderName
+oAuthUserHeader = "Identity-OAuthUser"
 
 -- | Shibboleth will pass us the available permissions of the authenticated
 --   user in this header.
-type OAuthUserScopeHeader = "Identity-OAuthUserScopes"
+oAuthUserScopeHeader :: HeaderName
+oAuthUserScopeHeader = "Identity-OAuthUserScopes"
 
--- | Type-list of headers to disable HTTP caching in clients.
---
---   This is used in several places throughout the API and, furthermore, breaks
---   haskell-src-exts, hlint, etc. when used inline in more complex types.
-type CachingHeaders = '[HdrCacheControl, HdrPragma]
+checkShibHeaders :: Handler (UserID, Scope)
+checkShibHeaders = do
+    uh' <- lookupHeader oAuthUserHeader
+    uid <- case preview userID =<< uh' of
+        Nothing -> error "Shibboleth User header missing"
+        Just uid -> return uid
+    sh' <- lookupHeader oAuthUserScopeHeader
+    sc <- case bsToScope =<< sh' of
+        Nothing -> error "Shibboleth User Scope header missing"
+        Just sc -> return sc
+    return (uid,sc)
 
--- | 'Header' type for the Cache-Control HTTP header.
---
---   Used in 'CachingHeaders'.
-type HdrCacheControl = Header "Cache-Control" NoStore
+-- | Handler for 'TokenEndpoint', basically a wrapper for 'processTokenRequest'
+postTokenEndpointR :: Handler Value
+postTokenEndpointR = do
+    (xs,_) <- runRequestBody
+    req <- case decodeAccessRequest xs of
+        Left e -> sendResponseStatus badRequest400 $ toJSON e
+        Right req -> return req
+    auth <- (fromText . T.decodeUtf8 =<<) <$> lookupHeader "Authorization"
 
--- | 'Header' type for the Pragma HTTP header.
---
---   Used in 'CachingHeaders'.
-type HdrPragma = Header "Pragma" NoCache
+    (OAuth2Server ref _ sink) <- ask
 
--- | Request a token, basically AccessRequest -> AccessResponse with noise.
+    t <- liftIO getCurrentTime
+
+    res <- liftIO . runExceptT $ processTokenRequest ref t auth req
+    case res of
+        Left e -> do
+            sendResponseStatus badRequest400 $ toJSON e
+        Right response -> do
+            void . liftIO . atomically . writeTChan sink $ case req of
+                RequestAuthorizationCode{} -> CodeGranted
+                RequestClientCredentials{} -> ClientCredentialsGranted
+                RequestRefreshToken{}      -> RefreshGranted
+            returnJson response
+
+-- | Check that the request is valid. If it is we provide an 'AccessResponse',
+-- otherwise we return an 'OAuth2Error'.
 --
 -- The response headers are mentioned here:
 --
@@ -191,40 +155,6 @@ type HdrPragma = Header "Pragma" NoCache
 --    containing tokens, credentials, or other sensitive information, as well
 --    as the "Pragma" response header field [RFC2616] with a value of
 --    "no-cache".
-type TokenEndpoint
-    = "token"
-    :> Header "Authorization" AuthHeader
-    :> ReqBody '[FormUrlEncoded] (Either OAuth2Error AccessRequest)
-                                 -- The Either here is a weird hack to be able to handle parse failures explicitly.
-    :> Post '[JSON] (Headers CachingHeaders AccessResponse)
-
--- | Encode an 'OAuth2Error' and throw it to servant.
---
-
--- TODO: Fix the name/behaviour. Terrible name for something that 400s.
-throwOAuth2Error :: MonadError ServantErr m => OAuth2Error -> m a
-throwOAuth2Error e =
-    throwError err400 { errBody = encode e
-                      , errHeaders = [("Content-Type", "application/json")]
-                      }
-
--- | Handler for 'TokenEndpoint', basically a wrapper for 'processTokenRequest'
-tokenEndpoint :: TokenStore ref => ref -> TChan GrantEvent -> Server TokenEndpoint
-tokenEndpoint _ _ _ (Left e) = throwOAuth2Error e
-tokenEndpoint ref sink auth (Right req) = do
-    t <- liftIO getCurrentTime
-    res <- liftIO . runExceptT $ processTokenRequest ref t auth req
-    case res of
-        Left e -> throwOAuth2Error e
-        Right response -> do
-            void . liftIO . atomically . writeTChan sink $ case req of
-                RequestAuthorizationCode{} -> CodeGranted
-                RequestClientCredentials{} -> ClientCredentialsGranted
-                RequestRefreshToken{}      -> RefreshGranted
-            return . addHeader NoStore . addHeader NoCache $ response
-
--- | Check that the request is valid. If it is we provide an 'AccessResponse',
--- otherwise we return an 'OAuth2Error'.
 --
 -- Any IO exceptions that are thrown are probably catastrophic and unaccounted
 -- for, and should not be caught.
@@ -337,117 +267,39 @@ processTokenRequest ref t (Just client_auth) req = do
                     sformat ("Got passed invalid token " % shown) tok
                 invalidRequest "Invalid token"
 
-
 -- | OAuth2 Authorization Endpoint
 --
 -- Allows authenticated users to review and authorize a code token grant
 -- request.
 --
 -- http://tools.ietf.org/html/rfc6749#section-3.1
-type AuthorizeEndpoint
-    = "authorize"
-    :> Header OAuthUserHeader UserID
-    :> Header OAuthUserScopeHeader Scope
-    :> QueryParam "response_type" ResponseType
-    :> QueryParam "client_id" ClientID
-    :> QueryParam "redirect_uri" RedirectURI
-    :> QueryParam "scope" Scope
-    :> QueryParam "state" ClientState
-    :> Get '[HTML] Html
-
--- | OAuth2 Authorization Endpoint
 --
--- Allows authenticated users to review and authorize a code token grant
--- request.
+-- This handler must be protected by Shibboleth (or other mechanism in the
+-- front-end proxy). It decodes the client request and presents a UI allowing
+-- the user to approve or reject a grant request.
 --
--- http://tools.ietf.org/html/rfc6749#section-3.1
-type AuthorizePost
-    = "authorize"
-    :> Header OAuthUserHeader UserID
-    :> Header OAuthUserScopeHeader Scope
-    :> ReqBody '[FormUrlEncoded] AuthorizePostRequest
-    :> Post '[HTML] ()
-
--- | Facilitates services checking tokens.
---
--- This endpoint allows an authorized client to verify that a token is valid
--- and retrieve information about the principal and token scope.
-type VerifyEndpoint
-    = "verify"
-    :> Header "Authorization" AuthHeader
-    :> ReqBody '[OctetStream] Token
-    :> Post '[JSON] (Headers CachingHeaders AccessResponse)
-
--- | OAuth2 Server HTTP endpoints.
---
--- Includes endpoints defined in RFC6749 describing OAuth2, plus application
--- specific extensions.
-type OAuth2API
-       = TokenEndpoint
-    :<|> VerifyEndpoint
-    :<|> AuthorizeEndpoint
-    :<|> AuthorizePost
-
--- | Servant API for OAuth2
-oAuth2API :: Proxy OAuth2API
-oAuth2API = Proxy
-
--- | Construct a server of the entire API from an initial state
-oAuth2APIserver :: TokenStore ref => ref -> ServerOptions -> TChan GrantEvent -> Server OAuth2API
-oAuth2APIserver ref serverOpts sink
-       = tokenEndpoint ref sink
-    :<|> verifyEndpoint ref serverOpts
-    :<|> handleShib (authorizeEndpoint ref)
-    :<|> handleShib (authorizePost ref)
-
--- | Any shibboleth authed endpoint must have all relevant headers defined, and
--- any other case is an internal error. handleShib consolidates checking these
--- headers.
-handleShib
-    :: (UserID -> Scope -> a)
-    -> Maybe UserID
-    -> Maybe Scope
-    -> a
-handleShib f (Just u) (Just s) = f u s
-handleShib _ _        _        = error "Expected Shibboleth headers"
-
--- | Implements the OAuth2 authorize endpoint.
---
---   This handler must be protected by Shibboleth (or other mechanism in the
---   front-end proxy). It decodes the client request and presents a UI allowing
---   the user to approve or reject a grant request.
---
---   http://tools.ietf.org/html/rfc6749#section-3.1
-
---   TODO: Handle the validation of things more nicely here, preferably
---   shifting them out of here entirely.
-authorizeEndpoint
-    :: ( MonadIO m
-       , MonadBaseControl IO m
-       , MonadError ServantErr m
-       , TokenStore ref
-       )
-    => ref
-    -> UserID             -- ^ Authenticated user
-    -> Scope              -- ^ Authenticated permissions
-    -> Maybe ResponseType -- ^ Requested response type.
-    -> Maybe ClientID     -- ^ Requesting Client ID.
-    -> Maybe RedirectURI  -- ^ Requested redirect URI.
-    -> Maybe Scope        -- ^ Requested scope.
-    -> Maybe ClientState  -- ^ State from requesting client.
-    -> m Html
-authorizeEndpoint ref user_id permissions response_type client_id' redirect scope' state = do
-    res <- runExceptT $ processAuthorizeGet ref user_id permissions response_type client_id' redirect scope' state
+-- TODO: Handle the validation of things more nicely here, preferably
+-- shifting them out of here entirely.
+getAuthorizeEndpointR
+    :: Handler Html
+getAuthorizeEndpointR = do
+    (OAuth2Server ref _ _) <- ask
+    (user_id, permissions) <- checkShibHeaders
+    response_type <- (fromText =<<) <$> lookupGetParam "response_type"
+    client_id' <- (fromText =<<) <$> lookupGetParam "client_id"
+    redirect_url <-(fromText =<<) <$>  lookupGetParam "redirect_uri"
+    scope' <- (fromText =<<) <$> lookupGetParam "scope"
+    state <- (fromText =<<) <$> lookupGetParam "state"
+    res <- runExceptT $ processAuthorizeGet ref user_id permissions response_type client_id' redirect_url scope' state
     case res of
-        Left (Nothing, e) -> throwOAuth2Error e
+        Left (Nothing, e) -> sendResponseStatus badRequest400 $ toJSON e
         Left (Just redirect', e) -> do
             let url = addQueryParameters redirect' $
                     over (mapped . both) T.encodeUtf8 (toFormUrlEncoded e) <>
                     [("state", state' ^.re clientState) | Just state' <- [state]]
-            throwError err302{ errHeaders = [(hLocation, url ^.re redirectURI)] }
+            redirect . T.decodeUtf8 $ url ^.re redirectURI
         Right x -> return x
 
--- | Process a GET request for the authorize endpoint.
 processAuthorizeGet
     :: ( MonadIO m
        , MonadBaseControl IO m
@@ -455,13 +307,13 @@ processAuthorizeGet
        , TokenStore ref
        )
     => ref
-    -> UserID             -- ^ Authenticated user
-    -> Scope              -- ^ Authenticated permissions
-    -> Maybe ResponseType -- ^ Requested response type.
-    -> Maybe ClientID     -- ^ Requesting Client ID.
-    -> Maybe RedirectURI  -- ^ Requested redirect URI.
-    -> Maybe Scope        -- ^ Requested scope.
-    -> Maybe ClientState  -- ^ State from requesting client.
+    -> UserID
+    -> Scope
+    -> Maybe ResponseType
+    -> Maybe ClientID
+    -> Maybe RedirectURI
+    -> Maybe Scope
+    -> Maybe ClientState
     -> m Html
 processAuthorizeGet ref user_id permissions response_type client_id' redirect scope' state = do
     -- Required: a ClientID value, which identifies a client.
@@ -516,68 +368,64 @@ processAuthorizeGet ref user_id permissions response_type client_id' redirect sc
 
 -- | Handle the approval or rejection, we get here from the page served in
 -- 'authorizeEndpoint'
-authorizePost
-    :: ( MonadIO m
-       , MonadBaseControl IO m
-       , MonadError ServantErr m
-       , TokenStore ref
-       )
-    => ref
-    -> UserID
-    -> Scope
-    -> AuthorizePostRequest
-    -> m ()
-authorizePost ref user_id _scope (AuthorizeApproved code') = do
-    res <- liftIO $ storeActivateCode ref code' user_id
-    case res of
-        Nothing -> throwError err401{ errBody = "You are not authorized to approve this request." }
-        Just RequestCode{..} -> do
-            let uri' = addQueryParameters requestCodeRedirectURI [("code", code' ^.re code)]
-            throwError err302{ errHeaders = [(hLocation, uri' ^.re redirectURI)] }
-authorizePost ref user_id _scope (AuthorizeDeclined code') = do
-    res <- liftIO $ storeReadCode ref code'
-    case res of
-        Just RequestCode{..} | user_id == requestCodeUserID-> do
-            void . liftIO $ storeDeleteCode ref code'
-            let e = OAuth2Error AccessDenied Nothing Nothing
-                url = addQueryParameters requestCodeRedirectURI $
-                    over (mapped . both) T.encodeUtf8 (toFormUrlEncoded e) <>
-                    [("state", state' ^.re clientState) | Just state' <- [requestCodeState]]
-            throwError err302{ errHeaders = [(hLocation, url ^.re redirectURI)] }
-        _ -> throwError err401{ errBody = "You are not authorized to approve this request." }
+postAuthorizeEndpointR
+    :: Handler ()
+postAuthorizeEndpointR = do
+    (OAuth2Server ref _ _) <- ask
+    (user_id, _) <- checkShibHeaders
+    code' <- do
+        res <- (preview code . T.encodeUtf8 =<<) <$> lookupPostParam "code"
+        case res of
+           Nothing -> invalidArgs []
+           Just x -> return x
+    act <- lookupPostParam "action"
+    case T.toLower <$> act of
+        Just "approve" -> do
+            res <- liftIO $ storeActivateCode ref code' user_id
+            case res of
+                Nothing -> permissionDenied "You are not authorized to approve this request."
+                Just RequestCode{..} -> do
+                    let uri' = addQueryParameters requestCodeRedirectURI [("code", code' ^.re code)]
+                    redirect . T.decodeUtf8 $ uri' ^.re redirectURI
+        Just "decline" -> do
+            res <- liftIO $ storeReadCode ref code'
+            case res of
+                Just RequestCode{..} | user_id == requestCodeUserID-> do
+                    void . liftIO $ storeDeleteCode ref code'
+                    let e = OAuth2Error AccessDenied Nothing Nothing
+                        url = addQueryParameters requestCodeRedirectURI $
+                              over (mapped . both) T.encodeUtf8 (toFormUrlEncoded e) <>
+                              [("state", state' ^.re clientState) | Just state' <- [requestCodeState]]
+                    redirect . T.decodeUtf8 $ url ^.re redirectURI
+                _ -> permissionDenied "You are not authorized to approve this request."
+        Just act' -> error $ "Invalid action: " <> show act'
+        Nothing -> error "no action"
 
 -- | Verify a token and return information about the principal and grant.
 --
 --   Restricted to authorized clients.
-verifyEndpoint
-    :: ( MonadIO m
-       , MonadBaseControl IO m
-       , MonadError ServantErr m
-       , TokenStore ref
-       )
-    => ref
-    -> ServerOptions
-    -> Maybe AuthHeader
-    -> Token
-    -> m (Headers CachingHeaders AccessResponse)
-verifyEndpoint _ ServerOptions{..} Nothing _token =
-    throwError login
-  where
-    login = err401 { errHeaders = toHeaders $ BasicAuth (Realm optVerifyRealm)
-                   , errBody = "Login to validate a token."
-                   }
-verifyEndpoint ref ServerOptions{..} (Just auth) token' = do
+postVerifyEndpointR
+    :: Handler Value
+postVerifyEndpointR = do
+    (OAuth2Server ref _ _) <- ask
+    auth_header <- (fromText . T.decodeUtf8 =<<) <$> lookupHeader "Authorization"
+    auth <- maybe (invalidArgs ["AuthHeader missing"]) return auth_header
+    tok <- rawRequestBody $$ fold mappend mempty
+    token' <- case tok ^? token of
+        Nothing -> invalidArgs ["Invalid Token"]
+        Just token' -> return token'
+
     -- 1. Check client authentication.
     client_id' <- liftIO . runExceptT $ checkClientAuth ref auth
     client_id <- case client_id' of
         Left e -> do
             errorLog "verifyEndpoint" $
                 sformat ("Error verifying token: " % shown) (e :: OAuth2Error)
-            throwError login
+            notAuthenticated
         Right Nothing -> do
             debugLog "verifyEndpoint" $
                 sformat ("Invalid client credentials: " % shown) auth
-            throwError login
+            notAuthenticated
         Right (Just cid) -> do
             return cid
     -- 2. Load token information.
@@ -586,7 +434,7 @@ verifyEndpoint ref ServerOptions{..} (Just auth) token' = do
         Nothing -> do
             debugLog "verifyEndpoint" $
                 sformat ("Cannot verify token: failed to lookup " % shown) token'
-            throwError denied
+            notFound
         Just (_, details) -> do
             -- 3. Check client authorization.
             when (Just client_id /= tokenDetailsClientID details) $ do
@@ -594,15 +442,10 @@ verifyEndpoint ref ServerOptions{..} (Just auth) token' = do
                     sformat ("Client " % shown %
                              " attempted to verify someone elses token: " % shown)
                             client_id token'
-                throwError denied
+                notFound
             -- 4. Send the access response.
             now <- liftIO getCurrentTime
-            return . addHeader NoStore . addHeader NoCache $ grantResponse now details (Just token')
-  where
-    denied = err404 { errBody = "This is not a valid token." }
-    login = err401 { errHeaders = toHeaders $ BasicAuth (Realm optVerifyRealm)
-                   , errBody = "Login to validate a token."
-                   }
+            return . toJSON $ grantResponse now details (Just token')
 
 -- | Given an AuthHeader sent by a client, verify that it authenticates.
 --   If it does, return the authenticated ClientID; otherwise, Nothing.

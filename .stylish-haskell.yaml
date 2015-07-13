@@ -43,7 +43,7 @@ steps:
 
       # stylish-haskell can detect redundancy of some language pragmas. If this
       # is set to true, it will remove those redundant pragmas. Default: true.
-      remove_redundant: true
+      remove_redundant: false
 
   # Align the types in record declarations
   - records: {}
