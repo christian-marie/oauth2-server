@@ -36,9 +36,10 @@ module Network.OAuth2.Server.Types.Error (
   OAuth2Error(..),
   ErrorCode(..),
   ErrorDescription,
--- * ByteString Encoding and Decoding
+-- * Encoding and Decoding
   errorCode,
   errorDescription,
+  renderErrorFormUrlEncoded,
 -- * Throwing errors
 -- $helpers
   unsupportedGrantType,
@@ -75,11 +76,7 @@ import qualified Data.Text.Encoding                 as T (decodeUtf8,
                                                           encodeUtf8)
 import           Data.Typeable                      (Typeable)
 import           Language.Haskell.TH
-import           Servant.API                        (FromFormUrlEncoded (..),
-                                                     ToFormUrlEncoded (..))
-import           URI.ByteString                     (URI, parseURI,
-                                                     serializeURI,
-                                                     strictURIParserOptions)
+import           URI.ByteString                     (URI, serializeURI)
 
 import           Network.OAuth2.Server.Types.Common
 
@@ -182,32 +179,17 @@ instance Read ErrorDescription where
 
 --------------------------------------------------------------------------------
 
--- Servant Encoding and Decoding
+-- Parameter Encoding and Decoding
 
-instance ToFormUrlEncoded OAuth2Error where
-    toFormUrlEncoded OAuth2Error{..} = map (fmap T.decodeUtf8) $
-        [ ("error", oauth2ErrorCode ^.re errorCode) ] <>
-        [ ("error_description", desc ^.re errorDescription) | Just desc <- [oauth2ErrorDescription]] <>
-        [ ("error_uri", toByteString . serializeURI $ uri)  | Just uri <- [oauth2ErrorURI]]
-
-instance FromFormUrlEncoded OAuth2Error where
-    fromFormUrlEncoded xs = OAuth2Error <$> getCode <*> getDesc <*> getURI
-      where
-        getCode = case lookup "error" xs of
-            Nothing -> Left "Key \"error\" is missing"
-            Just x -> case T.encodeUtf8 x ^? errorCode of
-                Nothing -> Left $ "Invalid error: " <> show x
-                Just e -> Right e
-        getDesc = case lookup "error_description" xs of
-            Nothing -> Right Nothing
-            Just x -> case T.encodeUtf8 x ^? errorDescription of
-                Nothing -> Left $ "Invalid error_description: " <> show x
-                Just res -> Right $ Just res
-        getURI = case lookup "error_uri" xs of
-            Nothing -> Right Nothing
-            Just x -> case parseURI strictURIParserOptions $ T.encodeUtf8 x of
-                Left _ -> Left $ "Invalid error_uri: " <> show x
-                Right res -> Right $ Just res
+-- | Encode an error as specified by:
+--
+-- http://tools.ietf.org/html/rfc6749#section-4.1.2.1
+-- http://tools.ietf.org/html/rfc6749#section-4.2.2.1
+renderErrorFormUrlEncoded :: OAuth2Error -> [(ByteString, ByteString)]
+renderErrorFormUrlEncoded OAuth2Error{..} =
+    [ ("error", oauth2ErrorCode ^.re errorCode) ] <>
+    [ ("error_description", desc ^.re errorDescription) | Just desc <- [oauth2ErrorDescription]] <>
+    [ ("error_uri", toByteString . serializeURI $ uri)  | Just uri <- [oauth2ErrorURI]]
 
 --------------------------------------------------------------------------------
 

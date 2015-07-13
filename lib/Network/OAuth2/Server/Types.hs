@@ -29,7 +29,6 @@ module Network.OAuth2.Server.Types (
   OAuth2Error(..),
   AuthHeader(..),
   authDetails,
-  AuthorizePostRequest(..),
   belongsToUser,
   bsToScope,
   ClientDetails(..),
@@ -45,6 +44,7 @@ module Network.OAuth2.Server.Types (
   ErrorDescription,
   errorDescription,
   ResponseType(..),
+  parseResponseType,
   GrantEvent(..),
   grantResponse,
   HTTPAuthRealm(..),
@@ -78,6 +78,7 @@ module Network.OAuth2.Server.Types (
   UserID,
   userID,
   vschar,
+  renderErrorFormUrlEncoded,
   unsupportedGrantType,
   invalidGrant,
   invalidClient,
@@ -106,7 +107,7 @@ import           Data.ByteString                      (ByteString)
 import qualified Data.ByteString                      as B (all, null)
 import           Data.Monoid                          ((<>))
 import           Data.Text                            (Text)
-import qualified Data.Text                            as T (toLower, unpack)
+import qualified Data.Text                            as T (unpack)
 import qualified Data.Text.Encoding                   as T (decodeUtf8,
                                                             encodeUtf8)
 import           Data.Time.Clock                      (UTCTime, diffUTCTime)
@@ -117,10 +118,7 @@ import           Database.PostgreSQL.Simple.FromRow
 import           Database.PostgreSQL.Simple.ToField
 import           Database.PostgreSQL.Simple.ToRow
 import           Network.Wai.Handler.Warp             hiding (Connection)
-import           Servant.API                          (FromFormUrlEncoded (..),
-                                                       FromText (..),
-                                                       ToFormUrlEncoded (..),
-                                                       ToText (..))
+import           Yesod.Core                           (PathPiece (..))
 
 import           Network.OAuth2.Server.Types.Auth
 import           Network.OAuth2.Server.Types.Client
@@ -134,7 +132,7 @@ import           Network.Wai.Middleware.Shibboleth
 --
 -- Pages are things that are counted, so 'Page' starts at 1.
 newtype Page = Page { unpackPage :: Integer }
-  deriving (Eq, Ord, Show, FromText, ToText)
+  deriving (Eq, Ord, Show, PathPiece)
 
 -- | Prism for constructing a page, must be > 0.
 page :: Integral n => Prism' n Page
@@ -145,7 +143,7 @@ page = prism' (fromIntegral . unpackPage)
 --
 -- Page sizes must be positive integers.
 newtype PageSize = PageSize { unpackPageSize :: Integer }
-  deriving (Eq, Ord, Show, FromText, ToText)
+  deriving (Eq, Ord, Show, PathPiece)
 
 -- | Prism for constructing a pagesize, must be > 0
 pageSize :: Integral n => Prism' n PageSize
@@ -184,11 +182,11 @@ data ResponseType
     | ResponseTypeExtension Text -- ^ Client requests an extension type.
   deriving (Eq, Show)
 
-instance FromText ResponseType where
-    fromText "code"  = Just ResponseTypeCode
-    fromText "token" = Just ResponseTypeToken
-    -- @TODO(thsutton): This should probably be Set Text.
-    fromText txt     = Just (ResponseTypeExtension txt)
+parseResponseType :: Text -> ResponseType
+parseResponseType "code"  = ResponseTypeCode
+parseResponseType "token" = ResponseTypeToken
+-- @TODO(thsutton): This should probably be Set Text.
+parseResponseType txt     = ResponseTypeExtension txt
 
 -- | Authorization Code for Authorization Code Grants.
 --
@@ -277,53 +275,39 @@ decodeAccessRequest xs = do
             "authorization_code" -> do
                 c <- lookupEither "code" xs
                 requestCode <- case T.encodeUtf8 c ^? code of
-                    Nothing -> Left $ OAuth2Error InvalidRequest
-                                                  (preview errorDescription $ "invalid code " <> T.encodeUtf8 c)
-                                                  Nothing
+                    Nothing -> invalidRequest $ "invalid code " <> T.encodeUtf8 c
                     Just x -> Right x
                 requestRedirectURI <- case lookup "redirect_uri" xs of
                     Nothing -> return Nothing
-                    Just r -> case fromText r of
-                        Nothing -> Left $ OAuth2Error InvalidRequest
-                                                      (preview errorDescription $ "Error decoding redirect_uri: " <> T.encodeUtf8 r)
-                                                      Nothing
+                    Just r -> case fromPathPiece r of
+                        Nothing -> invalidRequest $ "Error decoding redirect_uri: " <> T.encodeUtf8 r
                         Just x -> return $ Just x
                 requestClientID <- case lookup "client_id" xs of
                     Nothing -> return Nothing
                     Just cid -> case T.encodeUtf8 cid ^? clientID of
-                        Nothing -> Left $ OAuth2Error InvalidRequest
-                                                      (preview errorDescription $ "invalid client_id " <> T.encodeUtf8 cid)
-                                                      Nothing
+                        Nothing -> invalidRequest $ "invalid client_id " <> T.encodeUtf8 cid
                         Just x -> return $ Just x
                 return $ RequestAuthorizationCode{..}
             "client_credentials" -> do
                 requestScope <- case lookup "scope" xs of
                     Nothing -> return Nothing
                     Just x -> case bsToScope $ T.encodeUtf8 x of
-                        Nothing -> Left $ OAuth2Error InvalidRequest
-                                                      (preview errorDescription $ "invalid scope " <> T.encodeUtf8 x)
-                                                      Nothing
+                        Nothing -> invalidRequest $ "invalid scope " <> T.encodeUtf8 x
                         Just x' -> return $ Just x'
                 return $ RequestClientCredentials{..}
             "refresh_token" -> do
                 refresh_token <- lookupEither "refresh_token" xs
                 requestRefreshToken <-
                     case T.encodeUtf8 refresh_token ^? token of
-                        Nothing -> Left $ OAuth2Error InvalidRequest
-                                                      (preview errorDescription $ "invalid refresh_token " <> T.encodeUtf8 refresh_token)
-                                                      Nothing
+                        Nothing -> invalidRequest $ "invalid refresh_token " <> T.encodeUtf8 refresh_token
                         Just x  -> return x
                 requestScope <- case lookup "scope" xs of
                     Nothing -> return Nothing
                     Just x -> case bsToScope $ T.encodeUtf8 x of
-                        Nothing -> Left $ OAuth2Error InvalidRequest
-                                                      (preview errorDescription $ "invalid scope " <> T.encodeUtf8 x)
-                                                      Nothing
+                        Nothing -> invalidRequest $ "invalid scope " <> T.encodeUtf8 x
                         Just x' -> return $ Just x'
                 return $ RequestRefreshToken{..}
-            x -> Left $ OAuth2Error InvalidRequest
-                                    (preview errorDescription $ "unsupported grant_type " <> T.encodeUtf8 x)
-                                    Nothing
+            x -> invalidRequest $ "unsupported grant_type " <> T.encodeUtf8 x
       where
         lookupEither :: Text -> [(Text,b)] -> Either OAuth2Error b
         lookupEither v vs = case lookup v vs of
@@ -332,25 +316,6 @@ decodeAccessRequest xs = do
                 Left $ OAuth2Error InvalidRequest
                                    (preview errorDescription $ "missing required key " <> T.encodeUtf8 v)
                                    Nothing
-
-instance ToFormUrlEncoded AccessRequest where
-    toFormUrlEncoded RequestAuthorizationCode{..} =
-        [ ("grant_type", "authorization_code")
-        , ("code", T.decodeUtf8 $ requestCode ^.re code)
-        ] <>
-        [ ("redirect_uri", toText r)
-          | Just r <- return requestRedirectURI ] <>
-        [ ("client_id", T.decodeUtf8 $ c ^.re clientID)
-          | Just c <- return requestClientID ]
-    toFormUrlEncoded RequestClientCredentials{..} =
-        [("grant_type", "client_credentials")
-        ] <> [ ("scope", T.decodeUtf8 $ scopeToBs s)
-             | Just s <- return requestScope ]
-    toFormUrlEncoded RequestRefreshToken{..} =
-        [ ("grant_type", "refresh_token")
-        , ("refresh_token", T.decodeUtf8 $ requestRefreshToken ^.re token)
-        ] <> [ ("scope", T.decodeUtf8 $ scopeToBs s)
-             | Just s <- return requestScope ]
 
 -- | A response containing an OAuth2 access token grant.
 data AccessResponse = AccessResponse
@@ -445,24 +410,6 @@ instance FromJSON AccessResponse where
         <*> o .:? "user_id"
         <*> o .:? "client_id"
         <*> o .: "scope"
-
--- | Type to represent the approval or declination of a Code
-data AuthorizePostRequest
-    = AuthorizeApproved Code
-    | AuthorizeDeclined Code
-
-instance FromFormUrlEncoded AuthorizePostRequest where
-    fromFormUrlEncoded xs = do
-        cons <- case T.toLower <$> lookup "action" xs of
-            Just "approve" -> Right AuthorizeApproved
-            Just "decline" -> Right AuthorizeDeclined
-            Just act -> Left $ "Invalid action: " <> show act
-            Nothing -> Left "no action"
-        case lookup "code" xs of
-            Nothing -> Left "Code is a required field."
-            Just x -> case T.encodeUtf8 x ^? code of
-                Nothing -> Left "invalid code"
-                Just c -> Right $ cons c
 
 -- * Database Instances
 

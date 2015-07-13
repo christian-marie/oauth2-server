@@ -41,8 +41,6 @@ import           Data.Aeson                           (FromJSON (..),
                                                        withText)
 import           Data.ByteString                      (ByteString)
 import qualified Data.ByteString                      as B (all, null)
-import qualified Data.ByteString.Lazy                 as BSL (fromStrict,
-                                                              toStrict)
 import           Data.Monoid                          ((<>))
 import qualified Data.Text                            as T (pack, toLower,
                                                             unpack)
@@ -55,11 +53,6 @@ import qualified Data.UUID                            as U (fromASCIIBytes,
                                                             toASCIIBytes)
 import           Database.PostgreSQL.Simple.FromField
 import           Database.PostgreSQL.Simple.ToField
-import           Servant.API                          (FromText (..),
-                                                       MimeRender (..),
-                                                       MimeUnrender (..),
-                                                       OctetStream,
-                                                       ToText (..))
 import           Text.Blaze.Html5                     (ToValue, toValue)
 import           Yesod.Core                           (PathPiece (..))
 
@@ -128,26 +121,11 @@ instance Show TokenType where
 
 -- Servant Encoding and Decoding
 
-instance MimeRender OctetStream Token where
-    mimeRender _ = BSL.fromStrict . review token
-
-instance MimeUnrender OctetStream Token where
-    mimeUnrender _ b =
-        case BSL.toStrict b ^? token of
-            Nothing -> Left "Invalid token"
-            Just t  -> Right t
-
-instance FromText TokenID where
-    fromText t =  (fmap TokenID) $
-                  (U.fromASCIIBytes $ T.encodeUtf8 t)
-              <|> (U.fromString     $ T.unpack     t)
-
-instance ToText TokenID where
-    toText = T.decodeUtf8 . U.toASCIIBytes . unTokenID
-
 instance PathPiece TokenID where
-    fromPathPiece = fromText
-    toPathPiece = toText
+    fromPathPiece t=  (fmap TokenID) $
+                      (U.fromASCIIBytes $ T.encodeUtf8 t)
+                  <|> (U.fromString     $ T.unpack     t)
+    toPathPiece = T.decodeUtf8 . U.toASCIIBytes . unTokenID
 
 --------------------------------------------------------------------------------
 
