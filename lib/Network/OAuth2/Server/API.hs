@@ -28,8 +28,6 @@
 -- way of handling AAA.
 module Network.OAuth2.Server.API (
     -- * HTTP Headers
-    NoStore,
-    NoCache,
     oAuthUserHeader,
     oAuthUserScopeHeader,
 
@@ -60,7 +58,6 @@ import           Control.Monad.Reader.Class       (ask)
 import           Control.Monad.Trans.Control
 import           Control.Monad.Trans.Except       (ExceptT, runExceptT)
 import           Crypto.Scrypt
-import           Data.ByteString.Conversion       (ToByteString (..))
 import           Data.Conduit
 import           Data.Conduit.List
 import           Data.Foldable                    (traverse_)
@@ -100,28 +97,6 @@ wrapLogger logger component msg = do
 --
 -- $ The OAuth2 Server API uses HTTP headers to exchange information between
 -- system components and to control caching behaviour.
-
--- TODO: Move this into some servant common package
-
--- | HTTP implementations should not store this request.
---
---   http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.9.2
---
---   The purpose of the no-store directive is to prevent the inadvertent
---   release retention of sensitive information (for example, on backup tapes).
-
-data NoStore = NoStore
-instance ToByteString NoStore where
-    builder _ = "no-store"
-
--- | HTTP implementations should not cache this request.
---
---   http://tools.ietf.org/html/rfc2616#section-14.32
---
---   We use this in Pragma headers, for compatibilty.
-data NoCache = NoCache
-instance ToByteString NoCache where
-    builder _ = "no-cache"
 
 -- | Shibboleth will pass us the UID of the authenticated user in this header.
 oAuthUserHeader :: HeaderName

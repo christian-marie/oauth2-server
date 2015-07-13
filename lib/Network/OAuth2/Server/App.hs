@@ -33,8 +33,6 @@
 -- The intention is to seperate all OAuth2 specific logic from our particular
 -- way of handling AAA.
 module Network.OAuth2.Server.App (
-    NoStore,
-    NoCache,
     OAuth2Server(..),
 
     -- * API handlers
