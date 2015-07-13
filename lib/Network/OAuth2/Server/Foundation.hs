@@ -20,7 +20,7 @@ import           Network.OAuth2.Server.Types
 --
 -- This will define the following variables:
 --
--- - @semantic_ui_css@
+-- - @semantic_css@
 -- - @stylesheet_css@
 Static.staticFiles "static"
 
@@ -59,7 +59,7 @@ do let routes = [parseRoutes|
 instance Yesod OAuth2Server where
     defaultLayout contents = do
         PageContent the_title head_tags body_tags <- widgetToPageContent $ do
-            addStylesheet $ StaticR semantic_ui_css
+            addStylesheet $ StaticR semantic_css
             addStylesheet $ StaticR stylesheet_css
             contents
         withUrlRenderer [hamlet|
