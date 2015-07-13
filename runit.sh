@@ -17,10 +17,10 @@ cd $(dirname $0)
 # Build first, so we don't wait for the DB only to bail out.
 if [ -z "$STACK" ]; then
     cabal build tokenserver
-    BUILD_DIR=dist/build
+    BIN_DIR=dist/build/tokenserver
 else
     stack build
-    BUILD_DIR=$(stack path --dist-dir)/build
+    BIN_DIR=$(stack path --local-install-root)/bin
 fi
 
 # Clean up our mess from last time
@@ -38,7 +38,7 @@ cat examples/token-server.conf \
 # Trap the interrupt so that we can clean up.
 trap "echo interrupted" INT TERM
 
-$BUILD_DIR/tokenserver/tokenserver "$TESTCONF"
+$BIN_DIR/tokenserver "$TESTCONF"
 
 # Clean up our mess
 echo "Cleaning up!"

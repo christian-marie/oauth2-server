@@ -199,7 +199,6 @@ tests base_uri = do
                 -- 2. Check that the page describes the requested token.
                 liftIO $ do
                     pg `shouldSatisfy` ("Name" `BC.isInfixOf`)
-                    pg `shouldSatisfy` ("ID" `BC.isInfixOf`)
                     pg `shouldSatisfy` ("Description" `BC.isInfixOf`)
                     pg `shouldSatisfy` ("App 1" `BC.isInfixOf`)
                     pg `shouldSatisfy` ("Application One" `BC.isInfixOf`)
@@ -236,7 +235,6 @@ tests base_uri = do
                 -- 2. Check that the page describes the requested token.
                 liftIO $ do
                     pg `shouldSatisfy` ("Name" `BC.isInfixOf`)
-                    pg `shouldSatisfy` ("ID" `BC.isInfixOf`)
                     pg `shouldSatisfy` ("Description" `BC.isInfixOf`)
                     pg `shouldSatisfy` ("App 1" `BC.isInfixOf`)
                     pg `shouldSatisfy` ("Application One" `BC.isInfixOf`)
