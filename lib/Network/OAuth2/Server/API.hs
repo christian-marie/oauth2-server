@@ -58,6 +58,7 @@ import           Control.Monad.Reader.Class       (ask)
 import           Control.Monad.Trans.Control
 import           Control.Monad.Trans.Except       (ExceptT, runExceptT)
 import           Crypto.Scrypt
+import qualified Data.ByteString.Char8            as BC
 import           Data.Conduit
 import           Data.Conduit.List
 import           Data.Foldable                    (traverse_)
@@ -113,11 +114,15 @@ checkShibHeaders = do
     uid <- case preview userID =<< uh' of
         Nothing -> error "Shibboleth User header missing"
         Just uid -> return uid
-    sh' <- lookupHeader oAuthUserScopeHeader
+    sh' <- headerToScope <$> lookupHeader oAuthUserScopeHeader
     sc <- case bsToScope =<< sh' of
         Nothing -> error "Shibboleth User Scope header missing"
         Just sc -> return sc
     return (uid,sc)
+  where
+    headerToScope Nothing    = Nothing
+    headerToScope (Just hdr) = let components = BC.split ';' hdr in
+        Just $ BC.intercalate " " components
 
 -- | Handler for 'TokenEndpoint', basically a wrapper for 'processTokenRequest'
 postTokenEndpointR :: Handler Value
