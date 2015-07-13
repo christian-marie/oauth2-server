@@ -71,3 +71,17 @@ instance Yesod OAuth2Server where
               <body>
                 ^{body_tags}
         |]
+
+    yesodMiddleware handler = do
+        route <- getCurrentRoute
+        case route of
+            Just (StaticR _) -> return ()
+            Just _ -> do
+                -- Required for all endpoints containing sensitive information.
+                -- https://tools.ietf.org/html/rfc6749#section-5.1
+                addHeader "Cache-Control" "no-store"
+                addHeader "Pragma" "no-cache"
+            Nothing -> return ()
+        handler
+
+    makeSessionBackend _ = return Nothing

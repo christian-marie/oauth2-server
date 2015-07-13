@@ -344,7 +344,7 @@ getAuthorizePage base_uri user_m (client, req_scope) = do
     endpoint = base_uri { uriPath = "/oauth2/authorize" }
 
 handleResponse
-    :: MonadError String m
+    :: (MonadIO m, MonadError String m)
     => Either HttpException (Response BSL.ByteString)
     -> m ByteString
 handleResponse r =
@@ -353,7 +353,10 @@ handleResponse r =
             let b = BC.unpack <$> lookup "X-Response-Body-Start" h
             throwError $ show c <> " " <> BC.unpack m <> " - " <> fromMaybe "" b
         Left e -> throwError (show e)
-        Right v ->
+        Right v -> do
+            liftIO $ do
+                (v ^? responseHeader "Cache-Control") `shouldBe` Just "no-store"
+                (v ^? responseHeader "Pragma") `shouldBe` Just "no-cache"
             return $ v ^. responseBody . to BSL.toStrict
 
 addAuthHeaders :: Maybe (UserID, Scope) -> Options -> Options
