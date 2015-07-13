@@ -30,6 +30,7 @@ module Network.OAuth2.Server.Types.Token (
 ) where
 
 import           Control.Applicative                  ((<|>))
+import           Control.Arrow                        (first)
 import           Control.Lens.Fold                    ((^?))
 import           Control.Lens.Operators               ((^.))
 import           Control.Lens.Prism                   (Prism', prism')
@@ -81,7 +82,7 @@ data TokenType
 --   requests, and so when such actions are exposed to users, TokenIDs are used
 --   over actual tokens
 newtype TokenID = TokenID { unTokenID :: UUID }
-    deriving (Eq, Read, Show, Ord, ToField, FromField)
+    deriving (Eq, Ord, ToField, FromField)
 
 --------------------------------------------------------------------------------
 
@@ -110,19 +111,22 @@ token = prism' t2b b2t
 instance Show Token where
     show = show . review token
 
-instance Read Token where
-    readsPrec n s = [ (x,rest) | (b,rest) <- readsPrec n s, Just x <- [b ^? token]]
-
 instance Show TokenType where
     show Bearer  = "bearer"
     show Refresh = "refresh"
+
+instance Show TokenID where
+    show (TokenID x) = show x
+
+instance Read TokenID where
+    readsPrec n x = map (first TokenID) $ readsPrec n x
 
 --------------------------------------------------------------------------------
 
 -- Servant Encoding and Decoding
 
 instance PathPiece TokenID where
-    fromPathPiece t=  (fmap TokenID) $
+    fromPathPiece t = (fmap TokenID) $
                       (U.fromASCIIBytes $ T.encodeUtf8 t)
                   <|> (U.fromString     $ T.unpack     t)
     toPathPiece = T.decodeUtf8 . U.toASCIIBytes . unTokenID

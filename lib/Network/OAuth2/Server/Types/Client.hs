@@ -98,9 +98,6 @@ clientState = prism' cs2b b2cs
 instance Show ClientState where
     show = show . review clientState
 
-instance Read ClientState where
-    readsPrec n s = [ (x,rest) | (t,rest) <- readsPrec n s, Just x <- [t ^? clientState]]
-
 --------------------------------------------------------------------------------
 
 -- Yesod Encoding and Decoding

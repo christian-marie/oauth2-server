@@ -58,6 +58,7 @@ import           Control.Lens
 import           Control.Monad
 import           Control.Monad.IO.Class           (MonadIO (liftIO))
 import           Control.Monad.Reader.Class       (ask)
+import           Data.ByteString.Char8            (readInt)
 import           Data.Either                      (lefts, rights)
 import           Data.Maybe
 import           Data.Monoid
@@ -113,7 +114,7 @@ getTokensR = do
     OAuth2Server{serverTokenStore=ref,serverOptions=serverOpts} <- ask
     (u, s) <- checkShibHeaders
     maybe_p <- lookupGetParam "page"
-    let p = preview page . read . T.unpack =<< maybe_p
+    let p = preview page =<< fmap fst . readInt . T.encodeUtf8 =<< maybe_p
     serverListTokens ref (optUIPageSize serverOpts) u s p
 
 data TokenRequest = DeleteRequest TokenID

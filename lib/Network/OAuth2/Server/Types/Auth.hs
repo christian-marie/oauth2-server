@@ -126,14 +126,8 @@ clientID =
 instance Show UserID where
     show = show . review userID
 
-instance Read UserID where
-    readsPrec n s = [ (x,rest) | (t,rest) <- readsPrec n s, Just x <- [t ^? userID]]
-
 instance Show ClientID where
     show = show . review clientID
-
-instance Read ClientID where
-    readsPrec n s = [ (x,rest) | (t,rest) <- readsPrec n s, Just x <- [t ^? clientID]]
 
 --------------------------------------------------------------------------------
 

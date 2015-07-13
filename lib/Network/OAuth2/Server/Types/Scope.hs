@@ -76,7 +76,7 @@ newtype ScopeToken = ScopeToken { unScopeToken :: ByteString }
 --
 --   It is represented as a space-separated list
 newtype Scope = Scope { unScope :: Set ScopeToken }
-  deriving (Eq, Read, Show, Typeable)
+  deriving (Eq, Typeable)
 
 --------------------------------------------------------------------------------
 
@@ -121,11 +121,11 @@ scopeToBs =
 
 -- String Encoding and Decoding
 
+instance Show Scope where
+    show = show . scopeToBs
+
 instance Show ScopeToken where
     show = show . review scopeToken
-
-instance Read ScopeToken where
-    readsPrec n s = [ (x,rest) | (b,rest) <- readsPrec n s, Just x <- [b ^? scopeToken]]
 
 --------------------------------------------------------------------------------
 
