@@ -78,7 +78,6 @@ Library
                      , resource-pool
                      , scrypt
                      , servant >=0.4 && <0.5
-                     , servant-blaze
                      , stm >=2.4.2
                      , streaming-commons
                      , template-haskell
