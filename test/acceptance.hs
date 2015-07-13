@@ -150,26 +150,17 @@ tests base_uri = do
                 -- 1. Get the page.
                 pg <- getAuthorizePage base_uri (Just user1) code_request
 
-                -- 2. Check that the page describes the requested token.
-                liftIO $ do
-                    pg `shouldSatisfy` ("Name" `BC.isInfixOf`)
-                    pg `shouldSatisfy` ("Description" `BC.isInfixOf`)
-                    pg `shouldSatisfy` ("App 1" `BC.isInfixOf`)
-                    pg `shouldSatisfy` ("Application One" `BC.isInfixOf`)
-                    pg `shouldSatisfy` ("missiles:launch" `BC.isInfixOf`)
-                    pg `shouldSatisfy` ("login" `BC.isInfixOf`)
-
-                -- 3. Extract details from the form.
+                -- 2. Extract details from the form.
                 (uri, fields) <- getAuthorizeFields base_uri pg
 
-                -- 4. Submit the approval form.
+                -- 3. Submit the approval form.
                 let fields' = nubBy ((==) `on` fst) fields
                 x <- sendAuthorization uri (Just user1) fields'
                 auth_code <- case lookup "code" $ x ^. UB.uriQueryL . UB.queryPairsL of
                     Nothing -> error "No code in redirect URI"
                     Just auth_code -> return auth_code
 
-                -- 5. Use the code in the redirect to request a token via hoauth2.
+                -- 4. Use the code in the redirect to request a token via hoauth2.
                 man <- liftIO $ newManager defaultManagerSettings
                 let oauth2 = HOAuth2.OAuth2
                         { HOAuth2.oauthClientId = review clientID $ fst client1
