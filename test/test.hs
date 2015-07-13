@@ -59,7 +59,7 @@ instance CoArbitrary UserID where
     coarbitrary = coarbitrary . review userID
 
 instance Function UserID where
-    function = functionShow
+    function = functionMap (B.unpack . review userID) ((^?! userID) . B.pack)
 
 instance Arbitrary ClientID where
     arbitrary = do
@@ -73,7 +73,7 @@ instance CoArbitrary ClientID where
     coarbitrary = coarbitrary . review clientID
 
 instance Function ClientID where
-    function = functionShow
+    function = functionMap (B.unpack . review clientID) ((^?! clientID) . B.pack)
 
 instance Arbitrary Code where
     arbitrary = do
@@ -86,7 +86,7 @@ instance CoArbitrary Code where
     coarbitrary = coarbitrary . review code
 
 instance Function Code where
-    function = functionShow
+    function = functionMap (B.unpack . review code) ((^?! code) . B.pack)
 
 instance Arbitrary RedirectURI where
     arbitrary = do
@@ -171,10 +171,10 @@ instance CoArbitrary ScopeToken where
     coarbitrary = coarbitrary . review scopeToken
 
 instance Function Scope where
-    function = functionShow
+    function = functionMap (review scope) (^?! scope)
 
 instance Function ScopeToken where
-    function = functionShow
+    function = functionMap (B.unpack . review scopeToken) ((^?! scopeToken) . B.pack)
 
 instance Arbitrary Token where
     arbitrary = do
@@ -187,7 +187,7 @@ instance CoArbitrary Token where
     coarbitrary = coarbitrary . review token
 
 instance Function Token where
-    function = functionShow
+    function = functionMap (B.unpack . review token) ((^?! token) . B.pack)
 
 instance Arbitrary AuthHeader where
     arbitrary = AuthHeader
