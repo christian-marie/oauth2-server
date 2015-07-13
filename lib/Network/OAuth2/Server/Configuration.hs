@@ -62,7 +62,7 @@ loadOptions conf = do
     optServiceHost <- maybe (optServiceHost defaultServerOptions) fromString <$> C.lookup conf "api.host"
     optServicePort <- ldef optServicePort "api.port"
     optUIPageSize <- maybe (optUIPageSize defaultServerOptions) unwrapNonOrphan <$>  C.lookup conf "ui.page_size"
-    optUIStaticPath <- ldef optUIStaticPath "ui.elephant"
+    optUIStaticPath <- ldef optUIStaticPath "ui.static_files"
     optVerifyRealm <- ldef optVerifyRealm "api.verify_realm"
     shibhdr <- ldef (CI.foldedCase . S.prefix . optShibboleth) "shibboleth.header_prefix"
     upstream <- C.lookup conf "shibboleth.upstream"
