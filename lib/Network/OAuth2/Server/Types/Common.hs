@@ -51,14 +51,13 @@ import           Data.Word                            (Word8)
 import           Database.PostgreSQL.Simple.FromField
 import           Database.PostgreSQL.Simple.ToField
 import           Network.HTTP.Types.Header            as HTTP
-import           Servant.API                          (FromText (..),
-                                                       ToText (..))
 import           URI.ByteString                       (URI, parseURI,
                                                        queryPairsL,
                                                        serializeURI,
                                                        strictURIParserOptions,
                                                        uriFragmentL,
                                                        uriQueryL)
+import           Yesod.Core                           (PathPiece (..))
 
 --------------------------------------------------------------------------------
 
@@ -131,13 +130,11 @@ redirectURI = prism' fromRedirect toRedirect
             Just _ -> Nothing
             Nothing -> Just $ RedirectURI uri
 
--- Servant instances for RedirectURI
+-- PathPiece instances for RedirectURI
 
-instance FromText RedirectURI where
-    fromText = preview redirectURI . T.encodeUtf8
-
-instance ToText RedirectURI where
-    toText = T.decodeUtf8 . review redirectURI
+instance PathPiece RedirectURI where
+    fromPathPiece = preview redirectURI . T.encodeUtf8
+    toPathPiece = T.decodeUtf8 . review redirectURI
 
 -- Postgres instances for RedirectURI
 

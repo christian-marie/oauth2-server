@@ -67,10 +67,10 @@ import qualified Data.Text                        as T
 import qualified Data.Text.Encoding               as T
 import           Formatting                       (sformat, shown, (%))
 import           Network.OAuth2.Server.Types      as X
-import           Servant.API                      (fromText)
 import           System.Log.Logger
 import           Text.Blaze.Html5                 (Html)
-import           Yesod.Core                       (invalidArgs,
+import           Yesod.Core                       (PathPiece (..),
+                                                   invalidArgs,
                                                    lookupGetParam,
                                                    lookupPostParam,
                                                    lookupPostParams,
@@ -131,7 +131,7 @@ postTokensR = do
             Nothing -> invalidArgs ["method field missing"]
             Just "delete" -> case token_id of
                 Nothing   -> invalidArgs ["token_id field missing"]
-                Just t_id -> case fromText t_id of
+                Just t_id -> case fromPathPiece t_id of
                     Nothing    -> invalidArgs ["Invalid Token ID"]
                     Just t_id' -> return $ DeleteRequest t_id'
             Just "create" -> do

@@ -77,9 +77,6 @@ Library
                      , postgresql-simple
                      , resource-pool
                      , scrypt
-                     , servant >=0.4 && <0.5
-                     , servant-blaze
-                     , servant-server >=0.4 && <0.5
                      , stm >=2.4.2
                      , streaming-commons
                      , template-haskell
@@ -164,13 +161,12 @@ test-suite test
                      , oauth2-server
                      , QuickCheck
                      , quickcheck-instances
-                     , servant
-                     , servant-server
                      , text
                      , transformers
                      , transformers-compat
                      , uri-bytestring
                      , warp
+                     , yesod-core
 
 test-suite             test-acceptance
   type:                exitcode-stdio-1.0
@@ -191,12 +187,12 @@ test-suite             test-acceptance
                      , mtl
                      , network-uri
                      , oauth2-server
-                     , servant
                      , text
                      , transformers
                      , transformers-compat
                      , wreq
                      , uri-bytestring
+                     , yesod-core
 
 test-suite             test-use-cases
   type:                exitcode-stdio-1.0

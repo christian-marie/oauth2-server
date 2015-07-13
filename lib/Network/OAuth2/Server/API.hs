@@ -58,6 +58,7 @@ import           Control.Monad.Reader.Class       (ask)
 import           Control.Monad.Trans.Control
 import           Control.Monad.Trans.Except       (ExceptT, runExceptT)
 import           Crypto.Scrypt
+import qualified Data.ByteString.Char8            as BC
 import           Data.Conduit
 import           Data.Conduit.List
 import           Data.Foldable                    (traverse_)
@@ -71,7 +72,6 @@ import           Data.Time.Clock                  (UTCTime, addUTCTime,
 import           Formatting                       (sformat, shown, (%))
 import           Network.HTTP.Types               hiding (Header)
 import           Network.OAuth2.Server.Types      as X
-import           Servant.API
 import           System.Log.Logger
 import           Yesod.Core
 
@@ -113,11 +113,15 @@ checkShibHeaders = do
     uid <- case preview userID =<< uh' of
         Nothing -> error "Shibboleth User header missing"
         Just uid -> return uid
-    sh' <- lookupHeader oAuthUserScopeHeader
+    sh' <- headerToScope <$> lookupHeader oAuthUserScopeHeader
     sc <- case bsToScope =<< sh' of
         Nothing -> error "Shibboleth User Scope header missing"
         Just sc -> return sc
     return (uid,sc)
+  where
+    headerToScope Nothing    = Nothing
+    headerToScope (Just hdr) = let components = BC.split ';' hdr in
+        Just $ BC.intercalate " " components
 
 -- | Handler for 'TokenEndpoint', basically a wrapper for 'processTokenRequest'
 postTokenEndpointR :: Handler Value
@@ -126,7 +130,7 @@ postTokenEndpointR = do
     req <- case decodeAccessRequest xs of
         Left e -> sendResponseStatus badRequest400 $ toJSON e
         Right req -> return req
-    auth <- (fromText . T.decodeUtf8 =<<) <$> lookupHeader "Authorization"
+    auth <- (fromPathPiece . T.decodeUtf8 =<<) <$> lookupHeader "Authorization"
 
     OAuth2Server{serverTokenStore=ref,serverEventChannel=sink} <- ask
 
@@ -285,17 +289,17 @@ getAuthorizeEndpointR
 getAuthorizeEndpointR = do
     OAuth2Server{serverTokenStore=ref} <- ask
     (user_id, permissions) <- checkShibHeaders
-    response_type <- (fromText =<<) <$> lookupGetParam "response_type"
-    client_id' <- (fromText =<<) <$> lookupGetParam "client_id"
-    redirect_url <-(fromText =<<) <$>  lookupGetParam "redirect_uri"
-    scope' <- (fromText =<<) <$> lookupGetParam "scope"
-    state <- (fromText =<<) <$> lookupGetParam "state"
+    response_type <- fmap parseResponseType <$> lookupGetParam "response_type"
+    client_id' <- (fromPathPiece =<<) <$> lookupGetParam "client_id"
+    redirect_url <- (fromPathPiece =<<) <$> lookupGetParam "redirect_uri"
+    scope' <- (fromPathPiece =<<) <$> lookupGetParam "scope"
+    state <- (fromPathPiece =<<) <$> lookupGetParam "state"
     res <- runExceptT $ processAuthorizeGet ref user_id permissions response_type client_id' redirect_url scope' state
     case res of
         Left (Nothing, e) -> sendResponseStatus badRequest400 $ toJSON e
         Left (Just redirect', e) -> do
             let url = addQueryParameters redirect' $
-                    over (mapped . both) T.encodeUtf8 (toFormUrlEncoded e) <>
+                    renderErrorFormUrlEncoded e <>
                     [("state", state' ^.re clientState) | Just state' <- [state]]
             redirect . T.decodeUtf8 $ url ^.re redirectURI
         Right x -> return x
@@ -394,7 +398,7 @@ postAuthorizeEndpointR = do
                     void . liftIO $ storeDeleteCode ref code'
                     let e = OAuth2Error AccessDenied Nothing Nothing
                         url = addQueryParameters requestCodeRedirectURI $
-                              over (mapped . both) T.encodeUtf8 (toFormUrlEncoded e) <>
+                              renderErrorFormUrlEncoded e <>
                               [("state", state' ^.re clientState) | Just state' <- [requestCodeState]]
                     redirect . T.decodeUtf8 $ url ^.re redirectURI
                 _ -> permissionDenied "You are not authorized to approve this request."
@@ -408,7 +412,7 @@ postVerifyEndpointR
     :: Handler Value
 postVerifyEndpointR = do
     OAuth2Server{serverTokenStore=ref} <- ask
-    auth_header <- (fromText . T.decodeUtf8 =<<) <$> lookupHeader "Authorization"
+    auth_header <- (fromPathPiece . T.decodeUtf8 =<<) <$> lookupHeader "Authorization"
     auth <- maybe (invalidArgs ["AuthHeader missing"]) return auth_header
     tok <- rawRequestBody $$ fold mappend mempty
     token' <- case tok ^? token of
