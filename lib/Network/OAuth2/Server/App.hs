@@ -104,13 +104,13 @@ handleBaseR = redirect TokensR
 
 getShowTokenR :: TokenID -> Handler Html
 getShowTokenR tid = do
-    (OAuth2Server ref _ _) <- ask
+    OAuth2Server{serverTokenStore=ref} <- ask
     (uid, sc) <- checkShibHeaders
     serverDisplayToken ref uid sc tid
 
 getTokensR :: Handler Html
 getTokensR = do
-    (OAuth2Server ref serverOpts _) <- ask
+    OAuth2Server{serverTokenStore=ref,serverOptions=serverOpts} <- ask
     (u, s) <- checkShibHeaders
     maybe_p <- lookupGetParam "page"
     let p = preview page . read . T.unpack =<< maybe_p
@@ -121,7 +121,7 @@ data TokenRequest = DeleteRequest TokenID
 
 postTokensR :: Handler Html
 postTokensR = do
-    (OAuth2Server ref _ _) <- ask
+    OAuth2Server{serverTokenStore=ref} <- ask
     (user_id, sc) <- checkShibHeaders
     req <- do
         method <- lookupPostParam "method"
@@ -149,7 +149,7 @@ postTokensR = do
 
 handleHealthCheckR :: Handler ()
 handleHealthCheckR = do
-    (OAuth2Server ref _ _) <- ask
+    OAuth2Server{serverTokenStore=ref} <- ask
     healthCheck ref
 
 -- | Page 1 is totally a valid page, promise.

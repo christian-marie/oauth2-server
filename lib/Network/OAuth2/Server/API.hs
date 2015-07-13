@@ -128,7 +128,7 @@ postTokenEndpointR = do
         Right req -> return req
     auth <- (fromText . T.decodeUtf8 =<<) <$> lookupHeader "Authorization"
 
-    (OAuth2Server ref _ sink) <- ask
+    OAuth2Server{serverTokenStore=ref,serverEventChannel=sink} <- ask
 
     t <- liftIO getCurrentTime
 
@@ -283,7 +283,7 @@ processTokenRequest ref t (Just client_auth) req = do
 getAuthorizeEndpointR
     :: Handler Html
 getAuthorizeEndpointR = do
-    (OAuth2Server ref _ _) <- ask
+    OAuth2Server{serverTokenStore=ref} <- ask
     (user_id, permissions) <- checkShibHeaders
     response_type <- (fromText =<<) <$> lookupGetParam "response_type"
     client_id' <- (fromText =<<) <$> lookupGetParam "client_id"
@@ -371,7 +371,7 @@ processAuthorizeGet ref user_id permissions response_type client_id' redirect sc
 postAuthorizeEndpointR
     :: Handler ()
 postAuthorizeEndpointR = do
-    (OAuth2Server ref _ _) <- ask
+    OAuth2Server{serverTokenStore=ref} <- ask
     (user_id, _) <- checkShibHeaders
     code' <- do
         res <- (preview code . T.encodeUtf8 =<<) <$> lookupPostParam "code"
@@ -407,7 +407,7 @@ postAuthorizeEndpointR = do
 postVerifyEndpointR
     :: Handler Value
 postVerifyEndpointR = do
-    (OAuth2Server ref _ _) <- ask
+    OAuth2Server{serverTokenStore=ref} <- ask
     auth_header <- (fromText . T.decodeUtf8 =<<) <$> lookupHeader "Authorization"
     auth <- maybe (invalidArgs ["AuthHeader missing"]) return auth_header
     tok <- rawRequestBody $$ fold mappend mempty
