@@ -81,7 +81,7 @@ data TokenType
 --   requests, and so when such actions are exposed to users, TokenIDs are used
 --   over actual tokens
 newtype TokenID = TokenID { unTokenID :: UUID }
-    deriving (Eq, Read, Show, Ord, ToField, FromField)
+    deriving (Eq, Show, Ord, ToField, FromField)
 
 --------------------------------------------------------------------------------
 
@@ -109,9 +109,6 @@ token = prism' t2b b2t
 
 instance Show Token where
     show = show . review token
-
-instance Read Token where
-    readsPrec n s = [ (x,rest) | (b,rest) <- readsPrec n s, Just x <- [b ^? token]]
 
 instance Show TokenType where
     show Bearer  = "bearer"

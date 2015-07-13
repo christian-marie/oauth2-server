@@ -174,9 +174,6 @@ errorDescription =
 instance Show ErrorDescription where
     show = show . review errorDescription
 
-instance Read ErrorDescription where
-    readsPrec n s = [ (x,rest) | (t,rest) <- readsPrec n s, Just x <- [t ^? errorDescription]]
-
 --------------------------------------------------------------------------------
 
 -- Parameter Encoding and Decoding

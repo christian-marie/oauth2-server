@@ -209,9 +209,6 @@ code = prism' c2b b2c
 instance Show Code where
     show = show . review code
 
-instance Read Code where
-    readsPrec n s = [ (x,rest) | (t,rest) <- readsPrec n s, Just x <- [t ^? code]]
-
 instance ToJSON Code where
     toJSON c = String . T.decodeUtf8 $ c ^.re code
 
