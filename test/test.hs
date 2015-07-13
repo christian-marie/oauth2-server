@@ -213,14 +213,6 @@ hasCorrectJSON name _ = do
             fromJSON (toJSON x) ===
             (Success x :: Result a)
 
-hasCorrectFormUrlEncoded
-    :: forall a. (FromFormUrlEncoded a, ToFormUrlEncoded a, Arbitrary a, Show a, Eq a)
-     => String -> Proxy a -> Spec
-hasCorrectFormUrlEncoded name _ = do
-    prop ("forall (x :: "<>name<>"). fromFormUrlEncoded (toFormUrlEncoded x) === Right x") $ \x ->
-            fromFormUrlEncoded (toFormUrlEncoded x) ===
-            (Right x :: Either String a)
-
 suite :: Spec
 suite = do
     describe "Marshalling" $ do
@@ -231,8 +223,6 @@ suite = do
         hasCorrectJSON "AccessResponse" (Proxy :: Proxy AccessResponse)
 
         hasCorrectJSON "OAuth2Error" (Proxy :: Proxy OAuth2Error)
-
-        hasCorrectFormUrlEncoded "OAuth2Error" (Proxy :: Proxy OAuth2Error)
 
         prop "forall (x :: AuthHeader). fromText (toText x) === Just x" $ \(x :: AuthHeader) ->
             fromText (toText x) === Just x

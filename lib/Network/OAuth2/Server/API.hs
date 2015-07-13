@@ -295,7 +295,7 @@ getAuthorizeEndpointR = do
         Left (Nothing, e) -> sendResponseStatus badRequest400 $ toJSON e
         Left (Just redirect', e) -> do
             let url = addQueryParameters redirect' $
-                    over (mapped . both) T.encodeUtf8 (toFormUrlEncoded e) <>
+                    renderErrorFormUrlEncoded e <>
                     [("state", state' ^.re clientState) | Just state' <- [state]]
             redirect . T.decodeUtf8 $ url ^.re redirectURI
         Right x -> return x
@@ -394,7 +394,7 @@ postAuthorizeEndpointR = do
                     void . liftIO $ storeDeleteCode ref code'
                     let e = OAuth2Error AccessDenied Nothing Nothing
                         url = addQueryParameters requestCodeRedirectURI $
-                              over (mapped . both) T.encodeUtf8 (toFormUrlEncoded e) <>
+                              renderErrorFormUrlEncoded e <>
                               [("state", state' ^.re clientState) | Just state' <- [requestCodeState]]
                     redirect . T.decodeUtf8 $ url ^.re redirectURI
                 _ -> permissionDenied "You are not authorized to approve this request."
