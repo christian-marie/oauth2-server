@@ -30,6 +30,7 @@ module Network.OAuth2.Server.Types.Token (
 ) where
 
 import           Control.Applicative                  ((<|>))
+import           Control.Arrow                        (first)
 import           Control.Lens.Fold                    ((^?))
 import           Control.Lens.Operators               ((^.))
 import           Control.Lens.Prism                   (Prism', prism')
@@ -81,7 +82,7 @@ data TokenType
 --   requests, and so when such actions are exposed to users, TokenIDs are used
 --   over actual tokens
 newtype TokenID = TokenID { unTokenID :: UUID }
-    deriving (Eq, Show, Ord, ToField, FromField)
+    deriving (Eq, Ord, ToField, FromField)
 
 --------------------------------------------------------------------------------
 
@@ -113,6 +114,12 @@ instance Show Token where
 instance Show TokenType where
     show Bearer  = "bearer"
     show Refresh = "refresh"
+
+instance Show TokenID where
+    show (TokenID x) = show x
+
+instance Read TokenID where
+    readsPrec n x = map (first TokenID) $ readsPrec n x
 
 --------------------------------------------------------------------------------
 
