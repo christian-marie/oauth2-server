@@ -152,7 +152,6 @@ test-suite test
                      , aeson
                      , bytestring
                      , containers
-                     , hoauth2
                      , hspec
                      , http-client
                      , lens

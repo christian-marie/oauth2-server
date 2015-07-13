@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE RecordWildCards       #-}
 
 module Main where
 
@@ -23,8 +24,11 @@ import           Data.List
 import           Data.Maybe
 import           Data.Monoid
 import qualified Data.Text.Encoding          as T
-import           Network.HTTP.Client         (HttpException (..))
+import           Network.HTTP.Client         (HttpException (..),
+                                              defaultManagerSettings,
+                                              newManager)
 import           Network.HTTP.Types          (Status (..), hLocation)
+import qualified Network.OAuth.OAuth2        as HOAuth2
 import           Network.URI
 import           Network.Wreq                hiding (statusCode)
 import           System.Environment
@@ -139,6 +143,48 @@ tests base_uri = do
         it "restricts new tokens to the client which granted them"
             pending
 
+        it "works with hoauth2" $ do
+            res <- runExceptT $ do
+                let Just a_scope = bsToScope "login missiles:launch"
+                let code_request = a_scope <$ client1
+                -- 1. Get the page.
+                pg <- getAuthorizePage base_uri (Just user1) code_request
+
+                -- 2. Check that the page describes the requested token.
+                liftIO $ do
+                    pg `shouldSatisfy` ("Name" `BC.isInfixOf`)
+                    pg `shouldSatisfy` ("Description" `BC.isInfixOf`)
+                    pg `shouldSatisfy` ("App 1" `BC.isInfixOf`)
+                    pg `shouldSatisfy` ("Application One" `BC.isInfixOf`)
+                    pg `shouldSatisfy` ("missiles:launch" `BC.isInfixOf`)
+                    pg `shouldSatisfy` ("login" `BC.isInfixOf`)
+
+                -- 3. Extract details from the form.
+                (uri, fields) <- getAuthorizeFields base_uri pg
+
+                -- 4. Submit the approval form.
+                let fields' = nubBy ((==) `on` fst) fields
+                x <- sendAuthorization uri (Just user1) fields'
+                auth_code <- case lookup "code" $ x ^. UB.uriQueryL . UB.queryPairsL of
+                    Nothing -> error "No code in redirect URI"
+                    Just auth_code -> return auth_code
+
+                -- 5. Use the code in the redirect to request a token via hoauth2.
+                man <- liftIO $ newManager defaultManagerSettings
+                let oauth2 = HOAuth2.OAuth2
+                        { HOAuth2.oauthClientId = review clientID $ fst client1
+                        , HOAuth2.oauthClientSecret = T.encodeUtf8 $ review password $ snd client1
+                        , HOAuth2.oauthOAuthorizeEndpoint = ""
+                        , HOAuth2.oauthAccessTokenEndpoint = (BC.pack $ show base_uri) <> "/oauth2/token"
+                        , HOAuth2.oauthCallback = Nothing
+                        }
+                res <- liftIO $ HOAuth2.fetchAccessToken man oauth2 auth_code
+                case res of
+                    Left e -> throwError $ show e
+                    Right _ -> return ()
+            case res of
+                Left e -> error e
+                Right () -> return ()
 
     describe "authorize endpoint" $ do
         let Just a_scope = bsToScope "login missiles:launch"
