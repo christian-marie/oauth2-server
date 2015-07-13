@@ -59,8 +59,7 @@ import           Data.Typeable                        (Typeable)
 import qualified Data.Vector                          as V
 import           Database.PostgreSQL.Simple.FromField
 import           Database.PostgreSQL.Simple.ToField
-import           Servant.API                          (FromText (..),
-                                                       ToText (..))
+import           Yesod.Core                           (PathPiece (..))
 
 import           Network.OAuth2.Server.Types.Common
 
@@ -132,11 +131,9 @@ instance Read ScopeToken where
 
 -- Servant Encoding and Decoding
 
-instance FromText Scope where
-    fromText = bsToScope . T.encodeUtf8
-
-instance ToText Scope where
-    toText = T.decodeUtf8 . scopeToBs
+instance PathPiece Scope where
+    fromPathPiece = bsToScope . T.encodeUtf8
+    toPathPiece = T.decodeUtf8 . scopeToBs
 
 --------------------------------------------------------------------------------
 

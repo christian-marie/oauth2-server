@@ -44,6 +44,7 @@ module Network.OAuth2.Server.Types (
   ErrorDescription,
   errorDescription,
   ResponseType(..),
+  parseResponseType,
   GrantEvent(..),
   grantResponse,
   HTTPAuthRealm(..),
@@ -117,8 +118,7 @@ import           Database.PostgreSQL.Simple.FromRow
 import           Database.PostgreSQL.Simple.ToField
 import           Database.PostgreSQL.Simple.ToRow
 import           Network.Wai.Handler.Warp             hiding (Connection)
-import           Servant.API                          (FromText (..),
-                                                       ToText (..))
+import           Yesod.Core                           (PathPiece (..))
 
 import           Network.OAuth2.Server.Types.Auth
 import           Network.OAuth2.Server.Types.Client
@@ -132,7 +132,7 @@ import           Network.Wai.Middleware.Shibboleth
 --
 -- Pages are things that are counted, so 'Page' starts at 1.
 newtype Page = Page { unpackPage :: Integer }
-  deriving (Eq, Ord, Show, FromText, ToText)
+  deriving (Eq, Ord, Show, PathPiece)
 
 -- | Prism for constructing a page, must be > 0.
 page :: Integral n => Prism' n Page
@@ -143,7 +143,7 @@ page = prism' (fromIntegral . unpackPage)
 --
 -- Page sizes must be positive integers.
 newtype PageSize = PageSize { unpackPageSize :: Integer }
-  deriving (Eq, Ord, Show, FromText, ToText)
+  deriving (Eq, Ord, Show, PathPiece)
 
 -- | Prism for constructing a pagesize, must be > 0
 pageSize :: Integral n => Prism' n PageSize
@@ -182,11 +182,11 @@ data ResponseType
     | ResponseTypeExtension Text -- ^ Client requests an extension type.
   deriving (Eq, Show)
 
-instance FromText ResponseType where
-    fromText "code"  = Just ResponseTypeCode
-    fromText "token" = Just ResponseTypeToken
-    -- @TODO(thsutton): This should probably be Set Text.
-    fromText txt     = Just (ResponseTypeExtension txt)
+parseResponseType :: Text -> ResponseType
+parseResponseType "code"  = ResponseTypeCode
+parseResponseType "token" = ResponseTypeToken
+-- @TODO(thsutton): This should probably be Set Text.
+parseResponseType txt     = ResponseTypeExtension txt
 
 -- | Authorization Code for Authorization Code Grants.
 --
@@ -279,7 +279,7 @@ decodeAccessRequest xs = do
                     Just x -> Right x
                 requestRedirectURI <- case lookup "redirect_uri" xs of
                     Nothing -> return Nothing
-                    Just r -> case fromText r of
+                    Just r -> case fromPathPiece r of
                         Nothing -> invalidRequest $ "Error decoding redirect_uri: " <> T.encodeUtf8 r
                         Just x -> return $ Just x
                 requestClientID <- case lookup "client_id" xs of

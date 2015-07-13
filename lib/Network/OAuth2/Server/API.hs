@@ -71,7 +71,6 @@ import           Data.Time.Clock                  (UTCTime, addUTCTime,
 import           Formatting                       (sformat, shown, (%))
 import           Network.HTTP.Types               hiding (Header)
 import           Network.OAuth2.Server.Types      as X
-import           Servant.API
 import           System.Log.Logger
 import           Yesod.Core
 
@@ -126,7 +125,7 @@ postTokenEndpointR = do
     req <- case decodeAccessRequest xs of
         Left e -> sendResponseStatus badRequest400 $ toJSON e
         Right req -> return req
-    auth <- (fromText . T.decodeUtf8 =<<) <$> lookupHeader "Authorization"
+    auth <- (fromPathPiece . T.decodeUtf8 =<<) <$> lookupHeader "Authorization"
 
     (OAuth2Server ref _ sink) <- ask
 
@@ -285,11 +284,11 @@ getAuthorizeEndpointR
 getAuthorizeEndpointR = do
     (OAuth2Server ref _ _) <- ask
     (user_id, permissions) <- checkShibHeaders
-    response_type <- (fromText =<<) <$> lookupGetParam "response_type"
-    client_id' <- (fromText =<<) <$> lookupGetParam "client_id"
-    redirect_url <-(fromText =<<) <$>  lookupGetParam "redirect_uri"
-    scope' <- (fromText =<<) <$> lookupGetParam "scope"
-    state <- (fromText =<<) <$> lookupGetParam "state"
+    response_type <- fmap parseResponseType <$> lookupGetParam "response_type"
+    client_id' <- (fromPathPiece =<<) <$> lookupGetParam "client_id"
+    redirect_url <- (fromPathPiece =<<) <$> lookupGetParam "redirect_uri"
+    scope' <- (fromPathPiece =<<) <$> lookupGetParam "scope"
+    state <- (fromPathPiece =<<) <$> lookupGetParam "state"
     res <- runExceptT $ processAuthorizeGet ref user_id permissions response_type client_id' redirect_url scope' state
     case res of
         Left (Nothing, e) -> sendResponseStatus badRequest400 $ toJSON e
@@ -408,7 +407,7 @@ postVerifyEndpointR
     :: Handler Value
 postVerifyEndpointR = do
     (OAuth2Server ref _ _) <- ask
-    auth_header <- (fromText . T.decodeUtf8 =<<) <$> lookupHeader "Authorization"
+    auth_header <- (fromPathPiece . T.decodeUtf8 =<<) <$> lookupHeader "Authorization"
     auth <- maybe (invalidArgs ["AuthHeader missing"]) return auth_header
     tok <- rawRequestBody $$ fold mappend mempty
     token' <- case tok ^? token of

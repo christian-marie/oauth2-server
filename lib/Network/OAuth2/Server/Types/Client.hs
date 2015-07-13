@@ -44,8 +44,8 @@ import qualified Data.Vector                          as V
 import           Database.PostgreSQL.Simple.FromField
 import           Database.PostgreSQL.Simple.FromRow
 import           Database.PostgreSQL.Simple.ToField
-import           Servant.API                          (FromText (..))
 import           URI.ByteString                       (URI)
+import           Yesod.Core                           (PathPiece (..))
 
 import           Network.OAuth2.Server.Types.Auth
 import           Network.OAuth2.Server.Types.Common
@@ -103,10 +103,11 @@ instance Read ClientState where
 
 --------------------------------------------------------------------------------
 
--- Servant Encoding and Decoding
+-- Yesod Encoding and Decoding
 
-instance FromText ClientState where
-    fromText t = T.encodeUtf8 t ^? clientState
+instance PathPiece ClientState where
+    fromPathPiece t = T.encodeUtf8 t ^? clientState
+    toPathPiece cs = T.decodeUtf8 $ cs ^.re clientState
 
 --------------------------------------------------------------------------------
 

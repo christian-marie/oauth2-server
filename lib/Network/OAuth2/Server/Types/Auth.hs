@@ -59,8 +59,7 @@ import           Data.Typeable                        (Typeable)
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.FromField
 import           Database.PostgreSQL.Simple.ToField
-import           Servant.API                          (FromText (..),
-                                                       ToText (..))
+import           Yesod.Core                           (PathPiece (..))
 
 import           Network.OAuth2.Server.Types.Common
 
@@ -138,23 +137,23 @@ instance Read ClientID where
 
 --------------------------------------------------------------------------------
 
--- Servant Encoding and Decoding
+-- Yesod Encoding and Decoding
 
-instance FromText UserID where
-    fromText t = T.encodeUtf8 t ^? userID
+instance PathPiece UserID where
+    fromPathPiece t = T.encodeUtf8 t ^? userID
+    toPathPiece u = T.decodeUtf8 $ u ^.re userID
 
-instance FromText ClientID where
-    fromText t = T.encodeUtf8 t ^? clientID
+instance PathPiece ClientID where
+    fromPathPiece t = T.encodeUtf8 t ^? clientID
+    toPathPiece c = T.decodeUtf8 $ c ^.re clientID
 
-instance FromText AuthHeader where
-    fromText t = do
+instance PathPiece AuthHeader where
+    fromPathPiece t = do
         let b = T.encodeUtf8 t
         either fail return $ flip parseOnly b $ AuthHeader
             <$> takeWhile1 nqchar <* word8 0x20
             <*> takeWhile1 nqschar <* endOfInput
-
-instance ToText AuthHeader where
-    toText AuthHeader {..} = T.decodeUtf8 $ authScheme <> " " <> authParam
+    toPathPiece AuthHeader {..} = T.decodeUtf8 $ authScheme <> " " <> authParam
 
 --------------------------------------------------------------------------------
 

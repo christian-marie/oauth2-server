@@ -27,12 +27,12 @@ import           Network.HTTP.Client         (HttpException (..))
 import           Network.HTTP.Types          (Status (..), hLocation)
 import           Network.URI
 import           Network.Wreq                hiding (statusCode)
-import           Servant.Common.Text
 import           System.Environment
 import           Test.Hspec
 import           Text.HandsomeSoup
 import           Text.XML.HXT.Core           (IOSArrow, XmlTree, runX)
 import qualified URI.ByteString              as UB
+import           Yesod.Core                  (PathPiece (..))
 
 import           Network.OAuth2.Server.Types hiding (refreshToken)
 import qualified Network.OAuth2.Server.Types as OAuth2
@@ -486,13 +486,13 @@ client3 =
 
 user1 :: (UserID, Scope)
 user1 =
-    let Just i = fromText "jack.ripper@example.org"
+    let Just i = fromPathPiece "jack.ripper@example.org"
         Just s = bsToScope "login missiles:launch missiles:selfdestruct"
     in (i,s)
 
 user2 :: (UserID, Scope)
 user2 =
-    let Just i = fromText "Jesminder.Bhamra@example.com"
+    let Just i = fromPathPiece "Jesminder.Bhamra@example.com"
         Just s = bsToScope "login football:penalty:bend-it"
     in (i,s)
 

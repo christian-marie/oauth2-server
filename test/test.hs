@@ -7,27 +7,17 @@
 module Main where
 
 import           Control.Applicative
-import           Control.Concurrent
 import           Control.Lens.Operators
 import           Control.Lens.Properties
 import           Control.Lens.Review
-import           Control.Monad
-import           Control.Monad.Error.Class
-import           Control.Monad.Trans.Writer
 import           Data.Aeson
 import qualified Data.ByteString             as B
-import qualified Data.ByteString.Char8       as BC
-import qualified Data.ByteString.Lazy.Char8  as BLC
 import           Data.Monoid
 import           Data.Proxy
 import qualified Data.Set                    as S
 import qualified Data.Text                   as T
-import           Network.HTTP.Client         hiding (Proxy)
-import           Network.OAuth.OAuth2        hiding (URI)
-import           Network.Wai.Handler.Warp    hiding (Connection)
-import           Servant.API                 hiding (URI)
-import           Servant.Server
 import           URI.ByteString
+import           Yesod.Core                  (PathPiece (..))
 
 import           Test.Hspec
 import           Test.Hspec.QuickCheck
@@ -35,7 +25,6 @@ import           Test.QuickCheck             hiding (Result (..))
 import           Test.QuickCheck.Function
 import           Test.QuickCheck.Instances   ()
 
-import           Network.OAuth2.Server
 import           Network.OAuth2.Server.Types
 
 instance Show Password where
@@ -224,8 +213,8 @@ suite = do
 
         hasCorrectJSON "OAuth2Error" (Proxy :: Proxy OAuth2Error)
 
-        prop "forall (x :: AuthHeader). fromText (toText x) === Just x" $ \(x :: AuthHeader) ->
-            fromText (toText x) === Just x
+        prop "forall (x :: AuthHeader). fromPathPiece (toPathPiece x) === Just x" $ \(x :: AuthHeader) ->
+            fromPathPiece (toPathPiece x) === Just x
 
         prop "bsToScope (scopeToBs x) === Just x" $ \x ->
             bsToScope (scopeToBs x) === Just x
@@ -250,10 +239,6 @@ suite = do
 
         prop "isPrism code" $
             isPrism code
-
-        prop "mimeUnrender (mimeRender t) === Right t" $ \(t :: Token) ->
-            let proxy = Proxy :: Proxy OctetStream
-            in mimeUnrender proxy (mimeRender proxy t) === Right t
 
 -- Commented out until the store has settled down
 {-
