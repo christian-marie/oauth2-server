@@ -37,7 +37,7 @@ import           Network.Wai.Handler.Warp            hiding (Connection)
 import           System.Log.Logger
 import qualified System.Remote.Monitoring            as EKG
 import           Yesod.Core.Dispatch
-import qualified Yesod.Static as Static
+import qualified Yesod.Static                        as Static
 
 import           Network.OAuth2.Server.App
 import           Network.OAuth2.Server.Configuration
