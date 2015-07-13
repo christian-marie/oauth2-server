@@ -12,7 +12,7 @@ category:            Network
 build-type:          Simple
 cabal-version:       >=1.10
 data-files:          schema/postgresql.sql
-extra-source-files:  style.css
+extra-source-files:  static/*.css
                      runit.sh
                      stack.yaml
                      docs/architecture.dot
@@ -92,6 +92,7 @@ Library
                      , wai
                      , warp
                      , yesod-core
+                     , yesod-static
 
   ghc-options: -Wall -fwarn-tabs -funbox-strict-fields
 

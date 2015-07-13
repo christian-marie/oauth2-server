@@ -10,15 +10,31 @@ module Network.OAuth2.Server.Foundation where
 import           Control.Concurrent.STM
 import           Language.Haskell.TH
 import           Yesod.Core
+import qualified Yesod.Static as Static
 import           Yesod.Routes.TH.Types
 
 import           Network.OAuth2.Server.Store.Base
 import           Network.OAuth2.Server.Types
 
-data OAuth2Server where
-    OAuth2Server :: TokenStore ref => ref -> ServerOptions -> (TChan GrantEvent) -> OAuth2Server
+-- Include default resources resources.
+--
+-- This will define the following variables:
+--
+-- - @semantic_css@
+-- - @stylesheet_css@
+Static.staticFiles "static"
 
-instance Yesod OAuth2Server
+-- | Yesod application type.
+--
+--   Values of this type carry the internal state of the OAuth2 Server
+--   application.
+data OAuth2Server where
+    OAuth2Server :: TokenStore ref =>
+                    { serverTokenStore   :: ref
+                    , serverOptions      :: ServerOptions
+                    , serverEventChannel :: (TChan GrantEvent)
+                    , serverStatics      :: Static.Static
+                    } -> OAuth2Server
 
 -- This generates the routing types. The routes used are re-exported,
 -- so that the dispatch function can be derived independently.
@@ -31,6 +47,7 @@ do let routes = [parseRoutes|
            /                 BaseR
            /tokens/#TokenID  ShowTokenR         GET
            /tokens           TokensR            GET POST
+           /static           StaticR      Static.Static serverStatics
            /healthcheck      HealthCheckR
            |]
    routes_name <- newName "routes"
@@ -38,3 +55,19 @@ do let routes = [parseRoutes|
    routes_dec <- valD (varP routes_name) (normalB [e|routes|]) []
    decs <- mkYesodData "OAuth2Server" routes
    return $ routes_type:routes_dec:decs
+
+instance Yesod OAuth2Server where
+    defaultLayout contents = do
+        PageContent the_title head_tags body_tags <- widgetToPageContent $ do
+            addStylesheet $ StaticR semantic_css
+            addStylesheet $ StaticR stylesheet_css
+            contents
+        withUrlRenderer [hamlet|
+            $doctype 5
+            <html>
+              <head>
+                <title>#{the_title}
+                ^{head_tags}
+              <body>
+                ^{body_tags}
+        |]

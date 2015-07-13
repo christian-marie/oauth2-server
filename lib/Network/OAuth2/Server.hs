@@ -37,6 +37,7 @@ import           Network.Wai.Handler.Warp            hiding (Connection)
 import           System.Log.Logger
 import qualified System.Remote.Monitoring            as EKG
 import           Yesod.Core.Dispatch
+import qualified Yesod.Static                        as Static
 
 import           Network.OAuth2.Server.App
 import           Network.OAuth2.Server.Configuration
@@ -90,9 +91,12 @@ startServer serverOpts@ServerOptions{..} = do
     counters <- mkGrantCounters
     (serverEventSink, serverEventStop) <- startStatistics serverOpts ref counters
     let settings = setPort optServicePort $ setHost optServiceHost $ defaultSettings
+    -- Configure static file serving.
+    -- @TODO(thsutton) This should be configurable.
+    statics@(Static.Static _) <- Static.static "static"
     apiSrv <- async $ do
         debugM logName $ "Starting API Server"
-        server <- toWaiAppPlain $ OAuth2Server ref serverOpts serverEventSink
+        server <- toWaiAppPlain $ OAuth2Server ref serverOpts serverEventSink statics
         runSettingsSocket settings sock . shibboleth optShibboleth $ server
     let serverServiceStop = do
             debugM logName $ "Closing API Socket"
