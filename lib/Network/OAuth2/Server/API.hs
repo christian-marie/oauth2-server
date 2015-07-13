@@ -171,6 +171,16 @@ postTokenEndpointR = do
 -- | Check that the request is valid. If it is we provide an 'AccessResponse',
 -- otherwise we return an 'OAuth2Error'.
 --
+-- The response headers are mentioned here:
+--
+-- https://tools.ietf.org/html/rfc6749#section-5.1
+--
+--    The authorization server MUST include the HTTP "Cache-Control" response
+--    header field [RFC2616] with a value of "no-store" in any response
+--    containing tokens, credentials, or other sensitive information, as well
+--    as the "Pragma" response header field [RFC2616] with a value of
+--    "no-cache".
+--
 -- Any IO exceptions that are thrown are probably catastrophic and unaccounted
 -- for, and should not be caught.
 processTokenRequest
@@ -282,16 +292,19 @@ processTokenRequest ref t (Just client_auth) req = do
                     sformat ("Got passed invalid token " % shown) tok
                 invalidRequest "Invalid token"
 
--- | Implement the OAuth2 authorize endpoint.
+-- | OAuth2 Authorization Endpoint
 --
---   This handler must be protected by Shibboleth (or other mechanism in the
---   front-end proxy). It decodes the client request and presents a UI allowing
---   the user to approve or reject a grant request.
+-- Allows authenticated users to review and authorize a code token grant
+-- request.
 --
---   TODO: Handle the validation of things more nicely here, preferably
---   shifting them out of here entirely.
+-- http://tools.ietf.org/html/rfc6749#section-3.1
 --
---   http://tools.ietf.org/html/rfc6749#section-3.1
+-- This handler must be protected by Shibboleth (or other mechanism in the
+-- front-end proxy). It decodes the client request and presents a UI allowing
+-- the user to approve or reject a grant request.
+--
+-- TODO: Handle the validation of things more nicely here, preferably
+-- shifting them out of here entirely.
 getAuthorizeEndpointR
     :: Handler Html
 getAuthorizeEndpointR = do
