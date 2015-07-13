@@ -126,7 +126,7 @@ instance Read TokenID where
 -- Servant Encoding and Decoding
 
 instance PathPiece TokenID where
-    fromPathPiece t=  (fmap TokenID) $
+    fromPathPiece t = (fmap TokenID) $
                       (U.fromASCIIBytes $ T.encodeUtf8 t)
                   <|> (U.fromString     $ T.unpack     t)
     toPathPiece = T.decodeUtf8 . U.toASCIIBytes . unTokenID
