@@ -35,21 +35,7 @@
 module Network.OAuth2.Server.App (
     OAuth2Server(..),
 
-    -- * API handlers
-    --
-    -- $ These functions each handle a single endpoint in the OAuth2 Server
-    -- HTTP API.
-
-    processAuthorizeGet,
-    serverDisplayToken,
-    serverListTokens,
-    serverPostToken,
-    healthCheck,
-
     -- * Helpers
-
-    checkClientAuth,
-    processTokenRequest,
     page1,
     pageSize1,
 ) where
@@ -131,61 +117,28 @@ getTokensR = do
     res <- liftIO $ storeListTokens ref (Just u) size p'
     return $ renderTokensPage s size p' res
 
-
-data TokenRequest = DeleteRequest TokenID
-                  | CreateRequest Scope
-
+-- | Handle a token create/delete request.
 postTokensR :: Handler Html
 postTokensR = do
-    OAuth2Server{serverTokenStore=ref} <- ask
-    (user_id, sc) <- checkShibHeaders
-    req <- do
-        method <- lookupPostParam "method"
-        token_id <- lookupPostParam "token_id"
-        scopes <- lookupPostParams "scope"
-        case method of
-            Nothing -> invalidArgs ["method field missing"]
-            Just "delete" -> case token_id of
-                Nothing   -> invalidArgs ["token_id field missing"]
-                Just t_id -> case fromPathPiece t_id of
-                    Nothing    -> invalidArgs ["Invalid Token ID"]
-                    Just t_id' -> return $ DeleteRequest t_id'
-            Just "create" -> do
-                let processScope x = case (T.encodeUtf8 x) ^? scopeToken of
-                        Nothing -> Left $ T.unpack x
-                        Just ts -> Right ts
-                let scopes' = map processScope scopes
-                case lefts scopes' of
-                    [] -> case S.fromList (rights scopes') ^? scope of
-                        Nothing -> invalidArgs ["empty scope is invalid"]
-                        Just s  -> return $ CreateRequest s
-                    es -> invalidArgs $ [T.pack $ "invalid scopes: " <> show es]
-            Just x        -> invalidArgs ["Invalid method field value, got: " <> x]
-    serverPostToken ref user_id sc req
+    method <- lookupPostParam "method"
+    case method of
+        Nothing -> invalidArgs ["method field missing"]
+        Just "delete" -> deleteTokensR
+        Just "create" -> createTokensR
+        Just x        -> invalidArgs ["Invalid method field value, got: " <> x]
 
-handleHealthCheckR :: Handler ()
-handleHealthCheckR = do
-    OAuth2Server{serverTokenStore=ref} <- ask
-    healthCheck ref
-
--- | Page 1 is totally a valid page, promise.
-page1 :: Page
-page1 = (1 :: Integer) ^?! page
-
--- | Page sizes of 1 are totally valid, promise.
-pageSize1 :: PageSize
-pageSize1 = (1 :: Integer) ^?! pageSize
-
--- | Handle a token create/delete request.
-serverPostToken
-    :: TokenStore ref
-    => ref
-    -> UserID
-    -> Scope
-    -> TokenRequest
-    -> Handler Html
 -- | Revoke a given token
-serverPostToken ref user_id _ (DeleteRequest token_id) = do
+deleteTokensR :: Handler Html
+deleteTokensR = do
+    OAuth2Server{serverTokenStore=ref} <- ask
+    (user_id, _) <- checkShibHeaders
+    maybe_token_id <- lookupPostParam "token_id"
+    token_id <- case maybe_token_id of
+        Nothing   -> invalidArgs ["token_id field missing"]
+        Just t_id -> case fromPathPiece t_id of
+            Nothing       -> invalidArgs ["Invalid Token ID"]
+            Just token_id -> return token_id
+
     debugLog logName $ "Got a request to revoke a token from " <> T.pack (show user_id)
     -- TODO(thsutton) Must check that the supplied user_id has permission to
     -- revoke the supplied token_id.
@@ -209,7 +162,21 @@ serverPostToken ref user_id _ (DeleteRequest token_id) = do
         invalidArgs []
 
 -- | Create a new token
-serverPostToken ref user_id user_scope (CreateRequest req_scope) = do
+createTokensR :: Handler Html
+createTokensR = do
+    OAuth2Server{serverTokenStore=ref} <- ask
+    (user_id, user_scope) <- checkShibHeaders
+    scopes <- lookupPostParams "scope"
+    let processScope x = case (T.encodeUtf8 x) ^? scopeToken of
+            Nothing -> Left $ T.unpack x
+            Just ts -> Right ts
+    let scopes' = map processScope scopes
+    req_scope <- case lefts scopes' of
+        [] -> case S.fromList (rights scopes') ^? scope of
+            Nothing        -> invalidArgs ["empty scope is invalid"]
+            Just req_scope -> return req_scope
+        es -> invalidArgs $ [T.pack $ "invalid scopes: " <> show es]
+
     debugLog logName $ "Got request to create a token from " <> T.pack (show user_id) <> " for scope " <> T.pack (show user_scope)
     if compatibleScope req_scope user_scope then do
         let grantTokenType = Bearer
@@ -220,6 +187,19 @@ serverPostToken ref user_id user_scope (CreateRequest req_scope) = do
         (t, _) <- liftIO $ storeCreateToken ref TokenGrant{..} Nothing
         redirect (ShowTokenR t)
     else permissionDenied "Invalid requested token scope"
+
+handleHealthCheckR :: Handler ()
+handleHealthCheckR = do
+    OAuth2Server{serverTokenStore=ref} <- ask
+    healthCheck ref
+
+-- | Page 1 is totally a valid page, promise.
+page1 :: Page
+page1 = (1 :: Integer) ^?! page
+
+-- | Page sizes of 1 are totally valid, promise.
+pageSize1 :: PageSize
+pageSize1 = (1 :: Integer) ^?! pageSize
 
 -- | Exercises the database to check if everyting is alive.
 healthCheck :: (MonadIO m, TokenStore ref) => ref -> m ()
