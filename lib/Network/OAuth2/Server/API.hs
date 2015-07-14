@@ -147,11 +147,11 @@ postTokenEndpointR = wrapError $ do
 
     -- Lookup client credentials
     auth_header_t <- lookupHeader "Authorization"
-        `orElseM` invalidArgs ["AuthHeader missing"]
+        `orElseM` invalidRequest "AuthHeader missing"
     auth_header <- preview authHeader auth_header_t
-        `orElse` invalidArgs ["Invalid AuthHeader"]
+        `orElse` invalidRequest "Invalid AuthHeader"
     client_id <- checkClientAuth ref auth_header
-        `orElseM` invalidArgs ["Invalid Client Credentials"]
+        `orElseM` invalidRequest "Invalid Client Credentials"
 
     (xs,_) <- runRequestBody
     req <- case decodeAccessRequest xs of
