@@ -49,6 +49,7 @@ Library
                      , Network.OAuth2.Server.Types.Token
                      , Network.OAuth2.Server.UI
                      , Network.Wai.Middleware.Shibboleth
+  other-modules:       Paths_oauth2_server
   build-depends:       base >=4.7 && <4.9
                      , aeson
                      , async
@@ -67,6 +68,7 @@ Library
                      , ekg-core
                      , formatting
                      , file-embed
+                     , filepath
                      , hslogger
                      , http-types
                      , iproute
