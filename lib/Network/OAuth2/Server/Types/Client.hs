@@ -72,7 +72,7 @@ newtype ClientState = ClientState { unClientState :: ByteString }
 -- Deleted clients do not show up in lookups and their tokens are invalid.
 data ClientStatus = ClientActive
                   | ClientDeleted
-  deriving (Eq, Typeable)
+  deriving (Bounded, Enum, Eq, Typeable)
 
 -- | Details relevant to a client.
 data ClientDetails = ClientDetails

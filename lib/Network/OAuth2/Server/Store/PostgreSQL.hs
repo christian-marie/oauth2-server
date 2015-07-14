@@ -23,8 +23,10 @@ module Network.OAuth2.Server.Store.PostgreSQL (
 import           Control.Applicative              ((<$>), (<*>))
 import           Control.Exception                (SomeException, throw, try)
 import           Control.Lens.Review              (review)
+import           Control.Monad                    (when)
 import           Crypto.Scrypt                    (getEncryptedPass)
 import           Data.Int                         (Int64)
+import           Data.Maybe                       (isNothing)
 import           Data.Monoid                      ((<>))
 import           Data.Pool                        (Pool, withResource)
 import qualified Data.Vector                      as V (fromList)
@@ -72,7 +74,11 @@ instance TokenStore PSQLConnPool where
                 [client] -> Just client
                 _ -> error "Expected client_id PK to be unique"
 
-    storeCreateCode (PSQLConnPool pool) requestCodeUserID requestCodeClientID requestCodeRedirectURI sc requestCodeState = do
+    storeCreateCode p@(PSQLConnPool pool) requestCodeUserID requestCodeClientID requestCodeRedirectURI sc requestCodeState = do
+        debugM logName $ "Attempting storeCreateCode with " <> show sc
+        debugM logName $ "Checking existence of client " <> show requestCodeClientID
+        res <- storeLookupClient p requestCodeClientID
+        when (isNothing res) $ error $ "Expected client " <> show requestCodeClientID <> " would be present and active"
         withResource pool $ \conn -> do
             [(requestCodeCode, requestCodeExpires)] <- do
                 debugM logName $ "Attempting storeCreateCode with " <> show sc
@@ -97,9 +103,8 @@ instance TokenStore PSQLConnPool where
 
     storeReadCode (PSQLConnPool pool) request_code = do
         codes :: [RequestCode] <- withResource pool $ \conn -> do
-            debugM logName $ "Attempting storeLoadCode"
-            query conn "SELECT code, authorized, expires, user_id, client_id, redirect_url, scope, state FROM request_codes WHERE (code = ?)"
-                       (Only request_code)
+            debugM logName $ "Attempting storeReadCode"
+            query conn "SELECT * FROM active_request_codes WHERE code = ?" (Only request_code)
         return $ case codes of
             [] -> Nothing
             [rc] -> return rc
@@ -108,17 +113,24 @@ instance TokenStore PSQLConnPool where
     storeDeleteCode (PSQLConnPool pool) request_code = do
         [Only res] <- withResource pool $ \conn -> do
             debugM logName $ "Attempting storeDeleteCode"
-            query conn "WITH deleted AS (DELETE FROM request_codes WHERE (code = ?) RETURNING *) SELECT count(*) FROM deleted"
+            query conn "WITH deleted AS (DELETE FROM request_codes WHERE (code = ?) RETURNING *) SELECT COUNT(*) FROM deleted"
                        (Only request_code)
         return $ case res :: Int of
             0 -> False
             1 -> True
             _ -> error "Expected code PK to be unique"
 
-    storeCreateToken (PSQLConnPool pool) grant parent_token = do
+    storeCreateToken p@(PSQLConnPool pool) grant parent_token = do
+        debugM logName $ "Attempting to save new token: " <> show grant
+        case grantClientID grant of
+            Just client_id -> do
+                debugM logName $ "Checking validity of client " <> show client_id
+                res <- storeLookupClient p client_id
+                when (isNothing res) $ error $ "client " <> show client_id <> " was not present and active"
+            Nothing -> return ()
         debugM logName $ "Saving new token: " <> show grant
         res <- withResource pool $ \conn -> do
-            debugM logName $ "Attempting storeSaveToken"
+            debugM logName $ "Attempting storeCreateToken"
             case parent_token of
                 Nothing  -> query conn "INSERT INTO tokens (token_type, expires, user_id, client_id, scope, token, created) VALUES (?,?,?,?,?,uuid_generate_v4(), NOW()) RETURNING token_id, token_type, token, expires, user_id, client_id, scope" grant
                 Just tid -> query conn "INSERT INTO tokens (token_type, expires, user_id, client_id, scope, token, created, token_parent) VALUES (?,?,?,?,?,uuid_generate_v4(), NOW(), ?) RETURNING token_id, token_type, token, expires, user_id, client_id, scope" (grant :. Only tid)
@@ -130,7 +142,7 @@ instance TokenStore PSQLConnPool where
     storeReadToken (PSQLConnPool pool) tok = do
         debugM logName $ "Loading token: " <> show tok
         tokens <- withResource pool $ \conn -> do
-            let q = "SELECT token_id, token_type, token, expires, user_id, client_id, scope FROM tokens WHERE (created <= NOW()) AND ((NOW() < expires) OR (expires IS NULL)) AND (revoked IS NULL) "
+            let q = "SELECT token_id, token_type, token, expires, user_id, client_id, scope FROM active_tokens WHERE (created <= NOW()) AND ((NOW() < expires) OR (expires IS NULL)) AND (revoked IS NULL) "
             case tok of
                 Left tok' -> query conn (q <> "AND (token    = ?)") (Only tok')
                 Right tid -> query conn (q <> "AND (token_id = ?)") (Only tid )
@@ -138,6 +150,7 @@ instance TokenStore PSQLConnPool where
             [Only tid :. tok'] -> return $ Just (tid, tok')
             []  -> do
                 debugM logName $ "No tokens found matching " <> show tok
+
                 return Nothing
             _   -> do
                 errorM logName $ "Consistency error: multiple tokens found matching " <> show tok
@@ -159,15 +172,15 @@ instance TokenStore PSQLConnPool where
             (toks, n_toks) <- case maybe_uid of
                 Nothing -> do
                     debugM logName "Listing all tokens"
-                    toks <- query conn "SELECT token_id, token_type, token, expires, user_id, client_id, scope FROM tokens WHERE revoked is NULL ORDER BY created DESC LIMIT ? OFFSET ?" (size, (p - 1) * size)
+                    toks <- query conn "SELECT token_id, token_type, token, expires, user_id, client_id, scope FROM active_tokens WHERE revoked is NULL ORDER BY created DESC LIMIT ? OFFSET ?" (size, (p - 1) * size)
                     debugM logName "Counting all tokens"
-                    [Only n_toks] <- query_ conn "SELECT COUNT(*) FROM tokens WHERE revoked is NULL"
+                    [Only n_toks] <- query_ conn "SELECT COUNT(*) FROM active_tokens WHERE revoked is NULL"
                     return (toks, n_toks)
                 Just uid -> do
                     debugM logName $ "Listing tokens for " <> show uid
-                    toks <- query conn "SELECT token_id, token_type, token, expires, user_id, client_id, scope FROM tokens WHERE (user_id = ?) AND revoked is NULL ORDER BY created DESC LIMIT ? OFFSET ?" (uid, size, (p - 1) * size)
+                    toks <- query conn "SELECT token_id, token_type, token, expires, user_id, client_id, scope FROM active_tokens WHERE (user_id = ?) AND revoked is NULL ORDER BY created DESC LIMIT ? OFFSET ?" (uid, size, (p - 1) * size)
                     debugM logName $ "Counting tokens for " <> show uid
-                    [Only n_toks] <- query conn "SELECT COUNT(*) FROM tokens WHERE (user_id = ?) AND revoked IS NULL" (Only uid)
+                    [Only n_toks] <- query conn "SELECT COUNT(*) FROM active_tokens WHERE (user_id = ?) AND revoked is NULL" (Only uid)
                     return (toks, n_toks)
             return (map (\((Only tid) :. tok) -> (tid, tok)) toks, n_toks)
 

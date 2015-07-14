@@ -14,6 +14,7 @@ module Main where
 
 import           Control.Applicative
 import           Control.Lens                hiding (elements)
+import           Control.Monad               (unless)
 import           Data.ByteString             (ByteString)
 import qualified Data.ByteString.Char8       as B
 import           Data.ByteString.Lens        (packedChars)
@@ -56,16 +57,29 @@ instance Arbitrary Scope where
     arbitrary =
         fromJust . bsToScope . B.pack . unwords <$> listOf1 (listOf1 alphabet)
 
-instance Arbitrary ClientID where
-    arbitrary = do
-        -- Stores are is seeded with two clients, as there is not yet an
-        -- interface for creating them.
-        --
-        -- See: test/initial-data.sql for the postgresql store
+-- Newtypes for separated Arbitrary instances
+newtype ActiveClientID    = ActiveClientID    { unActiveClientID    :: ClientID   } deriving Show
+newtype DeletedClientID   = DeletedClientID   { unDeletedClientID   :: ClientID   } deriving Show
+newtype ValidTokenGrant   = ValidTokenGrant   { unValidTokenGrant   :: TokenGrant } deriving Show
+newtype InvalidTokenGrant = InvalidTokenGrant { unInvalidTokenGrant :: TokenGrant } deriving Show
+
+-- Stores are seeded with three clients, as there is not yet an
+-- interface for creating them.
+--
+-- See: test/initial-data.sql for the postgresql store
+instance Arbitrary ActiveClientID where
+    arbitrary = ActiveClientID <$> do
         uid <- elements [ "5641ea27-1111-1111-1111-8fc06b502be0"
                         , "5641ea27-2222-2222-2222-8fc06b502be0"
-                        , "5641ea27-3333-3333-3333-8fc06b502be0" ]
+                        ]
         return $ uid ^?! packedChars . clientID
+
+instance Arbitrary DeletedClientID where
+    arbitrary = return $
+        DeletedClientID $ "5641ea27-3333-3333-3333-8fc06b502be0" ^?! packedChars . clientID
+
+instance Arbitrary ClientID where
+    arbitrary = oneof [unActiveClientID <$> arbitrary, unDeletedClientID <$> arbitrary]
 
 instance Arbitrary Token where
     arbitrary =
@@ -74,13 +88,26 @@ instance Arbitrary Token where
 instance Arbitrary TokenType where
     arbitrary = arbitraryBoundedEnum
 
-instance Arbitrary TokenGrant where
-    arbitrary =
+instance Arbitrary ValidTokenGrant where
+    arbitrary = ValidTokenGrant <$> (
         TokenGrant <$> arbitrary
                    <*> arbitrary
                    <*> arbitrary
+                   <*> (fmap unActiveClientID <$> arbitrary)
+                   <*> arbitrary
+        )
+
+instance Arbitrary InvalidTokenGrant where
+    arbitrary = InvalidTokenGrant <$> (
+        TokenGrant <$> arbitrary
                    <*> arbitrary
                    <*> arbitrary
+                   <*> (Just <$> unDeletedClientID <$> arbitrary)
+                   <*> arbitrary
+        )
+
+instance Arbitrary TokenGrant where
+    arbitrary = oneof [unValidTokenGrant <$> arbitrary, unInvalidTokenGrant <$> arbitrary]
 
 instance Arbitrary TokenDetails where
     arbitrary = tokenDetails <$> arbitrary <*> arbitrary
@@ -134,8 +161,9 @@ suite pg_pool =
 testStore :: TokenStore ref => ref -> SpecM () ()
 testStore ref = do
     prop "empty database props" (propEmpty ref)
-    prop "save load list and revoke token" (propSaveLoadListRevokeToken ref)
-    prop "lookup clients" (propLookupClients ref)
+    prop "save load list and revoke token" (propSaveLoadListRevokeValidToken ref)
+    prop "lookup active clients" (propLookupActiveClients ref)
+    prop "lookup deleted clients" (propLookupDeletedClients ref)
     prop "create activate and read request codes" (propCreateReadActivateCodes ref)
 
 pageSizeMax :: PageSize
@@ -158,8 +186,9 @@ propEmpty ref tok code' = monadicIO $ do
 
 -- | Saving a valid token grant, then trying to read it should always work,
 -- no matter what.
-propSaveLoadListRevokeToken :: TokenStore ref => ref -> TokenGrant -> Property
-propSaveLoadListRevokeToken ref arb_token_grant = monadicIO $ do
+propSaveLoadListRevokeValidToken :: TokenStore ref => ref -> ValidTokenGrant -> Property
+propSaveLoadListRevokeValidToken ref (ValidTokenGrant arb_token_grant) = monadicIO $ do
+
     -- The arbitrary time could be in the past, so we make sure we only test
     -- expiries in the future.
     now <- run getCurrentTime
@@ -204,34 +233,37 @@ propSaveLoadListRevokeToken ref arb_token_grant = monadicIO $ do
     toks''' <- run $ storeListTokens ref maybe_uid pageSizeMax page1
     assert $ id1 `notElem` (toks''' ^.. _1 . traversed . _1)
 
--- | Should be able to look up all clients, arbitrary is restricted such that
+-- | Should be able to look up all active clients, arbitrary is restricted such that
 -- all arbitrary clients should be in the database.
-propLookupClients :: TokenStore ref => ref -> ClientID -> Property
-propLookupClients ref client_id = monadicIO $ do
+propLookupActiveClients :: TokenStore ref => ref -> ActiveClientID -> Property
+propLookupActiveClients ref (ActiveClientID client_id) = monadicIO $ do
     client <- run $ storeLookupClient ref client_id
-    case review clientID client_id of
-        "5641ea27-3333-3333-3333-8fc06b502be0" -> assert (has _Nothing client)
-        _                                           -> assert (has _Just client)
+    assert (has _Just client)
+
+-- | Should not be able to look up any deleted client, arbitrary is restricted such that
+-- all arbitrary clients should be in the database.
+propLookupDeletedClients :: TokenStore ref => ref -> DeletedClientID -> Property
+propLookupDeletedClients ref (DeletedClientID client_id) = monadicIO $ do
+    client <- run $ storeLookupClient ref client_id
+    assert (has _Nothing client)
 
 -- | Should be able to create a code, activate it, and see that it is active.
 propCreateReadActivateCodes
     :: TokenStore ref
     => ref
     -> UserID
-    -> ClientID
+    -> ActiveClientID
     -> RedirectURI
     -> Scope
     -> Maybe ClientState
     -> Property
-propCreateReadActivateCodes ref uid cid uri scope' state = monadicIO $ do
+propCreateReadActivateCodes ref uid (ActiveClientID cid) uri scope' state = monadicIO $ do
     -- Create the code
     rq <- run $ storeCreateCode ref uid cid uri scope' state
     assert $ not (requestCodeAuthorized rq)
-
     -- Ensure that the code can be read
     Just rq' <- run $ storeReadCode ref (requestCodeCode rq)
     assert (rq == rq')
-
     -- Ensure that activating does indeed activate, but doesn't touch anything
     -- else
     Just rq'' <- run $ storeActivateCode ref (requestCodeCode rq)

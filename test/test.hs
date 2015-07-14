@@ -68,11 +68,20 @@ instance Arbitrary ClientID where
                 fail $ "instance Arbitrary ClientID is broken: " <> show b
             Just x -> return x
 
+instance Arbitrary ClientStatus where
+    arbitrary = arbitraryBoundedEnum
+
 instance CoArbitrary ClientID where
     coarbitrary = coarbitrary . review clientID
 
 instance Function ClientID where
     function = functionMap (B.unpack . review clientID) ((^?! clientID) . B.pack)
+
+instance CoArbitrary ClientStatus where
+    coarbitrary = coarbitrary . review clientStatus
+
+instance Function ClientStatus where
+    function = functionMap (B.unpack . review clientStatus) ((^?! clientStatus) . B.pack)
 
 instance Arbitrary Code where
     arbitrary = do
@@ -244,6 +253,9 @@ suite = do
 
         prop "isPrism authHeader" $
             isPrism authHeader
+
+        prop "isPrism clientStatus" $
+            isPrism clientStatus
 
 main :: IO ()
 main = hspec suite
