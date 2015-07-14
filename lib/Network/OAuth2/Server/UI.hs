@@ -30,6 +30,7 @@ import           Data.Foldable               (traverse_)
 import           Data.Maybe
 import           Data.Monoid
 import qualified Data.Set                    as S
+import           Data.Text                   (Text)
 import qualified Data.Text.Encoding          as T
 import           Data.Text.Strict.Lens       (packed, utf8)
 import           Network.OAuth2.Server.Types
@@ -44,6 +45,71 @@ import           URI.ByteString              (serializeURI)
 
 stylesheet :: String
 stylesheet = BS.unpack $(embedFile "static/stylesheet.css")
+
+htmlDocument :: Text -> Html -> Html -> Html
+htmlDocument the_title head_tags body_tags =
+    docTypeHtml $ do
+        head $ do
+          meta ! charset "utf-8"
+          title (toHtml the_title)
+          style ! type_ "text/css" $ toHtml stylesheet
+          head_tags
+        body $ do
+          HTML.p "LOL"
+          body_tags
+
+-- | Render the authorisation page for users to approve or reject code requests.
+renderAuthorizePage :: RequestCode -> ClientDetails -> Html
+renderAuthorizePage req@RequestCode{..} client_details =
+    htmlDocument "Token authorization" (return ()) $ do
+        h1 "Token requested"
+        h2 "This client:"
+        partialClientDetails client_details
+
+        h2 "Is making the following request"
+        partialRequestCode req
+
+        -- TODO(thsutton): base URL of server should be configurable.
+        form ! method "POST" ! action "/oauth2/authorize" $ do
+            br
+            input ! type_ "hidden"
+                  ! name "code"
+                  ! value (toValue . T.decodeUtf8 . review code $ requestCodeCode)
+            -- Approve button is first and, therefore, the default action.
+            input ! type_ "submit"
+                  ! name "action"
+                  ! value "Approve"
+                  ! alt "Yes, please issue this token."
+            -- Reject button is second, so not the default action.
+            input ! type_ "submit"
+                  ! name "action"
+                  ! value "Decline"
+                  ! alt "No, do not issue this token."
+
+-- | Render the tokens page for users to view and revoke their tokens.
+renderTokensPage :: Scope -> PageSize -> Page -> ([(TokenID, TokenDetails)], Int) -> Html
+renderTokensPage userScope (review pageSize -> size) (review page -> p) (ts, numTokens) =
+    htmlDocument "Your Tokens" (return ()) $ do
+        if validPage then do
+            h1 "Your Tokens"
+            htmlTokens ts
+            when prevPages htmlPrevPageButton
+            when nextPages htmlNextPageButton
+            htmlCreateTokenForm userScope
+        else
+            htmlInvalidPage
+  where
+    numPages = if numTokens == 0 then 1 else ((numTokens - 1) `div` size) + 1
+    validPage = p <= numPages
+    prevPages = p /= 1
+    nextPages = p < numPages
+    htmlPageButton n =
+        form ! action ("/tokens?page=" <> toValue n) $
+            input ! type_ "submit" ! value ("Page " <> toValue n)
+    htmlPrevPageButton = htmlPageButton (p-1)
+    htmlNextPageButton = htmlPageButton (p+1)
+    htmlInvalidPage = h2 "Invalid page number!"
+
 
 -- | Helper for displaying client details
 partialClientDetails :: ClientDetails -> Html
@@ -83,64 +149,6 @@ partialRequestCode request_code = do
                 tr $ do
                     th hdr ! Blaze.scope "row"
                     td (text txt)
-
--- | Render the authorisation page for users to approve or reject code requests.
-renderAuthorizePage :: RequestCode -> ClientDetails -> Html
-renderAuthorizePage req@RequestCode{..} client_details = docTypeHtml $ do
-    head $ do
-        title "Token authorization"
-        style ! type_ "text/css" $ toHtml stylesheet
-    body $ do
-        h1 "Token requested"
-        h2 "This client:"
-        partialClientDetails client_details
-
-        h2 "Is making the following request"
-        partialRequestCode req
-
-        -- TODO(thsutton): base URL of server should be configurable.
-        form ! method "POST" ! action "/oauth2/authorize" $ do
-            br
-            input ! type_ "hidden"
-                  ! name "code"
-                  ! value (toValue . T.decodeUtf8 . review code $ requestCodeCode)
-            -- Approve button is first and, therefore, the default action.
-            input ! type_ "submit"
-                  ! name "action"
-                  ! value "Approve"
-                  ! alt "Yes, please issue this token."
-            -- Reject button is second, so not the default action.
-            input ! type_ "submit"
-                  ! name "action"
-                  ! value "Decline"
-                  ! alt "No, do not issue this token."
-
--- | Render the tokens page for users to view and revoke their tokens.
-renderTokensPage :: Scope -> PageSize -> Page -> ([(TokenID, TokenDetails)], Int) -> Html
-renderTokensPage userScope (review pageSize -> size) (review page -> p) (ts, numTokens) = docTypeHtml $ do
-    head $ do
-        title "Your Tokens"
-        style ! type_ "text/css" $ toHtml stylesheet
-    body $
-        if validPage then do
-            h1 "Your Tokens"
-            htmlTokens ts
-            when prevPages htmlPrevPageButton
-            when nextPages htmlNextPageButton
-            htmlCreateTokenForm userScope
-        else
-            htmlInvalidPage
-  where
-    numPages = if numTokens == 0 then 1 else ((numTokens - 1) `div` size) + 1
-    validPage = p <= numPages
-    prevPages = p /= 1
-    nextPages = p < numPages
-    htmlPageButton n =
-        form ! action ("/tokens?page=" <> toValue n) $
-            input ! type_ "submit" ! value ("Page " <> toValue n)
-    htmlPrevPageButton = htmlPageButton (p-1)
-    htmlNextPageButton = htmlPageButton (p+1)
-    htmlInvalidPage = h2 "Invalid page number!"
 
 htmlCreateTokenForm :: Scope -> Html
 htmlCreateTokenForm s = do
