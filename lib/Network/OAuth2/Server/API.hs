@@ -38,25 +38,22 @@ module Network.OAuth2.Server.API (
 
     postTokenEndpointR,
     getAuthorizeEndpointR,
-    processAuthorizeGet,
     postAuthorizeEndpointR,
     postVerifyEndpointR,
 
     -- * Helpers
 
     checkClientAuth,
-    processTokenRequest,
     checkShibHeaders,
 ) where
 
 import           Control.Applicative
-import           Control.Concurrent.STM           (atomically, writeTChan)
 import           Control.Lens
 import           Control.Monad
-import           Control.Monad.Error.Class        (MonadError (throwError))
+import           Control.Monad.Error.Class        (MonadError, throwError)
 import           Control.Monad.Reader.Class       (ask)
-import           Control.Monad.Trans.Control
-import           Control.Monad.Trans.Except       (ExceptT, runExceptT)
+import           Control.Monad.State.Strict
+import           Control.Monad.Trans.Except       (ExceptT(..), runExceptT)
 import           Crypto.Scrypt
 import qualified Data.ByteString.Char8            as BC
 import           Data.Conduit
@@ -67,7 +64,7 @@ import           Data.Monoid
 import           Data.Text                        (Text)
 import qualified Data.Text                        as T
 import qualified Data.Text.Encoding               as T
-import           Data.Time.Clock                  (UTCTime, addUTCTime,
+import           Data.Time.Clock                  (addUTCTime,
                                                    getCurrentTime)
 import           Formatting                       (sformat, shown, (%))
 import           Network.HTTP.Types               hiding (Header)
@@ -78,6 +75,12 @@ import           Yesod.Core
 import           Network.OAuth2.Server.Foundation
 import           Network.OAuth2.Server.Store      hiding (logName)
 import           Network.OAuth2.Server.UI
+
+
+-- | Temporary, until there is an instance in Yesod.
+instance MonadHandler m => MonadHandler (ExceptT e m) where
+    type HandlerSite (ExceptT e m) = HandlerSite m
+    liftHandlerT = lift . liftHandlerT
 
 -- Logging
 
@@ -107,7 +110,7 @@ oAuthUserHeader = "Identity-OAuthUser"
 oAuthUserScopeHeader :: HeaderName
 oAuthUserScopeHeader = "Identity-OAuthUserScopes"
 
-checkShibHeaders :: Handler (UserID, Scope)
+checkShibHeaders :: MonadHandler m => m (UserID, Scope)
 checkShibHeaders = do
     uh' <- lookupHeader oAuthUserHeader
     uid <- case preview userID =<< uh' of
@@ -122,30 +125,6 @@ checkShibHeaders = do
     headerToScope Nothing    = Nothing
     headerToScope (Just hdr) = let components = BC.split ';' hdr in
         Just $ BC.intercalate " " components
-
--- | Handler for 'TokenEndpoint', basically a wrapper for 'processTokenRequest'
-postTokenEndpointR :: Handler Value
-postTokenEndpointR = do
-    (xs,_) <- runRequestBody
-    req <- case decodeAccessRequest xs of
-        Left e -> sendResponseStatus badRequest400 $ toJSON e
-        Right req -> return req
-    auth <- (fromPathPiece . T.decodeUtf8 =<<) <$> lookupHeader "Authorization"
-
-    OAuth2Server{serverTokenStore=ref,serverEventChannel=sink} <- ask
-
-    t <- liftIO getCurrentTime
-
-    res <- liftIO . runExceptT $ processTokenRequest ref t auth req
-    case res of
-        Left e -> do
-            sendResponseStatus badRequest400 $ toJSON e
-        Right response -> do
-            void . liftIO . atomically . writeTChan sink $ case req of
-                RequestAuthorizationCode{} -> CodeGranted
-                RequestClientCredentials{} -> ClientCredentialsGranted
-                RequestRefreshToken{}      -> RefreshGranted
-            returnJson response
 
 -- | Check that the request is valid. If it is we provide an 'AccessResponse',
 -- otherwise we return an 'OAuth2Error'.
@@ -162,36 +141,36 @@ postTokenEndpointR = do
 --
 -- Any IO exceptions that are thrown are probably catastrophic and unaccounted
 -- for, and should not be caught.
-processTokenRequest
-    :: forall m ref.
-       (TokenStore ref, m ~ ExceptT OAuth2Error IO)
-    => ref                                        -- ^ PG pool, ioref, etc.
-    -> UTCTime                                    -- ^ Time of request
-    -> Maybe AuthHeader                           -- ^ Who wants the token?
-    -> AccessRequest                              -- ^ What do they want?
-    -> ExceptT OAuth2Error IO AccessResponse
-processTokenRequest _ _ Nothing _ = do
-    errorLog "processTokenRequest" "Checking credentials but none provided."
-    invalidRequest "No credentials provided"
-processTokenRequest ref t (Just client_auth) req = do
-    debugLog "checkCredentials" "Checking some credentials"
-    c_id <- checkClientAuth ref client_auth
-    client_id <- case c_id of
-        Nothing -> unauthorizedClient "Invalid client credentials"
-        Just client_id -> return client_id
+postTokenEndpointR :: Handler Value
+postTokenEndpointR = wrapError $ do
+    OAuth2Server{serverTokenStore=ref} <- ask
+
+    -- Lookup client credentials
+    auth_header_t <- lookupHeader "Authorization"
+        `orElseM` invalidRequest "AuthHeader missing"
+    auth_header <- preview authHeader auth_header_t
+        `orElse` invalidRequest "Invalid AuthHeader"
+    client_id <- checkClientAuth ref auth_header
+        `orElseM` invalidRequest "Invalid Client Credentials"
+
+    (xs,_) <- runRequestBody
+    req <- case decodeAccessRequest xs of
+        Left e -> throwError e
+        Right req -> return req
 
     (user, modified_scope, maybe_token_id) <- case req of
         -- https://tools.ietf.org/html/rfc6749#section-4.1.3
         RequestAuthorizationCode auth_code uri client -> do
-            (user, modified_scope) <- checkClientAuthCode client_id auth_code uri client
+            (user, modified_scope) <- checkClientAuthCode ref client_id auth_code uri client
             return (user, modified_scope, Nothing)
         -- http://tools.ietf.org/html/rfc6749#section-4.4.2
         RequestClientCredentials _ ->
             unsupportedGrantType "client_credentials is not supported"
         -- http://tools.ietf.org/html/rfc6749#section-6
         RequestRefreshToken tok request_scope ->
-            checkRefreshToken client_id tok request_scope
+            checkRefreshToken ref client_id tok request_scope
 
+    t <- liftIO getCurrentTime
     let expires = Just $ addUTCTime 1800 t
         access_grant = TokenGrant
             { grantTokenType = Bearer
@@ -213,17 +192,27 @@ processTokenRequest ref t (Just client_auth) req = do
     -- Revoke the token iff we got one
     liftIO $ traverse_ (storeRevokeToken ref) maybe_token_id
 
-    return $ grantResponse t access_details (Just $ tokenDetailsToken refresh_details)
+    return . toJSON $ grantResponse t access_details (Just $ tokenDetailsToken refresh_details)
   where
-    fromMaybeM :: m a -> m (Maybe a) -> m a
+    wrapError :: ExceptT OAuth2Error Handler Value -> Handler Value
+    wrapError a = do
+        res <- runExceptT a
+        either (sendResponseStatus badRequest400 . toJSON) return res
+
+    orElse a e = maybe e return a
+    orElseM a e = do
+        res <- a
+        orElse res e
+
+    fromMaybeM :: Monad m => m a -> m (Maybe a) -> m a
     fromMaybeM d x = x >>= maybe d return
 
     --
     -- Verify client, scope and request code.
     --
-    checkClientAuthCode :: ClientID -> Code -> Maybe RedirectURI -> Maybe ClientID -> m (Maybe UserID, Scope)
-    checkClientAuthCode _ _ _ Nothing = invalidRequest "No client ID supplied."
-    checkClientAuthCode client_id auth_code uri (Just purported_client) = do
+    checkClientAuthCode :: TokenStore ref => ref -> ClientID -> Code -> Maybe RedirectURI -> Maybe ClientID -> ExceptT OAuth2Error Handler (Maybe UserID, Scope)
+    checkClientAuthCode _ _ _ _ Nothing = invalidRequest "No client ID supplied."
+    checkClientAuthCode ref client_id auth_code uri (Just purported_client) = do
         when (client_id /= purported_client) $ unauthorizedClient "Invalid client credentials"
         request_code <- fromMaybeM (invalidGrant "Request code not found")
                                    (liftIO $ storeReadCode ref auth_code)
@@ -247,8 +236,8 @@ processTokenRequest ref t (Just client_auth) req = do
     --
     -- Verify scope and request token.
     --
-    checkRefreshToken :: ClientID -> Token -> Maybe Scope -> m (Maybe UserID, Scope, Maybe TokenID)
-    checkRefreshToken client_id tok request_scope = do
+    checkRefreshToken :: TokenStore ref => ref -> ClientID -> Token -> Maybe Scope -> ExceptT OAuth2Error Handler (Maybe UserID, Scope, Maybe TokenID)
+    checkRefreshToken ref client_id tok request_scope = do
         previous <- liftIO $ storeReadToken ref (Left tok)
         case previous of
             Just (tid, TokenDetails{..})
@@ -286,89 +275,77 @@ processTokenRequest ref t (Just client_auth) req = do
 -- shifting them out of here entirely.
 getAuthorizeEndpointR
     :: Handler Html
-getAuthorizeEndpointR = do
+getAuthorizeEndpointR = wrapError $ do
     OAuth2Server{serverTokenStore=ref} <- ask
     (user_id, permissions) <- checkShibHeaders
-    response_type <- fmap parseResponseType <$> lookupGetParam "response_type"
-    client_id' <- (fromPathPiece =<<) <$> lookupGetParam "client_id"
-    redirect_url <- (fromPathPiece =<<) <$> lookupGetParam "redirect_uri"
     scope' <- (fromPathPiece =<<) <$> lookupGetParam "scope"
-    state <- (fromPathPiece =<<) <$> lookupGetParam "state"
-    res <- runExceptT $ processAuthorizeGet ref user_id permissions response_type client_id' redirect_url scope' state
-    case res of
-        Left (Nothing, e) -> sendResponseStatus badRequest400 $ toJSON e
-        Left (Just redirect', e) -> do
-            let url = addQueryParameters redirect' $
-                    renderErrorFormUrlEncoded e <>
-                    [("state", state' ^.re clientState) | Just state' <- [state]]
-            redirect . T.decodeUtf8 $ url ^.re redirectURI
-        Right x -> return x
+    client_state <- (fromPathPiece =<<) <$> lookupGetParam "state"
 
-processAuthorizeGet
-    :: ( MonadIO m
-       , MonadBaseControl IO m
-       , MonadError (Maybe RedirectURI, OAuth2Error) m
-       , TokenStore ref
-       )
-    => ref
-    -> UserID
-    -> Scope
-    -> Maybe ResponseType
-    -> Maybe ClientID
-    -> Maybe RedirectURI
-    -> Maybe Scope
-    -> Maybe ClientState
-    -> m Html
-processAuthorizeGet ref user_id permissions response_type client_id' redirect scope' state = do
     -- Required: a ClientID value, which identifies a client.
-    client_details@ClientDetails{..} <- case client_id' of
-        Just client_id -> do
-            client <- liftIO $ storeLookupClient ref client_id
-            case client of
-                Nothing -> error $ "Could not find client with id: " <> show client_id
-                Just c -> return c
-        Nothing -> error "ClientID is missing"
+    client_id_t <- lookupGetParam "client_id"
+        `orElseM` invalidRequest "client_id missing"
+    client_id <- preview clientID (T.encodeUtf8 client_id_t)
+        `orElse` invalidRequest "invalid client_id"
+    client_details@ClientDetails{..} <-
+        liftIO (storeLookupClient ref client_id)
+            `orElseM` invalidRequest "invalid client_id"
 
     -- Optional: requested redirect URI.
     -- https://tools.ietf.org/html/rfc6749#section-3.1.2.3
-    redirect_uri <- case redirect of
+    maybe_redirect_uri_t <- lookupGetParam "redirect_uri"
+    redirect_uri <- case maybe_redirect_uri_t of
         Nothing -> case clientRedirectURI of
             redirect':_ -> return redirect'
             _ -> error $ "No redirect_uri provided and no unique default registered for client " <> show clientClientId
-        Just redirect'
-            | redirect' `elem` clientRedirectURI -> return redirect'
-            | otherwise -> error $ show redirect' <> " /= " <> show clientRedirectURI
+        Just redirect_uri_t -> do
+            redirect_uri <- preview redirectURI (T.encodeUtf8 redirect_uri_t)
+                `orElse` invalidRequest "invalid redirect_uri"
+            if redirect_uri `elem` clientRedirectURI
+                then return redirect_uri
+                else error $ show redirect_uri <> " /= " <> show clientRedirectURI
+
+    -- From here on, we have enough inforation to handle errors.
+    -- https://tools.ietf.org/html/rfc6749#section-4.1.2.1
+    put $ Just (client_state, redirect_uri)
 
     -- Required: a supported ResponseType value.
-    case response_type of
-        Just ResponseTypeCode -> return ()
-        Just _  -> throwInvalidRequest redirect_uri "Invalid response type"
-        Nothing -> throwInvalidRequest redirect_uri "Response type is missing"
+    response_type <- lookupGetParam "response_type"
+    case T.toLower <$> response_type of
+        Just "code" -> return ()
+        Just _  -> invalidRequest "Invalid response type"
+        Nothing -> invalidRequest "Response type is missing"
 
     -- Optional (but we currently require): requested scope.
     requested_scope <- case scope' of
-        Nothing -> throwInvalidRequest redirect_uri "Scope is missing"
+        Nothing -> invalidRequest "Scope is missing"
         Just requested_scope
             | requested_scope `compatibleScope` permissions -> return requested_scope
-            | otherwise -> throwInvalidScope redirect_uri
+            | otherwise -> invalidScope ""
 
     -- Create a code for this request.
-    request_code <- liftIO $ storeCreateCode ref user_id clientClientId redirect_uri requested_scope state
+    request_code <- liftIO $ storeCreateCode ref user_id clientClientId redirect_uri requested_scope client_state
 
     return $ renderAuthorizePage request_code client_details
   where
-    throwInvalidRequest redirect_uri errDesc =
-        throwError ( Just redirect_uri
-                   , OAuth2Error InvalidRequest
-                                 (preview errorDescription errDesc)
-                                 Nothing
-                   )
-    throwInvalidScope redirect_uri =
-        throwError ( Just redirect_uri
-                   , OAuth2Error InvalidScope
-                                 (preview errorDescription "Invalid scope")
-                                 Nothing
-                   )
+    orElse a e = maybe e return a
+    orElseM a e = do
+        res <- a
+        orElse res e
+    wrapError
+        :: ExceptT OAuth2Error (StateT (Maybe (Maybe ClientState, RedirectURI)) Handler) a
+        -> Handler a
+    wrapError handler = do
+        (res, maybe_redirect) <- flip runStateT Nothing . runExceptT $ handler
+        case res of
+            Right x -> return x
+            Left e -> case maybe_redirect of
+                Just (client_state, redirect_uri) -> do
+                    let url = addQueryParameters redirect_uri $
+                            renderErrorFormUrlEncoded e <>
+                            [("state", state' ^.re clientState) | Just state' <- [client_state]]
+                    redirect . T.decodeUtf8 $ url ^.re redirectURI
+                Nothing -> sendResponseStatus badRequest400 $ toJSON e
+
 
 -- | Handle the approval or rejection, we get here from the page served in
 -- 'authorizeEndpoint'
@@ -412,8 +389,10 @@ postVerifyEndpointR
     :: Handler Value
 postVerifyEndpointR = do
     OAuth2Server{serverTokenStore=ref} <- ask
-    auth_header <- (fromPathPiece . T.decodeUtf8 =<<) <$> lookupHeader "Authorization"
-    auth <- maybe (invalidArgs ["AuthHeader missing"]) return auth_header
+    auth_header_t <- lookupHeader "Authorization"
+        `orElseM` invalidArgs ["AuthHeader missing"]
+    auth <- preview authHeader auth_header_t
+        `orElse` invalidArgs ["Invalid AuthHeader"]
     tok <- rawRequestBody $$ fold mappend mempty
     token' <- case tok ^? token of
         Nothing -> invalidArgs ["Invalid Token"]
@@ -450,6 +429,11 @@ postVerifyEndpointR = do
             -- 4. Send the access response.
             now <- liftIO getCurrentTime
             return . toJSON $ grantResponse now details (Just token')
+  where
+    orElse a e = maybe e return a
+    orElseM a e = do
+        res <- a
+        orElse res e
 
 -- | Given an AuthHeader sent by a client, verify that it authenticates.
 --   If it does, return the authenticated ClientID; otherwise, Nothing.

@@ -17,7 +17,6 @@ import           Data.Proxy
 import qualified Data.Set                    as S
 import qualified Data.Text                   as T
 import           URI.ByteString
-import           Yesod.Core                  (PathPiece (..))
 
 import           Test.Hspec
 import           Test.Hspec.QuickCheck
@@ -194,6 +193,12 @@ instance Arbitrary AuthHeader where
         <$> (B.pack <$> listOf1 (arbitrary `suchThat` nqchar))
         <*> (B.pack <$> listOf1 (arbitrary `suchThat` nqschar))
 
+instance CoArbitrary AuthHeader where
+    coarbitrary = coarbitrary . review authHeader
+
+instance Function AuthHeader where
+    function = functionMap (B.unpack . review authHeader) ((^?! authHeader) . B.pack)
+
 hasCorrectJSON
     :: forall a. (FromJSON a, ToJSON a, Arbitrary a, Show a, Eq a)
     => String -> Proxy a -> Spec
@@ -212,9 +217,6 @@ suite = do
         hasCorrectJSON "AccessResponse" (Proxy :: Proxy AccessResponse)
 
         hasCorrectJSON "OAuth2Error" (Proxy :: Proxy OAuth2Error)
-
-        prop "forall (x :: AuthHeader). fromPathPiece (toPathPiece x) === Just x" $ \(x :: AuthHeader) ->
-            fromPathPiece (toPathPiece x) === Just x
 
         prop "bsToScope (scopeToBs x) === Just x" $ \x ->
             bsToScope (scopeToBs x) === Just x
@@ -239,6 +241,9 @@ suite = do
 
         prop "isPrism code" $
             isPrism code
+
+        prop "isPrism authHeader" $
+            isPrism authHeader
 
 main :: IO ()
 main = hspec suite
