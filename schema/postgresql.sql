@@ -16,6 +16,11 @@ CREATE TABLE clients (
     description   TEXT          NOT NULL,
     app_url       VARCHAR(256)  NOT NULL,
 
+    -- The scopes the client is registerd for.
+    scope         VARCHAR(512)[] NOT NULL,
+    -- The status (active/deleted) of the client.
+    status        TEXT           NOT NULL,
+
     PRIMARY KEY (client_id)
 );
 

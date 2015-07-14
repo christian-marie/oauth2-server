@@ -63,7 +63,8 @@ instance Arbitrary ClientID where
         --
         -- See: test/initial-data.sql for the postgresql store
         uid <- elements [ "5641ea27-1111-1111-1111-8fc06b502be0"
-                        , "5641ea27-2222-2222-2222-8fc06b502be0" ]
+                        , "5641ea27-2222-2222-2222-8fc06b502be0"
+                        , "5641ea27-3333-3333-3333-8fc06b502be0" ]
         return $ uid ^?! packedChars . clientID
 
 instance Arbitrary Token where
@@ -208,7 +209,9 @@ propSaveLoadListRevokeToken ref arb_token_grant = monadicIO $ do
 propLookupClients :: TokenStore ref => ref -> ClientID -> Property
 propLookupClients ref client_id = monadicIO $ do
     client <- run $ storeLookupClient ref client_id
-    assert (has _Just client)
+    case review clientID client_id of
+        "5641ea27-3333-3333-3333-8fc06b502be0" -> assert (has _Nothing client)
+        _                                           -> assert (has _Just client)
 
 -- | Should be able to create a code, activate it, and see that it is active.
 propCreateReadActivateCodes

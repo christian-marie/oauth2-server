@@ -17,7 +17,10 @@ module Network.OAuth2.Server.Store.Base (
   logName,
 ) where
 
+import           Crypto.Scrypt               (EncryptedPass)
 import           Data.Int                    (Int64)
+import           Data.Text                   (Text)
+import           URI.ByteString              (URI)
 
 import           Network.OAuth2.Server.Types
 
@@ -31,6 +34,25 @@ logName = "Network.OAuth2.Server.Store"
 -- It is parametrised by a underlying monad and includes a natural
 -- transformation to any MonadIO m'
 class TokenStore ref where
+    -- | Register a new client
+    storeCreateClient
+        :: ref
+        -> EncryptedPass
+        -> Bool
+        -> [RedirectURI]
+        -> Text
+        -> Text
+        -> URI
+        -> Scope
+        -> ClientStatus
+        -> IO ClientDetails
+
+    -- | Delete an existing client
+    storeDeleteClient
+        :: ref
+        -> ClientID
+        -> IO ()
+
     -- | Load ClientDetails from the store
     storeLookupClient
         :: ref

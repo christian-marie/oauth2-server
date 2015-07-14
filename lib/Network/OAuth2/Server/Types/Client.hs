@@ -9,6 +9,8 @@
 
 {-# LANGUAGE DeriveDataTypeable         #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
 
 -- | Description: Types representing OAuth2 clients
 --
@@ -16,9 +18,11 @@
 module Network.OAuth2.Server.Types.Client (
 -- * Types
   ClientState,
+  ClientStatus,
   ClientDetails(..),
 -- * ByteString Encoding and Decoding
   clientState,
+  clientStatus,
 ) where
 
 import           Control.Applicative                  ((<$>), (<*>))
@@ -34,6 +38,7 @@ import           Data.Aeson                           (FromJSON (..),
                                                        withText)
 import           Data.ByteString                      (ByteString)
 import qualified Data.ByteString                      as B (all, null)
+import qualified Data.ByteString.Char8                as B (unpack)
 import           Data.Monoid                          ((<>))
 import           Data.Text                            (Text)
 import qualified Data.Text                            as T (unpack)
@@ -49,6 +54,7 @@ import           Yesod.Core                           (PathPiece (..))
 
 import           Network.OAuth2.Server.Types.Auth
 import           Network.OAuth2.Server.Types.Common
+import           Network.OAuth2.Server.Types.Scope
 
 --------------------------------------------------------------------------------
 
@@ -61,6 +67,13 @@ import           Network.OAuth2.Server.Types.Common
 newtype ClientState = ClientState { unClientState :: ByteString }
     deriving (Eq, Typeable)
 
+-- | The activity status of the client.
+--
+-- Deleted clients do not show up in lookups and their tokens are invalid.
+data ClientStatus = ClientActive
+                  | ClientDeleted
+  deriving (Eq, Typeable)
+
 -- | Details relevant to a client.
 data ClientDetails = ClientDetails
     { clientClientId     :: ClientID      -- ^ Unique identifier for client
@@ -70,6 +83,8 @@ data ClientDetails = ClientDetails
     , clientName         :: Text          -- ^ The human readable name for the client
     , clientDescription  :: Text          -- ^ The human readable description for the client
     , clientAppUrl       :: URI           -- ^ The URL for the client application
+    , clientScope        :: Scope         -- ^ The scopes the client is registered for.
+    , clientActivity     :: ClientStatus  -- ^ Whether the client is active/deleted etc.
     }
   deriving (Eq, Show)
 
@@ -91,12 +106,27 @@ clientState = prism' cs2b b2cs
         guard $ B.all vschar b
         return (ClientState b)
 
+-- | Simple prism for safe construction/deconstruction of client statuses for
+--   all uses (Postgresql, HTTP, etc.)
+clientStatus :: Prism' ByteString ClientStatus
+clientStatus = prism' cs2b b2cs
+  where
+    cs2b ClientActive  = "active"
+    cs2b ClientDeleted = "deleted"
+    b2cs b = case b of
+        "active"  -> Just ClientActive
+        "deleted" -> Just ClientDeleted
+        _         -> Nothing
+
 --------------------------------------------------------------------------------
 
 -- String Encoding and Decoding
 
 instance Show ClientState where
     show = show . review clientState
+
+instance Show ClientStatus where
+    show = B.unpack . review clientStatus
 
 --------------------------------------------------------------------------------
 
@@ -120,6 +150,17 @@ instance FromField ClientState where
 instance ToField ClientState where
     toField x = toField $ x ^.re clientState
 
+instance FromField ClientStatus where
+    fromField f bs = do
+        (s :: Text) <- fromField f bs
+        case s of
+            "active"  -> return ClientActive
+            "deleted" -> return ClientDeleted
+            x         -> returnError ConversionFailed f $ show x <> " is an invalid ClientStatus"
+
+instance ToField ClientStatus where
+    toField = toField . show
+
 instance FromRow ClientDetails where
     fromRow = ClientDetails <$> field
                             <*> (EncryptedPass <$> field)
@@ -128,6 +169,8 @@ instance FromRow ClientDetails where
                             <*> field
                             <*> field
                             <*> fieldWith fromFieldURI
+                            <*> field
+                            <*> field
 
 --------------------------------------------------------------------------------
 

@@ -23,9 +23,11 @@ module Network.OAuth2.Server.Store.PostgreSQL (
 import           Control.Applicative              ((<$>), (<*>))
 import           Control.Exception                (SomeException, throw, try)
 import           Control.Lens.Review              (review)
+import           Crypto.Scrypt                    (getEncryptedPass)
 import           Data.Int                         (Int64)
 import           Data.Monoid                      ((<>))
 import           Data.Pool                        (Pool, withResource)
+import qualified Data.Vector                      as V (fromList)
 import           Database.PostgreSQL.Simple       ((:.) (..), Connection,
                                                    Only (..), Query, execute,
                                                    query, query_)
@@ -39,10 +41,32 @@ import           Network.OAuth2.Server.Types
 newtype PSQLConnPool = PSQLConnPool (Pool Connection)
 
 instance TokenStore PSQLConnPool where
+    storeCreateClient (PSQLConnPool pool) pass confidential redirect_url name description app_url client_scope status = do
+        withResource pool $ \conn -> do
+            debugM logName $ "Attempting storeCreateClient with name " <> show name
+            res <- query conn "INSERT INTO clients (client_secret, confidential, redirect_url, name, description, app_url, scope, status) VALUES (?,?,?,?,?,?,?,?) RETURNING client_id"
+                                           (getEncryptedPass pass, confidential, V.fromList redirect_url, name, description, uriToBS app_url, client_scope, status)
+            case res of
+                [(Only client_id)] ->
+                    return $ ClientDetails client_id pass confidential redirect_url name description app_url client_scope status
+                []    -> fail $ "Failed to save new client: " <> show name
+                _     -> fail "Impossible: multiple client_ids returned from single insert"
+
+    storeDeleteClient (PSQLConnPool pool) client_id = do
+        withResource pool $ \conn -> do
+            debugM logName $ "Attempting storeDeleteClient with " <> show client_id
+            rows <- execute conn "UPDATE clients SET status = 'deleted' WHERE (client_id = ?)" (Only client_id)
+            case rows of
+                0 -> do
+                    let msg = "Failed to delete client " <> show client_id
+                    errorM logName msg
+                    fail msg
+                x -> debugM logName $ "Revoked multiple (" <> show x <> ") clients with id " <> show client_id
+
     storeLookupClient (PSQLConnPool pool) client_id = do
         withResource pool $ \conn -> do
             debugM logName $ "Attempting storeLookupClient with " <> show client_id
-            res <- query conn "SELECT client_id, client_secret, confidential, redirect_url, name, description, app_url FROM clients WHERE (client_id = ?)" (Only client_id)
+            res <- query conn "SELECT client_id, client_secret, confidential, redirect_url, name, description, app_url, scope, status FROM clients WHERE (client_id = ?) AND status = 'active'" (Only client_id)
             return $ case res of
                 [] -> Nothing
                 [client] -> Just client
@@ -161,7 +185,7 @@ instance TokenStore PSQLConnPool where
                     Right x   -> do
                         warningM logName $ "Expected singleton count from PGS, got: " <> show x <> " defaulting to 0"
                         return 0
-            gatherClients           = gather "SELECT COUNT(*) FROM clients"
+            gatherClients           = gather "SELECT COUNT(*) FROM clients WHERE status = 'active'"
             gatherUsers             = gather "SELECT COUNT(DISTINCT user_id) FROM tokens"
             gatherStatTokensIssued  = gather "SELECT COUNT(*) FROM tokens"
             gatherStatTokensExpired = gather "SELECT COUNT(*) FROM tokens WHERE expires IS NOT NULL AND expires <= NOW ()"
