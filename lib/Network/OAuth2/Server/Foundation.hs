@@ -62,15 +62,29 @@ instance Yesod OAuth2Server where
             addStylesheet $ StaticR semantic_css
             addStylesheet $ StaticR stylesheet_css
             contents
+
         withUrlRenderer [hamlet|
-            $doctype 5
-            <html>
-              <head>
+        $doctype 5
+        <html lang="en">
+            <head>
+                <meta charset="UTF-8">
                 <title>#{the_title}
+                <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+                <link rel="stylesheet" href=@{StaticR semantic_css}>
+                <link rel="stylesheet" href=@{StaticR stylesheet_css}>
                 ^{head_tags}
-              <body>
-                ^{body_tags}
-        |]
+            <body>
+                <div id="app">
+                    <div class="ui page grid">
+                        <header class="sixteen wide column">
+                            <div class="centered ten wide column">
+                                <img class="ui image centered" src="@{StaticR logo_png}" alt="Token Server">
+                                <h1 class="ui centered header">Token Server
+                        <section class="sixteen wide column">
+                            <div class="ui stackable grid">
+                                <div class="centered wide column">
+                                    ^{body_tags}
+    |]
 
     yesodMiddleware handler = do
         route <- getCurrentRoute

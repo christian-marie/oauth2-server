@@ -71,7 +71,7 @@ import           Network.OAuth2.Server.Types      as X
 import           System.Log.Logger
 import           Text.Blaze.Html5                 (Html)
 import           Yesod.Core                       (PathPiece (..),
-                                                   invalidArgs,
+                                                   defaultLayout, invalidArgs,
                                                    lookupGetParam,
                                                    lookupPostParam,
                                                    lookupPostParams,
@@ -177,8 +177,8 @@ serverDisplayToken ref uid s tid = do
         guard (token_details `belongsToUser` uid)
         return token_details
   where
-    renderPage token_details = return $
-        renderTokensPage s pageSize1 page1 ([(tid, token_details)], 1)
+    renderPage token_details =
+        defaultLayout $ renderToken (tid, token_details)
 
 -- | List all tokens for a given user, paginated.
 serverListTokens
@@ -193,7 +193,7 @@ serverListTokens ref size u s p = do
     debugLog logName $ "Got a request to list tokens from " <> T.pack (show u)
     let p' = fromMaybe page1 p
     res <- liftIO $ storeListTokens ref (Just u) size p'
-    return $ renderTokensPage s size p' res
+    defaultLayout $ renderTokensPage s size p' res
 
 -- | Handle a token create/delete request.
 serverPostToken

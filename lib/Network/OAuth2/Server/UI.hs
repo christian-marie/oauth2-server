@@ -8,6 +8,7 @@
 --
 
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes       #-}
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE TemplateHaskell   #-}
 {-# LANGUAGE ViewPatterns      #-}
@@ -16,47 +17,62 @@
 --
 -- Simple HTML rendering for user interaction
 module Network.OAuth2.Server.UI (
--- * UI Pages
+  -- * UI Pages
   renderAuthorizePage,
   renderTokensPage,
+  renderToken,
 ) where
 
-import           Blaze.ByteString.Builder    (toByteString)
+import           Blaze.ByteString.Builder         (toByteString)
 import           Control.Lens
 import           Control.Monad
-import qualified Data.ByteString.Char8       as BS
-import           Data.FileEmbed
-import           Data.Foldable               (traverse_)
+import           Data.Foldable                    (traverse_)
 import           Data.Maybe
 import           Data.Monoid
-import qualified Data.Set                    as S
-import           Data.Text                   (Text)
-import qualified Data.Text.Encoding          as T
-import           Data.Text.Strict.Lens       (packed, utf8)
+import qualified Data.Set                         as S
+import           Data.Text                        (Text)
+import qualified Data.Text.Encoding               as T
+import           Data.Text.Strict.Lens            (packed, utf8)
 import           Network.OAuth2.Server.Types
-import           Prelude                     hiding (head)
-import           Prelude                     hiding (head)
-import           Text.Blaze.Html5            hiding (code, div, map, p)
-import qualified Text.Blaze.Html5            as HTML
-import           Text.Blaze.Html5.Attributes hiding (form, scope, size, style,
-                                              title)
-import qualified Text.Blaze.Html5.Attributes as Blaze
-import           URI.ByteString              (serializeURI)
+import           Prelude                          hiding (head)
+import           Prelude                          hiding (head)
+import           Text.Blaze.Html5                 hiding (code, div, map, p)
+import qualified Text.Blaze.Html5                 as HTML
+import           Text.Blaze.Html5.Attributes      hiding (form, scope, size,
+                                                   style, title)
+import qualified Text.Blaze.Html5.Attributes      as Blaze
+import           Text.Hamlet                      (hamlet)
+import           URI.ByteString                   (serializeURI)
+import           Yesod.Core
 
-stylesheet :: String
-stylesheet = BS.unpack $(embedFile "static/stylesheet.css")
+import           Network.OAuth2.Server.Foundation
+
+-- | Path to static Semantic UI stylesheet file.
+--
+-- @TODO(thsutton): Use proper yesod routing here?
+static_semantic_css :: AttributeValue
+static_semantic_css = "/static/semantic.css"
+
+-- | Path to static custom CSS stylesheet file.
+--
+-- @TODO(thsutton): Use proper yesod routing here?
+static_stylesheet_css :: AttributeValue
+static_stylesheet_css = "/static/stylesheet.css"
+
+-- | Path to static logo image file.
+--
+-- @TODO(thsutton): Use proper yesod routing here?
+static_logo_png :: AttributeValue
+static_logo_png = "/static/logo.png"
+
+-- | Render a URL by not rending it.
+--
+--   @TODO(thsutton) Replace with real yesod routing.
+skipURLRendering :: a -> Html
+skipURLRendering = const ""
 
 htmlDocument :: Text -> Html -> Html -> Html
-htmlDocument the_title head_tags body_tags =
-    docTypeHtml $ do
-        head $ do
-          meta ! charset "utf-8"
-          title (toHtml the_title)
-          style ! type_ "text/css" $ toHtml stylesheet
-          head_tags
-        body $ do
-          HTML.p "LOL"
-          body_tags
+htmlDocument the_title head_tags body_tags = ""
 
 -- | Render the authorisation page for users to approve or reject code requests.
 renderAuthorizePage :: RequestCode -> ClientDetails -> Html
@@ -71,7 +87,6 @@ renderAuthorizePage req@RequestCode{..} client_details =
 
         -- TODO(thsutton): base URL of server should be configurable.
         form ! method "POST" ! action "/oauth2/authorize" $ do
-            br
             input ! type_ "hidden"
                   ! name "code"
                   ! value (toValue . T.decodeUtf8 . review code $ requestCodeCode)
@@ -87,17 +102,30 @@ renderAuthorizePage req@RequestCode{..} client_details =
                   ! alt "No, do not issue this token."
 
 -- | Render the tokens page for users to view and revoke their tokens.
-renderTokensPage :: Scope -> PageSize -> Page -> ([(TokenID, TokenDetails)], Int) -> Html
+renderTokensPage :: Scope -> PageSize -> Page -> ([(TokenID, TokenDetails)], Int)
+                 -> Widget
 renderTokensPage userScope (review pageSize -> size) (review page -> p) (ts, numTokens) =
-    htmlDocument "Your Tokens" (return ()) $ do
-        if validPage then do
-            h1 "Your Tokens"
-            htmlTokens ts
-            when prevPages htmlPrevPageButton
-            when nextPages htmlNextPageButton
-            htmlCreateTokenForm userScope
-        else
-            htmlInvalidPage
+    [whamlet|
+        <div class="ui raised blue segement attached">
+            <h2 class="ui centered header">Your tokens
+            <table class="ui celled table">
+                <thead>
+                    <th>Client
+                    <th>Expires
+                    <th>Permissions
+                    <th>
+                <tbody>
+                    $forall (tid, TokenDetails{..}) <- ts
+                        <tr>
+                            <td>#{T.decodeUtf8 $ maybe "Any Client" (review clientID) tokenDetailsClientID}
+                            <td>#{show tokenDetailsExpires}
+                            <td>#{show tokenDetailsScope}
+                            <td>
+                                <a class="details" href="/tokens/#{show tid}">Details
+        <p>when prevPages htmlPrevPageButton
+        <p>when nextPages htmlNextPageButton
+        ^{htmlCreateTokenForm userScope}
+    |]
   where
     numPages = if numTokens == 0 then 1 else ((numTokens - 1) `div` size) + 1
     validPage = p <= numPages
@@ -110,6 +138,13 @@ renderTokensPage userScope (review pageSize -> size) (review page -> p) (ts, num
     htmlNextPageButton = htmlPageButton (p+1)
     htmlInvalidPage = h2 "Invalid page number!"
 
+renderToken :: (TokenID, TokenDetails) -> Widget
+renderToken (tid, tok@TokenDetails{..}) =
+    [whamlet|
+        <h1 class="ui header centered">Token Details
+        <p>#{show tok}
+        <a href="@{TokensR}">Return
+    |]
 
 -- | Helper for displaying client details
 partialClientDetails :: ClientDetails -> Html
@@ -150,48 +185,40 @@ partialRequestCode request_code = do
                     th hdr ! Blaze.scope "row"
                     td (text txt)
 
+-- | Render form to create a
 htmlCreateTokenForm :: Scope -> Html
 htmlCreateTokenForm s = do
     let scopeTokens = map (T.decodeUtf8 . review scopeToken) $ S.toList $ scope # s
-    form ! method "POST" ! action "/tokens" ! class_ "create-token" $ do
-        h2 "Create a token"
-        input ! type_ "hidden" ! name "method" ! value "create"
-        forM_ scopeTokens $ \t -> do
-            checkbox "scope" t t
-            br
-        br
-        input ! type_ "submit" ! value "Create Token"
-  where
-    checkbox the_name the_value the_label = do
-       HTML.label $ do
-           input ! type_ "checkbox" ! name the_name ! value (toValue the_value)
-           toHtml the_label
-
-htmlTokens :: [(TokenID, TokenDetails)] -> Html
-htmlTokens [] = h2 "You have no tokens!"
-htmlTokens ts = do
-    h1 "Tokens List"
-    table ! class_ "zebra" $ do
-        tokHeader
-        mapM_ htmlToken ts
-  where
-    tokHeader = thead $ do
-        th "Client"
-        th "Expires"
-        th "Permissions"
-        th ""
+    -- @TODO(thsutton) input and label need @id and @for attributes.
+    [hamlet|
+        <form method="POST" action="/tokens" class="ui form blue segment top attached create-token">
+            <h2 class="ui centered header">Create a token
+            <div class="ui segment scollerise">
+                <ul class="ui list stackable three column grid">
+                    $forall perm <- scopeTokens
+                        <li class="column">
+                            <div class="ui checkbox">
+                                <input type="checkbox" name="scope" value="#{perm}" id="scope_#{perm}">
+                                <label for="scope_#{perm}">#{perm}
+            <input type="hidden" name="method" value="create">
+            <input type="submit" class="ui right floated blue button" value="Create Token">
+    |] skipURLRendering
 
 htmlToken :: (TokenID, TokenDetails) -> Html
-htmlToken (tid, TokenDetails{..}) = tr $ do
-    td htmlCid
-    td htmlExpires
-    td htmlScope
-    td htmlDetailsLink
+htmlToken (tid, TokenDetails{..}) =
+    [hamlet|
+        <tr>
+            <td>#{htmlCid}
+            <td>#{htmlExpires}
+            <td>#{htmlScope}
+            <td>#{htmlDetailsLink}
+    |] skipURLRendering
   where
-    htmlCid    = toHtml $ T.decodeUtf8 $ maybe "Any client" (review clientID) tokenDetailsClientID
-    htmlScope  = toHtml $ T.decodeUtf8 $ scopeToBs tokenDetailsScope
+    htmlCid     = toHtml $ T.decodeUtf8 $ maybe "Any client" (review clientID) tokenDetailsClientID
+    htmlScope   = toHtml $ T.decodeUtf8 $ scopeToBs tokenDetailsScope
+    tokenURL    = toValue tid
     htmlExpires = toHtml $ case tokenDetailsExpires of
         Nothing -> "Never"
         Just d  -> show d
     htmlDetailsLink = a ! class_ "details" ! href ("/tokens/" <> tokenURL) $ "Details"
-    tokenURL   = toValue tid
+
