@@ -188,10 +188,13 @@ createTokensR = do
         redirect (ShowTokenR t)
     else permissionDenied "Invalid requested token scope"
 
+-- | Exercises the database to check if everyting is alive.
 handleHealthCheckR :: Handler ()
 handleHealthCheckR = do
     OAuth2Server{serverTokenStore=ref} <- ask
-    healthCheck ref
+    debugLog logName $ "Got a healthcheck request."
+    StoreStats{..} <- liftIO $ storeGatherStats ref
+    return ()
 
 -- | Page 1 is totally a valid page, promise.
 page1 :: Page
@@ -200,10 +203,3 @@ page1 = (1 :: Integer) ^?! page
 -- | Page sizes of 1 are totally valid, promise.
 pageSize1 :: PageSize
 pageSize1 = (1 :: Integer) ^?! pageSize
-
--- | Exercises the database to check if everyting is alive.
-healthCheck :: (MonadIO m, TokenStore ref) => ref -> m ()
-healthCheck ref = do
-    debugLog logName $ "Got a healthcheck request."
-    StoreStats{..} <- liftIO $ storeGatherStats ref
-    return ()
