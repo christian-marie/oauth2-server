@@ -93,7 +93,7 @@ startServer serverOpts@ServerOptions{..} = do
     let settings = setPort optServicePort $ setHost optServiceHost $ defaultSettings
     -- Configure static file serving.
     -- @TODO(thsutton) This should be configurable.
-    statics@(Static.Static _) <- Static.static "static"
+    statics@(Static.Static _) <- Static.static optUIStaticPath
     apiSrv <- async $ do
         debugM logName $ "Starting API Server"
         server <- toWaiAppPlain $ OAuth2Server ref serverOpts serverEventSink statics

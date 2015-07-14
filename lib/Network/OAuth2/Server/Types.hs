@@ -153,14 +153,15 @@ pageSize = prism' (fromIntegral . unpackPageSize)
 
 -- | Configuration options for the server.
 data ServerOptions = ServerOptions
-    { optDBString    :: ByteString
-    , optStatsHost   :: ByteString
-    , optStatsPort   :: Int
-    , optServiceHost :: HostPreference
-    , optServicePort :: Int
-    , optUIPageSize  :: PageSize
-    , optVerifyRealm :: ByteString
-    , optShibboleth  :: ShibConfig
+    { optDBString     :: ByteString
+    , optStatsHost    :: ByteString
+    , optStatsPort    :: Int
+    , optServiceHost  :: HostPreference
+    , optServicePort  :: Int
+    , optUIPageSize   :: PageSize
+    , optUIStaticPath :: FilePath
+    , optVerifyRealm  :: ByteString
+    , optShibboleth   :: ShibConfig
     }
 
 -- | Describes events which should be tracked by the monitoring statistics

@@ -1,7 +1,6 @@
 Installing OAuth2 Server
 ========================
 
-
 1. Install dependencies.
 
 2. Create a database.
