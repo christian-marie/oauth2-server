@@ -28,6 +28,7 @@ module Network.OAuth2.Server.Types (
   addQueryParameters,
   OAuth2Error(..),
   AuthHeader(..),
+  authHeader,
   authDetails,
   belongsToUser,
   bsToScope,
