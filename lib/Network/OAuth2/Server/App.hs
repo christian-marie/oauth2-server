@@ -103,19 +103,34 @@ mkYesodDispatch "OAuth2Server" routes
 handleBaseR :: Handler ()
 handleBaseR = redirect TokensR
 
+-- | Display a given token, if the user is allowed to do so.
 getShowTokenR :: TokenID -> Handler Html
 getShowTokenR tid = do
     OAuth2Server{serverTokenStore=ref} <- ask
     (uid, sc) <- checkShibHeaders
-    serverDisplayToken ref uid sc tid
+    debugLog logName $ "Got a request to display a token from " <> T.pack (show uid)
+    res <- liftIO $ storeReadToken ref (Right tid)
+    maybe notFound (renderPage sc) $ do
+        (_, token_details) <- res
+        guard (token_details `belongsToUser` uid)
+        return token_details
+  where
+    renderPage sc token_details = return $
+        renderTokensPage sc pageSize1 page1 ([(tid, token_details)], 1)
 
+-- | List all tokens for a given user, paginated.
 getTokensR :: Handler Html
 getTokensR = do
     OAuth2Server{serverTokenStore=ref,serverOptions=serverOpts} <- ask
     (u, s) <- checkShibHeaders
     maybe_p <- lookupGetParam "page"
     let p = preview page =<< fmap fst . readInt . T.encodeUtf8 =<< maybe_p
-    serverListTokens ref (optUIPageSize serverOpts) u s p
+    debugLog logName $ "Got a request to list tokens from " <> T.pack (show u)
+    let p' = fromMaybe page1 p
+        size = optUIPageSize serverOpts
+    res <- liftIO $ storeListTokens ref (Just u) size p'
+    return $ renderTokensPage s size p' res
+
 
 data TokenRequest = DeleteRequest TokenID
                   | CreateRequest Scope
@@ -160,40 +175,6 @@ page1 = (1 :: Integer) ^?! page
 -- | Page sizes of 1 are totally valid, promise.
 pageSize1 :: PageSize
 pageSize1 = (1 :: Integer) ^?! pageSize
-
--- | Display a given token, if the user is allowed to do so.
-serverDisplayToken
-    :: TokenStore ref
-    => ref
-    -> UserID
-    -> Scope
-    -> TokenID
-    -> Handler Html
-serverDisplayToken ref uid s tid = do
-    debugLog logName $ "Got a request to display a token from " <> T.pack (show uid)
-    res <- liftIO $ storeReadToken ref (Right tid)
-    maybe notFound renderPage $ do
-        (_, token_details) <- res
-        guard (token_details `belongsToUser` uid)
-        return token_details
-  where
-    renderPage token_details = return $
-        renderTokensPage s pageSize1 page1 ([(tid, token_details)], 1)
-
--- | List all tokens for a given user, paginated.
-serverListTokens
-    :: TokenStore ref
-    => ref
-    -> PageSize
-    -> UserID
-    -> Scope
-    -> Maybe Page
-    -> Handler Html
-serverListTokens ref size u s p = do
-    debugLog logName $ "Got a request to list tokens from " <> T.pack (show u)
-    let p' = fromMaybe page1 p
-    res <- liftIO $ storeListTokens ref (Just u) size p'
-    return $ renderTokensPage s size p' res
 
 -- | Handle a token create/delete request.
 serverPostToken
