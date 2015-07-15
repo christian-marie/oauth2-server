@@ -88,7 +88,7 @@ renderTokensPage userScope (review pageSize -> size) (review page -> p) (ts, num
                         $forall (tid, TokenDetails{..}) <- ts
                             <tr>
                                 <td>#{T.decodeUtf8 $ maybe "Any Client" (review clientID) tokenDetailsClientID}
-                                <td>#{show tokenDetailsExpires}
+                                <td>#{maybe "Never" show tokenDetailsExpires}
                                 <td>#{show tokenDetailsScope}
                                 <td>
                                     <a class="details" href=@{ShowTokenR tid}">Details
@@ -103,12 +103,12 @@ renderTokensPage userScope (review pageSize -> size) (review page -> p) (ts, num
                         <form method="GET" action=@{TokensR} class="ui stackable two column grid">
                             <div class="column page-prev">
                               $if prevPages
-                                <button class="ui small basic left labeled icon button" name="page" value="#{p - 1}">
+                                <button class="ui small left labeled icon button" name="page" value="#{p - 1}">
                                     <i class="left arrow icon">
                                     Previous
                             <div class="column page-next">
                               $if nextPages
-                                  <button class="ui small basic right labeled icon button" name="page" value="#{p + 1}">
+                                  <button class="ui small right labeled icon button" name="page" value="#{p + 1}">
                                     <i class="right arrow icon">
                                     Next
         ^{htmlCreateTokenForm userScope}
@@ -121,11 +121,37 @@ renderTokensPage userScope (review pageSize -> size) (review page -> p) (ts, num
 
 
 renderToken :: (TokenID, TokenDetails) -> Widget
-renderToken (tid, tok@TokenDetails{..}) =
+renderToken (tid, TokenDetails{..}) =
     [whamlet|
-        <h1 class="ui header centered">Token Details
-        <p>#{show tok}
-        <a href="@{TokensR}">Return
+        <div class="ui raised blue segement attached">
+            <table class="ui celled table">
+                <thead>
+                    <th scope=col>ID
+                    <th scope=col>Type
+                    <th scope=col>Token
+                    <th scope=col>Client
+                    <th scope=col>Expires
+                    <th scope=col>Permissions
+                <tbody>
+                    <tr>
+                        <td>#{show tid}
+                        <td>#{show tokenDetailsTokenType}
+                        <td>#{show tokenDetailsToken}
+                        <td>#{T.decodeUtf8 $ maybe "Any Client" (review clientID) tokenDetailsClientID}
+                        <td>#{maybe "Never" show tokenDetailsExpires}
+                        <td>#{show tokenDetailsScope}
+                <tfoot>
+                    <tr>
+                        <th colspan=6>
+                            <div class="ui stackable two column grid">
+                                <div class="column page-prev">
+                                     <a class="ui small left primary button" href="@{TokensR}">
+                                         Return to list
+                                <form method="POST" action=@{TokensR} class="column page-next">
+                                     <input type=hidden name="method" value="delete">
+                                     <input type=hidden name="token_id" value="#{show tid}">
+                                     <button class="ui small right red button">
+                                         Delete Token
     |]
 
 -- | Helper for displaying client details
