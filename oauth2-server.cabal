@@ -60,6 +60,7 @@ Library
                      , bytestring
                      , bytestring-conversion
                      , case-insensitive
+                     , clientsession
                      , conduit
                      , configurator
                      , containers

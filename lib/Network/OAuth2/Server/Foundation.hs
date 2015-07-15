@@ -4,11 +4,15 @@
 {-# LANGUAGE TemplateHaskell   #-}
 {-# LANGUAGE TypeFamilies      #-}
 {-# LANGUAGE ViewPatterns      #-}
+{-# LANGUAGE RecordWildCards   #-}
 
 module Network.OAuth2.Server.Foundation where
 
 import           Control.Concurrent.STM
+import           Data.Monoid
 import           Language.Haskell.TH
+import           Network.Wai
+import           Web.ClientSession
 import           Yesod.Core
 import qualified Yesod.Static as Static
 import           Yesod.Routes.TH.Types
@@ -84,4 +88,18 @@ instance Yesod OAuth2Server where
             Nothing -> return ()
         handler
 
-    makeSessionBackend _ = return Nothing
+    makeSessionBackend OAuth2Server{serverOptions=ServerOptions{..}} = do
+        key <- getKey optKeyFile
+        (getCachedDate, _closeDateCacher) <- clientSessionDateCacher optSessionExpiry
+        let SessionBackend load_session = clientSessionBackend key getCachedDate
+        let discard_session _ = return (mempty, const $ return [])
+        -- Disable session backend for JSON endpoints and static.
+        let should_session req = case pathInfo req of
+                "static":_          -> False
+                ["oauth2","token"]  -> False
+                ["oauth2","verify"] -> False
+                _                   -> True
+        return $ Just $ SessionBackend $
+            \req -> if should_session req
+                        then load_session req
+                        else discard_session req
