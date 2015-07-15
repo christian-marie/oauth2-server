@@ -359,58 +359,61 @@ postAuthorizeEndpointR = do
         case res of
            Nothing -> invalidArgs []
            Just x -> return x
-    act <- lookupPostParam "action"
-    case T.toLower <$> act of
-        Just "approve" -> do
-            res <- liftIO $ storeActivateCode ref code' user_id
-            case res of
-                Nothing -> permissionDenied "You are not authorized to approve this request."
-                Just RequestCode{..} -> do
-                    let uri' = addQueryParameters requestCodeRedirectURI [("code", code' ^.re code)]
-                    redirect . T.decodeUtf8 $ uri' ^.re redirectURI
-        Just "decline" -> do
-            res <- liftIO $ storeReadCode ref code'
-            case res of
-                Just RequestCode{..} | user_id == requestCodeUserID-> do
+    maybe_request_code <- liftIO $ storeReadCode ref code'
+    case maybe_request_code of
+        Just RequestCode{..} | requestCodeUserID == user_id -> do
+            let state_param = [ ("state", state' ^.re clientState)
+                              | state' <- maybeToList requestCodeState ]
+                redirect_uri_st = addQueryParameters requestCodeRedirectURI
+                                  state_param
+            maybe_act <- lookupPostParam "action"
+            case T.toLower <$> maybe_act of
+                Just "approve" -> do
+                    res <- liftIO $ storeActivateCode ref code'
+                    case res of
+                        -- TODO: Revoke things
+                        Nothing -> permissionDenied "You are not authorized to approve this request."
+                        Just _ -> do
+                            let uri' = addQueryParameters redirect_uri_st
+                                       [("code", code' ^.re code)]
+                            redirect . T.decodeUtf8 $ uri' ^.re redirectURI
+                Just "decline" -> do
+                    -- TODO: actually care if deletion succeeded.
                     void . liftIO $ storeDeleteCode ref code'
                     let e = OAuth2Error AccessDenied Nothing Nothing
-                        url = addQueryParameters requestCodeRedirectURI $
-                              renderErrorFormUrlEncoded e <>
-                              [("state", state' ^.re clientState) | Just state' <- [requestCodeState]]
+                        url = addQueryParameters redirect_uri_st $
+                              renderErrorFormUrlEncoded e
                     redirect . T.decodeUtf8 $ url ^.re redirectURI
-                _ -> permissionDenied "You are not authorized to approve this request."
-        Just act' -> error $ "Invalid action: " <> show act'
-        Nothing -> error "no action"
+                Just act' -> error $ "Invalid action: " <> show act'
+                Nothing -> error "no action"
+
+        _ -> permissionDenied "You are not authorized to approve this request."
 
 -- | Verify a token and return information about the principal and grant.
 --
 --   Restricted to authorized clients.
 postVerifyEndpointR
     :: Handler Value
-postVerifyEndpointR = do
+postVerifyEndpointR = wrapError $ do
     OAuth2Server{serverTokenStore=ref} <- ask
     auth_header_t <- lookupHeader "Authorization"
-        `orElseM` invalidArgs ["AuthHeader missing"]
+        `orElseM` invalidRequest "AuthHeader missing"
     auth <- preview authHeader auth_header_t
-        `orElse` invalidArgs ["Invalid AuthHeader"]
-    tok <- rawRequestBody $$ fold mappend mempty
-    token' <- case tok ^? token of
-        Nothing -> invalidArgs ["Invalid Token"]
+        `orElse` invalidRequest "Invalid AuthHeader"
+    token_bs <- rawRequestBody $$ fold mappend mempty
+    token' <- case token_bs ^? token of
+        Nothing -> invalidRequest "Invalid Token"
         Just token' -> return token'
 
     -- 1. Check client authentication.
-    client_id' <- liftIO . runExceptT $ checkClientAuth ref auth
-    client_id <- case client_id' of
-        Left e -> do
-            errorLog "verifyEndpoint" $
-                sformat ("Error verifying token: " % shown) (e :: OAuth2Error)
-            notAuthenticated
-        Right Nothing -> do
+    maybe_client_id <- checkClientAuth ref auth
+    client_id <- case maybe_client_id of
+        Nothing -> do
             debugLog "verifyEndpoint" $
                 sformat ("Invalid client credentials: " % shown) auth
-            notAuthenticated
-        Right (Just cid) -> do
-            return cid
+            invalidClient "Invalid Client"
+        Just client_id -> do
+            return client_id
     -- 2. Load token information.
     tok <- liftIO $ storeReadToken ref (Left token')
     case tok of
@@ -430,6 +433,10 @@ postVerifyEndpointR = do
             now <- liftIO getCurrentTime
             return . toJSON $ grantResponse now details (Just token')
   where
+    wrapError :: ExceptT OAuth2Error Handler Value -> Handler Value
+    wrapError a = do
+        res <- runExceptT a
+        either (sendResponseStatus badRequest400 . toJSON) return res
     orElse a e = maybe e return a
     orElseM a e = do
         res <- a
@@ -448,16 +455,12 @@ checkClientAuth ref auth = do
             debugLog "checkClientAuth" "Got an invalid auth header."
             invalidRequest "Invalid auth header provided."
         Just (client_id, secret) -> do
-            client <- liftIO $ storeLookupClient ref client_id
-            case client of
-                Just ClientDetails{..} -> return $ verifyClientSecret client_id secret clientSecret
-                Nothing -> do
-                    debugLog "checkClientAuth" $
-                        sformat ("Got a request for invalid client_id " % shown)
-                                client_id
-                    invalidClient "No such client."
+            maybe_client <- liftIO $ storeLookupClient ref client_id
+            return $ verifyClientSecret maybe_client secret
   where
-    verifyClientSecret client_id secret hash =
-        let pass = Pass . T.encodeUtf8 $ review password secret in
+    verifyClientSecret :: Maybe ClientDetails -> Password -> Maybe ClientID
+    verifyClientSecret Nothing       _    = Nothing
+    verifyClientSecret (Just ClientDetails{..}) secret = do
+        let pass = Pass . T.encodeUtf8 $ review password secret
         -- Verify with default scrypt params.
-        if verifyPass' pass hash then Just client_id else Nothing
+        if verifyPass' pass clientSecret then Just clientClientId else Nothing

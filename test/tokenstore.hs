@@ -231,6 +231,6 @@ propCreateReadActivateCodes ref uid cid uri scope' state = monadicIO $ do
 
     -- Ensure that activating does indeed activate, but doesn't touch anything
     -- else
-    Just rq'' <- run $ storeActivateCode ref (requestCodeCode rq) uid
+    Just rq'' <- run $ storeActivateCode ref (requestCodeCode rq)
     assert $ requestCodeAuthorized rq''
     assert $ rq'' {requestCodeAuthorized = False} == rq

@@ -68,7 +68,6 @@ class TokenStore ref where
     storeActivateCode
         :: ref
         -> Code
-        -> UserID
         -> IO (Maybe RequestCode)
 
     -- | Read a previously requested Authorization Code Grant

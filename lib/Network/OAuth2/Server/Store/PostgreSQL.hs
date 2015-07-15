@@ -59,10 +59,10 @@ instance TokenStore PSQLConnPool where
                 requestCodeAuthorized = False
             return RequestCode{..}
 
-    storeActivateCode (PSQLConnPool pool) code' user_id = do
+    storeActivateCode (PSQLConnPool pool) code' = do
         withResource pool $ \conn -> do
             debugM logName $ "Attempting storeActivateCode with " <> show code'
-            res <- query conn "UPDATE request_codes SET authorized = TRUE WHERE code = ? AND user_id = ? RETURNING code, authorized, expires, user_id, client_id, redirect_url, scope, state" (code', user_id)
+            res <- query conn "UPDATE request_codes SET authorized = TRUE WHERE code = ? RETURNING code, authorized, expires, user_id, client_id, redirect_url, scope, state" (Only code')
             case res of
                 [] -> return Nothing
                 [reqCode] -> return $ Just reqCode
