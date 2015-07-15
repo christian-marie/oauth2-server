@@ -66,7 +66,7 @@ tests base_uri = do
 
         it "returns an error when given invalid client credentials" $ do
             resp <- verifyToken base_uri client3 (fst tokenVV)
-            resp `shouldSatisfy` onLeft ("401 Unauthorized" `isPrefixOf`)
+            resp `shouldSatisfy` onLeft ("400 Bad Request" `isPrefixOf`)
 
         it "returns an error when given a token which has been revoked" $ do
             resp <- verifyToken base_uri client1 (fst tokenRV)
