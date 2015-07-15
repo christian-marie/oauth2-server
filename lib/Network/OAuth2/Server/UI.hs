@@ -47,30 +47,7 @@ import           Yesod.Core
 
 import           Network.OAuth2.Server.Foundation
 
--- | Render a URL by not rending it.
---
---   @TODO(thsutton) Replace with real yesod routing.
-skipURLRendering :: a -> Html
-skipURLRendering = const ""
-
-htmlDocument :: Text -> Html -> Html -> Html
-htmlDocument the_title head_tags body_tags = ""
-
 -- | Render the authorisation page for users to approve or reject code requests.
-
-{-
-        <form method="POST" action="/tokens" class="ui form blue segment top attached create-token">
-            <h2 class="ui centered header">Create a token
-            <div class="ui segment scollerise">
-                <ul class="ui list stackable three column grid">
-                    $forall perm <- scopeTokens
-                        <li class="column">
-                            <div class="ui checkbox">
-                                <input type="checkbox" name="scope" value="#{perm}" id="scope_#{perm}">
-                                <label for="scope_#{perm}">#{perm}
-            <input type="hidden" name="method" value="create">
-            <input type="submit" class="ui right floated blue button" value="Create Token">
--}
 renderAuthorizePage :: RequestCode -> ClientDetails -> Widget
 renderAuthorizePage req@RequestCode{..} client_details =
     [whamlet|
@@ -165,12 +142,11 @@ partialClientDetails client_details@ClientDetails{..} =
     |]
 
 -- | Render form to create a
-htmlCreateTokenForm :: Scope -> Html
+htmlCreateTokenForm :: Scope -> Widget
 htmlCreateTokenForm s = do
     let scopeTokens = map (T.decodeUtf8 . review scopeToken) $ S.toList $ scope # s
-    -- @TODO(thsutton) input and label need @id and @for attributes.
-    [hamlet|
-        <form method="POST" action="/tokens" class="ui form blue segment top attached create-token">
+    [whamlet|
+        <form method="POST" action="@{TokensR}" class="ui form blue segment top attached create-token">
             <h2 class="ui centered header">Create a token
             <div class="ui segment scollerise">
                 <ul class="ui list stackable three column grid">
@@ -181,17 +157,17 @@ htmlCreateTokenForm s = do
                                 <label for="scope_#{perm}">#{perm}
             <input type="hidden" name="method" value="create">
             <input type="submit" class="ui right floated blue button" value="Create Token">
-    |] skipURLRendering
+    |]
 
-htmlToken :: (TokenID, TokenDetails) -> Html
+htmlToken :: (TokenID, TokenDetails) -> Widget
 htmlToken (tid, TokenDetails{..}) =
-    [hamlet|
+    [whamlet|
         <tr>
             <td>#{htmlCid}
             <td>#{htmlExpires}
             <td>#{htmlScope}
             <td>#{htmlDetailsLink}
-    |] skipURLRendering
+    |]
   where
     htmlCid     = toHtml $ T.decodeUtf8 $ maybe "Any client" (review clientID) tokenDetailsClientID
     htmlScope   = toHtml $ T.decodeUtf8 $ scopeToBs tokenDetailsScope
@@ -200,4 +176,3 @@ htmlToken (tid, TokenDetails{..}) =
         Nothing -> "Never"
         Just d  -> show d
     htmlDetailsLink = a ! class_ "details" ! href ("/tokens/" <> tokenURL) $ "Details"
-
