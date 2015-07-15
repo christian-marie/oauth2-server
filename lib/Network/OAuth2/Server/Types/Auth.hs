@@ -27,6 +27,7 @@ module Network.OAuth2.Server.Types.Auth (
   password,
   userID,
   clientID,
+  authHeader,
 -- * HTTP headers, encoding and escaping
   quotedString,
   authDetails,
@@ -119,6 +120,17 @@ clientID :: Prism' ByteString ClientID
 clientID =
     prism' unClientID (\t -> guard (B.all vschar t) >> return (ClientID t))
 
+-- | Prism to extract an `AuthHeader` from a `ByteString`
+authHeader :: Prism' ByteString AuthHeader
+authHeader =
+    prism' toBS fromBS
+  where
+    fromBS b =
+        either fail return $ flip parseOnly b $ AuthHeader
+            <$> takeWhile1 nqchar <* word8 0x20
+            <*> takeWhile1 nqschar <* endOfInput
+    toBS AuthHeader {..} = authScheme <> " " <> authParam
+
 --------------------------------------------------------------------------------
 
 -- String Encoding and Decoding
@@ -140,14 +152,6 @@ instance PathPiece UserID where
 instance PathPiece ClientID where
     fromPathPiece t = T.encodeUtf8 t ^? clientID
     toPathPiece c = T.decodeUtf8 $ c ^.re clientID
-
-instance PathPiece AuthHeader where
-    fromPathPiece t = do
-        let b = T.encodeUtf8 t
-        either fail return $ flip parseOnly b $ AuthHeader
-            <$> takeWhile1 nqchar <* word8 0x20
-            <*> takeWhile1 nqschar <* endOfInput
-    toPathPiece AuthHeader {..} = T.decodeUtf8 $ authScheme <> " " <> authParam
 
 --------------------------------------------------------------------------------
 

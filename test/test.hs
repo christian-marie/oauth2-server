@@ -17,7 +17,6 @@ import           Data.Proxy
 import qualified Data.Set                    as S
 import qualified Data.Text                   as T
 import           URI.ByteString
-import           Yesod.Core                  (PathPiece (..))
 
 import           Test.Hspec
 import           Test.Hspec.QuickCheck
@@ -194,6 +193,12 @@ instance Arbitrary AuthHeader where
         <$> (B.pack <$> listOf1 (arbitrary `suchThat` nqchar))
         <*> (B.pack <$> listOf1 (arbitrary `suchThat` nqschar))
 
+instance CoArbitrary AuthHeader where
+    coarbitrary = coarbitrary . review authHeader
+
+instance Function AuthHeader where
+    function = functionMap (B.unpack . review authHeader) ((^?! authHeader) . B.pack)
+
 hasCorrectJSON
     :: forall a. (FromJSON a, ToJSON a, Arbitrary a, Show a, Eq a)
     => String -> Proxy a -> Spec
@@ -212,9 +217,6 @@ suite = do
         hasCorrectJSON "AccessResponse" (Proxy :: Proxy AccessResponse)
 
         hasCorrectJSON "OAuth2Error" (Proxy :: Proxy OAuth2Error)
-
-        prop "forall (x :: AuthHeader). fromPathPiece (toPathPiece x) === Just x" $ \(x :: AuthHeader) ->
-            fromPathPiece (toPathPiece x) === Just x
 
         prop "bsToScope (scopeToBs x) === Just x" $ \x ->
             bsToScope (scopeToBs x) === Just x
@@ -240,115 +242,8 @@ suite = do
         prop "isPrism code" $
             isPrism code
 
--- Commented out until the store has settled down
-{-
-    describe "Handlers" $ do
-        prop "processTokenRequest handles all requests" $ \req -> do
-            (access, refresh) <- arbitrary
-            let oauth2StoreSave TokenGrant{..} =
-                    return TokenDetails
-                        { tokenDetailsTokenType = grantTokenType
-                        , tokenDetailsToken = case grantTokenType of
-                                                  Bearer -> access
-                                                  Refresh -> refresh
-                        , tokenDetailsExpires = grantExpires
-                        , tokenDetailsUsername = grantUsername
-                        , tokenDetailsClientID = grantClientID
-                        , tokenDetailsScope = grantScope
-                        }
-            user <- arbitrary
-            let oauth2StoreLoad !_ =
-                    return $ Just TokenDetails
-                        { tokenDetailsTokenType = error $ "tokenDetailsTokenType should not be accessed"
-                        , tokenDetailsToken = error $ "tokenDetailsToken should not be accessed"
-                        , tokenDetailsExpires = error $ "tokenDetailsExpires should not be accessed"
-                        , tokenDetailsUsername = user
-                        , tokenDetailsClientID = error $ "tokenDetailsClientID should not be accessed"
-                        , tokenDetailsScope = error $ "tokenDetailsScope should not be accessed"
-                        }
-            (client_id, scope') <- arbitrary
-            let oauth2CheckCredentials !_ !_ = return $ (client_id, scope')
-                server = OAuth2Server{..}
-            (auth, time) <- arbitrary
-            AccessResponse{..} <- processTokenRequest server time auth req
-            let errs = execWriter $ do
-                    when (tokenType /= Bearer) $
-                        tell ["tokenType: " <> show tokenType <> " /= Bearer"]
-                    when (accessToken /= access) $
-                        tell ["accessToken: " <> show accessToken <> " /= " <> show access]
-                    when (refreshToken /= Just refresh) $
-                        tell ["refreshToken: " <> show refreshToken <> " /= " <> show refresh]
-                    when (tokenExpiresIn /= 1800) $
-                        tell ["tokenExpiresIn: " <> show tokenExpiresIn <> " /= " <> show (1800::Int)]
-                    case req of
-                        RequestAuthorizationCode{} -> when (tokenUsername /= Nothing) $
-                           tell ["tokenUsername: " <> show tokenUsername <> " /= Nothing"]
-                        RequestPassword{..} -> when (tokenUsername /= Just requestUsername) $
-                           tell ["tokenUsername: " <> show tokenUsername <> " /= " <> show (Just requestUsername)]
-                        RequestClientCredentials{} -> when (tokenUsername /= Nothing) $
-                           tell ["tokenUsername: " <> show tokenUsername <> " /= Nothing"]
-                        RequestRefreshToken{..} -> when (tokenUsername /= user) $
-                           tell ["tokenUsername: " <> show tokenUsername <> " /= " <> show user]
-                    when (tokenClientID /= client_id) $
-                        tell ["tokenClientID: " <> show tokenClientID <> " /= " <> show client_id]
-                    when (tokenScope /= scope') $
-                        tell ["tokenScope: " <> show tokenScope <> " /= " <> show scope']
-            case errs of
-                [] -> return True
-                xs -> fail $ show xs
-
-        it "/token endpoint works with hoauth2" $ do
-            man <- newManager defaultManagerSettings
-            let serverAssertionFailed s = do
-                    let s' = BC.pack s ^? errorDescription
-                    throwError $ OAuth2Error InvalidRequest s' Nothing
-            let c_id = "CLIENTID"
-                c_secret = "CLIENTSECRET"
-                port = 19283 :: Int
-                oauth2 = OAuth2
-                    { oauthClientId = c_id
-                    , oauthClientSecret = c_secret
-                    , oauthOAuthorizeEndpoint = ""
-                    , oauthAccessTokenEndpoint = "http://localhost:" <> BC.pack (show port) <> "/token"
-                    , oauthCallback = Just "http://redirect.me"
-                    }
-                authcode = "GIMMETOKEN" :: B.ByteString
-                access = "ACCESS" :: B.ByteString
-                Just access' = access ^? token
-                refresh = "REFRESH" :: B.ByteString
-                Just refresh' = refresh ^? token
-                Just scope' = bsToScope "SCOPE"
-                oauth2CheckCredentials auth req = case auth of
-                    Just _ -> case req of
-                        RequestAuthorizationCode{..} -> do
-                            when (requestCode ^.re code /= authcode) $
-                                serverAssertionFailed $ "oauth2CheckCredentials: " <> show requestCode <> " /= " <> show authcode
-                            return (Nothing, scope')
-                        _ -> serverAssertionFailed $ "oauth2CheckCredentials: Wrong request type: " <> show req
-                    Nothing -> serverAssertionFailed "oauth2CheckCredentials: Client credentials missing"
-                oauth2StoreSave TokenGrant{..} =
-                    return TokenDetails
-                        { tokenDetailsTokenType = grantTokenType
-                        , tokenDetailsToken = case grantTokenType of
-                                                  Bearer -> access'
-                                                  Refresh -> refresh'
-                        , tokenDetailsExpires = grantExpires
-                        , tokenDetailsUsername = grantUsername
-                        , tokenDetailsClientID = grantClientID
-                        , tokenDetailsScope = grantScope
-                        }
-                oauth2StoreLoad _ = serverAssertionFailed "oauth2StoreLoad: Should not be called"
-                srvConf = OAuth2Server{..}
-            void $ forkIO $ run port $ serve (Proxy :: Proxy TokenEndpoint) $ tokenEndpoint srvConf
-            res <- fetchAccessToken man oauth2 authcode
-            case res of
-                Left e -> error $ BLC.unpack e
-                Right AccessToken{..} -> do
-                    unless (accessToken == access) $
-                        fail $ show accessToken <> " /= " <> show access
-                    unless (refreshToken == Just refresh) $
-                        fail $ show refreshToken <> " /= Just " <> show refreshToken
--}
+        prop "isPrism authHeader" $
+            isPrism authHeader
 
 main :: IO ()
 main = hspec suite
