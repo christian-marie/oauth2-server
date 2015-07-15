@@ -13,6 +13,7 @@ build-type:          Simple
 cabal-version:       >=1.10
 data-files:          schema/postgresql.sql
                      static/*.css
+                     static/*.png
 extra-source-files:  runit.sh
                      stack.yaml
                      docs/architecture.dot
@@ -50,7 +51,8 @@ Library
                      , Network.OAuth2.Server.UI
                      , Network.Wai.Middleware.Shibboleth
   other-modules:       Paths_oauth2_server
-  build-depends:       base >=4.7 && <4.9
+  build-depends:
+                       base >=4.7 && <4.9
                      , aeson
                      , async
                      , attoparsec
@@ -63,11 +65,11 @@ Library
                      , conduit
                      , configurator
                      , containers
-                     , errors
                      , ekg
                      , ekg-core
-                     , formatting
+                     , errors
                      , file-embed
+                     , formatting
                      , filepath
                      , hslogger
                      , http-types
@@ -79,6 +81,7 @@ Library
                      , postgresql-simple
                      , resource-pool
                      , scrypt
+                     , shakespeare
                      , stm >=2.4.2
                      , streaming-commons
                      , template-haskell
@@ -102,12 +105,13 @@ executable             tokenserver
   default-language:    Haskell2010
   hs-source-dirs:      src
   main-is:             tokenserver.hs
-  build-depends:       base
-                     , async
-                     , configurator
-                     , hslogger
-                     , oauth2-server
-                     , stm
+  build-depends:
+                base
+              , async
+              , configurator
+              , hslogger
+              , oauth2-server
+              , stm
   ghc-options: -threaded
                -rtsopts
                -with-rtsopts "-T -N"
@@ -117,18 +121,19 @@ test-suite             test-tokenserver
   default-language:    Haskell2010
   hs-source-dirs:      test
   main-is:             tokenserver.hs
-  build-depends:       base
+  build-depends:       QuickCheck
+                     , base
                      , hspec
                      , oauth2-server
-                     , QuickCheck
 
 test-suite             test-tokenstore
   type:                exitcode-stdio-1.0
   default-language:    Haskell2010
   hs-source-dirs:      test
   main-is:             tokenstore.hs
-  build-depends:       base
+  build-depends:       QuickCheck
                      , async
+                     , base
                      , bytestring
                      , configurator
                      , errors
@@ -140,7 +145,6 @@ test-suite             test-tokenstore
                      , oauth2-server
                      , postgresql-simple
                      , process
-                     , QuickCheck
                      , resource-pool
                      , text
                      , time
@@ -150,8 +154,9 @@ test-suite test
   default-language:    Haskell2010
   hs-source-dirs:      test
   main-is:             test.hs
-  build-depends:       base
+  build-depends:       QuickCheck
                      , aeson
+                     , base
                      , bytestring
                      , containers
                      , hspec
@@ -160,7 +165,6 @@ test-suite test
                      , lens-properties
                      , mtl
                      , oauth2-server
-                     , QuickCheck
                      , quickcheck-instances
                      , text
                      , transformers
@@ -174,15 +178,15 @@ test-suite             test-acceptance
   default-language:    Haskell2010
   hs-source-dirs:      test
   main-is:             acceptance.hs
-  build-depends:       base
+  build-depends:       HandsomeSoup
                      , aeson
+                     , base
                      , bytestring
-                     , HandsomeSoup
-                     , hxt
                      , hoauth2
                      , hspec
                      , http-client
                      , http-types
+                     , hxt
                      , lens
                      , lens-aeson
                      , mtl
@@ -191,8 +195,8 @@ test-suite             test-acceptance
                      , text
                      , transformers
                      , transformers-compat
-                     , wreq
                      , uri-bytestring
+                     , wreq
                      , yesod-core
 
 test-suite             test-use-cases
@@ -201,9 +205,9 @@ test-suite             test-use-cases
   hs-source-dirs:      test
   main-is:             use-cases.hs
   build-depends:       base
+                     , filepath
                      , hspec
                      , hspec-webdriver
-                     , webdriver
-                     , transformers
                      , network-uri
-                     , filepath
+                     , transformers
+                     , webdriver

@@ -325,7 +325,7 @@ getAuthorizeEndpointR = wrapError $ do
     -- Create a code for this request.
     request_code <- liftIO $ storeCreateCode ref user_id clientClientId redirect_uri requested_scope client_state
 
-    return $ renderAuthorizePage request_code client_details
+    lift . lift . defaultLayout $ renderAuthorizePage request_code client_details
   where
     orElse a e = maybe e return a
     orElseM a e = do
