@@ -359,28 +359,35 @@ postAuthorizeEndpointR = do
         case res of
            Nothing -> invalidArgs []
            Just x -> return x
-    act <- lookupPostParam "action"
-    case T.toLower <$> act of
-        Just "approve" -> do
-            res <- liftIO $ storeActivateCode ref code' user_id
-            case res of
-                Nothing -> permissionDenied "You are not authorized to approve this request."
-                Just RequestCode{..} -> do
-                    let uri' = addQueryParameters requestCodeRedirectURI [("code", code' ^.re code)]
-                    redirect . T.decodeUtf8 $ uri' ^.re redirectURI
-        Just "decline" -> do
-            res <- liftIO $ storeReadCode ref code'
-            case res of
-                Just RequestCode{..} | user_id == requestCodeUserID-> do
+    maybe_request_code <- liftIO $ storeReadCode ref code'
+    case maybe_request_code of
+        Just RequestCode{..} | requestCodeUserID == user_id -> do
+            let state_param = [ ("state", state' ^.re clientState)
+                              | Just state' <- [requestCodeState] ]
+                redirect_uri_st = addQueryParameters requestCodeRedirectURI
+                                  state_param
+            maybe_act <- lookupPostParam "action"
+            case T.toLower <$> maybe_act of
+                Just "approve" -> do
+                    res <- liftIO $ storeActivateCode ref code'
+                    case res of
+                        -- TODO: Revoke things
+                        Nothing -> permissionDenied "You are not authorized to approve this request."
+                        Just _ -> do
+                            let uri' = addQueryParameters redirect_uri_st
+                                       [("code", code' ^.re code)]
+                            redirect . T.decodeUtf8 $ uri' ^.re redirectURI
+                Just "decline" -> do
+                    -- TODO: actually care if deletion succeeded.
                     void . liftIO $ storeDeleteCode ref code'
                     let e = OAuth2Error AccessDenied Nothing Nothing
-                        url = addQueryParameters requestCodeRedirectURI $
-                              renderErrorFormUrlEncoded e <>
-                              [("state", state' ^.re clientState) | Just state' <- [requestCodeState]]
+                        url = addQueryParameters redirect_uri_st $
+                              renderErrorFormUrlEncoded e
                     redirect . T.decodeUtf8 $ url ^.re redirectURI
-                _ -> permissionDenied "You are not authorized to approve this request."
-        Just act' -> error $ "Invalid action: " <> show act'
-        Nothing -> error "no action"
+                Just act' -> error $ "Invalid action: " <> show act'
+                Nothing -> error "no action"
+
+        _ -> permissionDenied "You are not authorized to approve this request."
 
 -- | Verify a token and return information about the principal and grant.
 --
