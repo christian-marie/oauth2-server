@@ -25,23 +25,12 @@ module Network.OAuth2.Server.UI (
 
 import           Blaze.ByteString.Builder         (toByteString)
 import           Control.Lens
-import           Control.Monad
-import           Data.Foldable                    (traverse_)
 import           Data.Maybe
-import           Data.Monoid
 import qualified Data.Set                         as S
-import           Data.Text                        (Text)
 import qualified Data.Text.Encoding               as T
-import           Data.Text.Strict.Lens            (packed, utf8)
+import           Data.Time.Clock
 import           Network.OAuth2.Server.Types
 import           Prelude                          hiding (head)
-import           Prelude                          hiding (head)
-import           Text.Blaze.Html5                 hiding (code, div, map, p)
-import qualified Text.Blaze.Html5                 as HTML
-import           Text.Blaze.Html5.Attributes      hiding (form, scope, size,
-                                                   style, title)
-import qualified Text.Blaze.Html5.Attributes      as Blaze
-import           Text.Hamlet                      (hamlet)
 import           URI.ByteString                   (serializeURI)
 import           Yesod.Core
 
@@ -49,7 +38,7 @@ import           Network.OAuth2.Server.Foundation
 
 -- | Render the authorisation page for users to approve or reject code requests.
 renderAuthorizePage :: RequestCode -> ClientDetails -> Widget
-renderAuthorizePage req@RequestCode{..} client_details =
+renderAuthorizePage RequestCode{..} client_details =
     [whamlet|
         <div class="ui raised blue segment top attached">
             <h1 class="ui header">Token requested
@@ -87,22 +76,41 @@ renderTokensPage userScope (review pageSize -> size) (review page -> p) (ts, num
     [whamlet|
         <div class="ui raised blue segement attached">
             <h2 class="ui centered header">Your tokens
+            $if validPage
             <table class="ui celled table">
                 <thead>
-                    <th>Client
-                    <th>Expires
-                    <th>Permissions
-                    <th>
+                    <th scope=col>Client
+                    <th scope=col>Expires
+                    <th scope=col>Permissions
+                    <th scope=col>
                 <tbody>
-                    $forall (tid, TokenDetails{..}) <- ts
+                    $if (length ts) > 0
+                        $forall (tid, TokenDetails{..}) <- ts
+                            <tr>
+                                <td>#{T.decodeUtf8 $ maybe "Any Client" (review clientID) tokenDetailsClientID}
+                                <td>#{show tokenDetailsExpires}
+                                <td>#{show tokenDetailsScope}
+                                <td>
+                                    <a class="details" href=@{ShowTokenR tid}">Details
+                    $else
                         <tr>
-                            <td>#{T.decodeUtf8 $ maybe "Any Client" (review clientID) tokenDetailsClientID}
-                            <td>#{show tokenDetailsExpires}
-                            <td>#{show tokenDetailsScope}
-                            <td>
-                                <a class="details" href="/tokens/#{show tid}">Details
-        <p>when prevPages htmlPrevPageButton
-        <p>when nextPages htmlNextPageButton
+                            <td colspan=4>
+                                <h3 class="ui centered header">You have no tokens.
+              $if (prevPages || nextPages)
+                <tfoot>
+                  <tr>
+                    <th colspan=4>
+                        <form method="GET" action=@{TokensR} class="ui stackable two column grid">
+                            <div class="column page-prev">
+                              $if prevPages
+                                <button class="ui small basic left labeled icon button" name="page" value="#{p - 1}">
+                                    <i class="left arrow icon">
+                                    Previous
+                            <div class="column page-next">
+                              $if nextPages
+                                  <button class="ui small basic right labeled icon button" name="page" value="#{p + 1}">
+                                    <i class="right arrow icon">
+                                    Next
         ^{htmlCreateTokenForm userScope}
     |]
   where
@@ -110,12 +118,7 @@ renderTokensPage userScope (review pageSize -> size) (review page -> p) (ts, num
     validPage = p <= numPages
     prevPages = p /= 1
     nextPages = p < numPages
-    htmlPageButton n =
-        form ! action ("/tokens?page=" <> toValue n) $
-            input ! type_ "submit" ! value ("Page " <> toValue n)
-    htmlPrevPageButton = htmlPageButton (p-1)
-    htmlNextPageButton = htmlPageButton (p+1)
-    htmlInvalidPage = h2 "Invalid page number!"
+
 
 renderToken :: (TokenID, TokenDetails) -> Widget
 renderToken (tid, tok@TokenDetails{..}) =
@@ -159,20 +162,11 @@ htmlCreateTokenForm s = do
             <input type="submit" class="ui right floated blue button" value="Create Token">
     |]
 
-htmlToken :: (TokenID, TokenDetails) -> Widget
-htmlToken (tid, TokenDetails{..}) =
+htmlDate :: Maybe UTCTime -> Widget
+htmlDate maybe_date =
     [whamlet|
-        <tr>
-            <td>#{htmlCid}
-            <td>#{htmlExpires}
-            <td>#{htmlScope}
-            <td>#{htmlDetailsLink}
+        $maybe date <- maybe_date
+            #{show date}
+        $nothing
+            Never
     |]
-  where
-    htmlCid     = toHtml $ T.decodeUtf8 $ maybe "Any client" (review clientID) tokenDetailsClientID
-    htmlScope   = toHtml $ T.decodeUtf8 $ scopeToBs tokenDetailsScope
-    tokenURL    = toValue tid
-    htmlExpires = toHtml $ case tokenDetailsExpires of
-        Nothing -> "Never"
-        Just d  -> show d
-    htmlDetailsLink = a ! class_ "details" ! href ("/tokens/" <> tokenURL) $ "Details"
