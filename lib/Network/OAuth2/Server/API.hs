@@ -275,59 +275,57 @@ postTokenEndpointR = wrapError $ do
 -- shifting them out of here entirely.
 getAuthorizeEndpointR
     :: Handler Html
-getAuthorizeEndpointR = do
-    (code, client) <- wrapError $ do
-        OAuth2Server{serverTokenStore=ref} <- ask
-        (user_id, permissions) <- checkShibHeaders
-        scope' <- (fromPathPiece =<<) <$> lookupGetParam "scope"
-        client_state <- (fromPathPiece =<<) <$> lookupGetParam "state"
+getAuthorizeEndpointR = wrapError $ do
+    OAuth2Server{serverTokenStore=ref} <- ask
+    (user_id, permissions) <- checkShibHeaders
+    scope' <- (fromPathPiece =<<) <$> lookupGetParam "scope"
+    client_state <- (fromPathPiece =<<) <$> lookupGetParam "state"
 
-        -- Required: a ClientID value, which identifies a client.
-        client_id_t <- lookupGetParam "client_id"
-            `orElseM` invalidRequest "client_id missing"
-        client_id <- preview clientID (T.encodeUtf8 client_id_t)
-            `orElse` invalidRequest "invalid client_id"
-        client_details@ClientDetails{..} <-
-            liftIO (storeLookupClient ref client_id)
-                `orElseM` invalidRequest "invalid client_id"
+    -- Required: a ClientID value, which identifies a client.
+    client_id_t <- lookupGetParam "client_id"
+        `orElseM` invalidRequest "client_id missing"
+    client_id <- preview clientID (T.encodeUtf8 client_id_t)
+        `orElse` invalidRequest "invalid client_id"
+    client_details@ClientDetails{..} <-
+        liftIO (storeLookupClient ref client_id)
+            `orElseM` invalidRequest "invalid client_id"
 
-        -- Optional: requested redirect URI.
-        -- https://tools.ietf.org/html/rfc6749#section-3.1.2.3
-        maybe_redirect_uri_t <- lookupGetParam "redirect_uri"
-        redirect_uri <- case maybe_redirect_uri_t of
-            Nothing -> case clientRedirectURI of
-                redirect':_ -> return redirect'
-                _ -> error $ "No redirect_uri provided and no unique default registered for client " <> show clientClientId
-            Just redirect_uri_t -> do
-                redirect_uri <- preview redirectURI (T.encodeUtf8 redirect_uri_t)
-                    `orElse` invalidRequest "invalid redirect_uri"
-                if redirect_uri `elem` clientRedirectURI
-                    then return redirect_uri
-                    else error $ show redirect_uri <> " /= " <> show clientRedirectURI
+    -- Optional: requested redirect URI.
+    -- https://tools.ietf.org/html/rfc6749#section-3.1.2.3
+    maybe_redirect_uri_t <- lookupGetParam "redirect_uri"
+    redirect_uri <- case maybe_redirect_uri_t of
+        Nothing -> case clientRedirectURI of
+            redirect':_ -> return redirect'
+            _ -> error $ "No redirect_uri provided and no unique default registered for client " <> show clientClientId
+        Just redirect_uri_t -> do
+            redirect_uri <- preview redirectURI (T.encodeUtf8 redirect_uri_t)
+                `orElse` invalidRequest "invalid redirect_uri"
+            if redirect_uri `elem` clientRedirectURI
+                then return redirect_uri
+                else error $ show redirect_uri <> " /= " <> show clientRedirectURI
 
-        -- From here on, we have enough inforation to handle errors.
-        -- https://tools.ietf.org/html/rfc6749#section-4.1.2.1
-        put $ Just (client_state, redirect_uri)
+    -- From here on, we have enough inforation to handle errors.
+    -- https://tools.ietf.org/html/rfc6749#section-4.1.2.1
+    put $ Just (client_state, redirect_uri)
 
-        -- Required: a supported ResponseType value.
-        response_type <- lookupGetParam "response_type"
-        case T.toLower <$> response_type of
-            Just "code" -> return ()
-            Just _  -> invalidRequest "Invalid response type"
-            Nothing -> invalidRequest "Response type is missing"
+    -- Required: a supported ResponseType value.
+    response_type <- lookupGetParam "response_type"
+    case T.toLower <$> response_type of
+        Just "code" -> return ()
+        Just _  -> invalidRequest "Invalid response type"
+        Nothing -> invalidRequest "Response type is missing"
 
-        -- Optional (but we currently require): requested scope.
-        requested_scope <- case scope' of
-            Nothing -> invalidRequest "Scope is missing"
-            Just requested_scope
-                | requested_scope `compatibleScope` permissions -> return requested_scope
-                | otherwise -> invalidScope ""
+    -- Optional (but we currently require): requested scope.
+    requested_scope <- case scope' of
+        Nothing -> invalidRequest "Scope is missing"
+        Just requested_scope
+            | requested_scope `compatibleScope` permissions -> return requested_scope
+            | otherwise -> invalidScope ""
 
-        -- Create a code for this request.
-        request_code <- liftIO $ storeCreateCode ref user_id clientClientId redirect_uri requested_scope client_state
-        return (request_code, client_details)
+    -- Create a code for this request.
+    request_code <- liftIO $ storeCreateCode ref user_id clientClientId redirect_uri requested_scope client_state
 
-    defaultLayout $ renderAuthorizePage code client
+    lift . lift . defaultLayout $ renderAuthorizePage request_code client_details
   where
     orElse a e = maybe e return a
     orElseM a e = do
