@@ -47,24 +47,6 @@ import           Yesod.Core
 
 import           Network.OAuth2.Server.Foundation
 
--- | Path to static Semantic UI stylesheet file.
---
--- @TODO(thsutton): Use proper yesod routing here?
-static_semantic_css :: AttributeValue
-static_semantic_css = "/static/semantic.css"
-
--- | Path to static custom CSS stylesheet file.
---
--- @TODO(thsutton): Use proper yesod routing here?
-static_stylesheet_css :: AttributeValue
-static_stylesheet_css = "/static/stylesheet.css"
-
--- | Path to static logo image file.
---
--- @TODO(thsutton): Use proper yesod routing here?
-static_logo_png :: AttributeValue
-static_logo_png = "/static/logo.png"
-
 -- | Render a URL by not rending it.
 --
 --   @TODO(thsutton) Replace with real yesod routing.
@@ -75,31 +57,51 @@ htmlDocument :: Text -> Html -> Html -> Html
 htmlDocument the_title head_tags body_tags = ""
 
 -- | Render the authorisation page for users to approve or reject code requests.
-renderAuthorizePage :: RequestCode -> ClientDetails -> Html
+
+{-
+        <form method="POST" action="/tokens" class="ui form blue segment top attached create-token">
+            <h2 class="ui centered header">Create a token
+            <div class="ui segment scollerise">
+                <ul class="ui list stackable three column grid">
+                    $forall perm <- scopeTokens
+                        <li class="column">
+                            <div class="ui checkbox">
+                                <input type="checkbox" name="scope" value="#{perm}" id="scope_#{perm}">
+                                <label for="scope_#{perm}">#{perm}
+            <input type="hidden" name="method" value="create">
+            <input type="submit" class="ui right floated blue button" value="Create Token">
+-}
+renderAuthorizePage :: RequestCode -> ClientDetails -> Widget
 renderAuthorizePage req@RequestCode{..} client_details =
-    htmlDocument "Token authorization" (return ()) $ do
-        h1 "Token requested"
-        h2 "This client:"
-        partialClientDetails client_details
+    [whamlet|
+        <div class="ui raised blue segment top attached">
+            <h1 class="ui header">Token requested
+            <h2 class="ui header">Client details
 
-        h2 "Is making the following request"
-        partialRequestCode req
+            ^{partialClientDetails client_details}
 
-        -- TODO(thsutton): base URL of server should be configurable.
-        form ! method "POST" ! action "/oauth2/authorize" $ do
-            input ! type_ "hidden"
-                  ! name "code"
-                  ! value (toValue . T.decodeUtf8 . review code $ requestCodeCode)
-            -- Approve button is first and, therefore, the default action.
-            input ! type_ "submit"
-                  ! name "action"
-                  ! value "Approve"
-                  ! alt "Yes, please issue this token."
-            -- Reject button is second, so not the default action.
-            input ! type_ "submit"
-                  ! name "action"
-                  ! value "Decline"
-                  ! alt "No, do not issue this token."
+            <h2 class="ui header">Requested permissions
+            <table>
+                 <tr>
+                     <th scope="row">Expires
+                     $maybe date <- requestCodeExpires
+                         <td>#{show date}
+                     $nothing
+                         <td>Never
+                 <tr>
+                     <th scope="row">Expires
+                     $maybe scope <- requestCodeScope
+                         <td>#{show scope}
+                     $nothing
+                         <td>No permissions
+
+            <form class="ui form" method="POST" action="@{AuthorizeEndpointR}">
+                 <input type="hidden" name="code" value="#{codeValue}">
+                 <input type="submit" name="action" value="Approve" class="ui left floated blue button">
+                 <input type="submit" name="action" value="Decline" class="ui right floated red button">
+    |]
+  where
+    codeValue = T.decodeUtf8 . review code $ requestCodeCode
 
 -- | Render the tokens page for users to view and revoke their tokens.
 renderTokensPage :: Scope -> PageSize -> Page -> ([(TokenID, TokenDetails)], Int)
@@ -147,43 +149,20 @@ renderToken (tid, tok@TokenDetails{..}) =
     |]
 
 -- | Helper for displaying client details
-partialClientDetails :: ClientDetails -> Html
-partialClientDetails client_details = do
-    table $
-        traverse_
-            (uncurry mkRow)
-            [ ("Name", to clientName)
-            , ("Description", to clientDescription)
-            , ("App URL", to clientAppUrl . to serializeURI . to toByteString . utf8)
-            ]
-  where
-    mkRow hdr txt_lens =
-        -- If encoding goes bad, just leave the row out
-        case client_details ^? txt_lens of
-            Nothing -> return ()
-            Just txt -> do
-                tr $ do
-                    th hdr ! Blaze.scope "row"
-                    td (text txt)
-
--- | Helper for displaying requset code details
-partialRequestCode :: RequestCode -> Html
-partialRequestCode request_code = do
-     table $
-        traverse_
-            (uncurry mkRow)
-            [ ("Permissions", to requestCodeScope . _Just . to scopeToBs . utf8)
-            , ("Expires", to requestCodeExpires . to show . packed)
-            ]
-  where
-    mkRow hdr txt_lens =
-        -- If encoding goes bad, just leave the row out
-        case request_code ^? txt_lens of
-            Nothing -> return ()
-            Just txt -> do
-                tr $ do
-                    th hdr ! Blaze.scope "row"
-                    td (text txt)
+partialClientDetails :: ClientDetails -> Widget
+partialClientDetails client_details@ClientDetails{..} =
+    [whamlet|
+        <table>
+            <tr>
+                <th scope="row">Name
+                <td>#{clientName}
+            <tr>
+                <th scope="row">URL
+                <td>#{T.decodeUtf8 (toByteString (serializeURI clientAppUrl))}
+            <tr>
+                <th scope="row">Description
+                <td>#{clientDescription}
+    |]
 
 -- | Render form to create a
 htmlCreateTokenForm :: Scope -> Html
