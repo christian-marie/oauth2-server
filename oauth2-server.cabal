@@ -13,6 +13,7 @@ build-type:          Simple
 cabal-version:       >=1.10
 data-files:          schema/postgresql.sql
                      static/*.css
+                     static/*.png
 extra-source-files:  runit.sh
                      stack.yaml
                      docs/architecture.dot
