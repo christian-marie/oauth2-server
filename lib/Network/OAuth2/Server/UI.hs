@@ -24,6 +24,7 @@ module Network.OAuth2.Server.UI (
 ) where
 
 import           Blaze.ByteString.Builder         (toByteString)
+import           Control.Applicative
 import           Control.Lens
 import           Data.Maybe
 import qualified Data.Set                         as S
@@ -38,28 +39,24 @@ import           Network.OAuth2.Server.Foundation
 
 -- | Render the authorisation page for users to approve or reject code requests.
 renderAuthorizePage :: RequestCode -> ClientDetails -> Widget
-renderAuthorizePage RequestCode{..} client_details =
+renderAuthorizePage RequestCode{..} ClientDetails{..} = do
+    let app_url = T.decodeUtf8 (toByteString (serializeURI clientAppUrl))
+    let maybe_permission_list = fmap (T.decodeUtf8 . review scopeToken) . S.toList . review scope <$> requestCodeScope
     [whamlet|
         <div class="ui raised blue segment top attached">
-            <h1 class="ui header">Token requested
-            <h2 class="ui header">Client details
+            <h1 class="ui header">
+                Token requested for <em>#{clientName}</em>
+                (<a href=#{app_url} target="_blank">#{app_url}</a>)
+            <p>#{clientDescription}
 
-            ^{partialClientDetails client_details}
 
-            <h2 class="ui header">Requested permissions
-            <table>
-                 <tr>
-                     <th scope="row">Expires
-                     $maybe date <- requestCodeExpires
-                         <td>#{show date}
-                     $nothing
-                         <td>Never
-                 <tr>
-                     <th scope="row">Expires
-                     $maybe scope <- requestCodeScope
-                         <td>#{show scope}
-                     $nothing
-                         <td>No permissions
+            $maybe permission_list <- maybe_permission_list
+                <h2 class="ui header">Requested permissions:
+                <ul>
+                     $forall scope_token <- permission_list
+                         <li>#{scope_token}
+            $nothing
+                <h2 class="ui header">No permissions requested.
 
             <form class="ui form" method="POST" action="@{AuthorizeEndpointR}">
                  <input type="hidden" name="code" value="#{codeValue}">
@@ -152,22 +149,6 @@ renderToken (tid, TokenDetails{..}) =
                                      <input type=hidden name="token_id" value="#{show tid}">
                                      <button class="ui small right red button">
                                          Delete Token
-    |]
-
--- | Helper for displaying client details
-partialClientDetails :: ClientDetails -> Widget
-partialClientDetails client_details@ClientDetails{..} =
-    [whamlet|
-        <table>
-            <tr>
-                <th scope="row">Name
-                <td>#{clientName}
-            <tr>
-                <th scope="row">URL
-                <td>#{T.decodeUtf8 (toByteString (serializeURI clientAppUrl))}
-            <tr>
-                <th scope="row">Description
-                <td>#{clientDescription}
     |]
 
 -- | Render form to create a
