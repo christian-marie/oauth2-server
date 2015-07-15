@@ -148,7 +148,7 @@ tests base_uri = do
                 let Just a_scope = bsToScope "login missiles:launch"
                 let code_request = a_scope <$ client1
                 -- 1. Get the page.
-                pg <- getAuthorizePage base_uri (Just user1) code_request
+                pg <- getAuthorizePage base_uri (Just user1) code_request Nothing
 
                 -- 2. Extract details from the form.
                 (uri, fields) <- getAuthorizeFields base_uri pg
@@ -180,14 +180,15 @@ tests base_uri = do
     describe "authorize endpoint" $ do
         let Just a_scope = bsToScope "login missiles:launch"
         let code_request = a_scope <$ client1
+        let client_state = "THISISMYSTATE" ^?! clientState
 
         it "returns an error when Shibboleth authentication headers are missing" $ do
-            resp <- runExceptT $ getAuthorizePage base_uri Nothing code_request
+            resp <- runExceptT $ getAuthorizePage base_uri Nothing code_request Nothing
             resp `shouldSatisfy` onLeft ("500 Internal Server Error" `isPrefixOf`)
 
         it "the POST returns an error when Shibboleth authentication headers are missing" $ do
             -- 1. Get the page.
-            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) code_request
+            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) code_request Nothing
             resp `shouldSatisfy` isRight
             -- 2. Extract the code.
             let Right pg = resp
@@ -201,7 +202,7 @@ tests base_uri = do
 
         it "the POST returns an error when the request ID is missing" $ do
             -- 1. Get the page.
-            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) code_request
+            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) code_request Nothing
             resp `shouldSatisfy` isRight
             -- 2. Extract the code.
             let Right pg = resp
@@ -217,7 +218,7 @@ tests base_uri = do
 
         it "the POST returns an error when the Shibboleth authentication headers identify a mismatched user" $ do
             -- 1. Get the page.
-            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) code_request
+            resp <- runExceptT $ getAuthorizePage base_uri (Just user1) code_request Nothing
             resp `shouldSatisfy` isRight
             -- 2. Extract the code.
             let Right pg = resp
@@ -231,7 +232,7 @@ tests base_uri = do
         it "the redirect contains a code which can be used to request a token" $ do
             res <- runExceptT $ do
                 -- 1. Get the page.
-                pg <- getAuthorizePage base_uri (Just user1) code_request
+                pg <- getAuthorizePage base_uri (Just user1) code_request (Just client_state)
 
                 -- 2. Check that the page describes the requested token.
                 liftIO $ do
@@ -248,9 +249,12 @@ tests base_uri = do
                 -- 4. Submit the approval form.
                 let fields' = nubBy ((==) `on` fst) fields
                 x <- sendAuthorization uri (Just user1) fields'
-                auth_code <- case lookup "code" $ x ^. UB.uriQueryL . UB.queryPairsL of
+                let query_params = x ^. UB.uriQueryL . UB.queryPairsL
+                auth_code <- case lookup "code" query_params of
                     Nothing -> error "No code in redirect URI"
                     Just auth_code -> return auth_code
+                liftIO $ lookup "state" query_params
+                    `shouldBe` Just (client_state ^.re clientState)
 
                 -- 5. Use the code in the redirect to request a token.
                 t <- requestTokenWithCode base_uri client1 auth_code
@@ -267,7 +271,7 @@ tests base_uri = do
         it "the redirect contains \"access_denied\" error if declined" $ do
             res <- runExceptT $ do
                 -- 1. Get the page.
-                pg <- getAuthorizePage base_uri (Just user1) code_request
+                pg <- getAuthorizePage base_uri (Just user1) code_request (Just client_state)
 
                 -- 2. Check that the page describes the requested token.
                 liftIO $ do
@@ -292,6 +296,8 @@ tests base_uri = do
                     Nothing -> error $ "redirect has no error"
                     Just "access_denied" -> return ()
                     Just e -> error $ "wrong error: " <> show e
+                liftIO $ lookup "state" qps
+                    `shouldBe` Just (client_state ^.re clientState)
             case res of
                 Left e -> error e
                 Right () -> return ()
@@ -367,12 +373,14 @@ getAuthorizePage
     :: URI
     -> Maybe (UserID, Scope)
     -> (ClientID, Scope)
+    -> Maybe ClientState
     -> ExceptT String IO ByteString
-getAuthorizePage base_uri user_m (client, req_scope) = do
+getAuthorizePage base_uri user_m (client, req_scope) maybe_state = do
     let opts = defaults & header "Accept" .~ ["text/html"]
                         & param "response_type" .~ ["code"]
                         & param "client_id" .~ [T.decodeUtf8 $ review clientID client]
                         & param "scope" .~ [T.decodeUtf8 . scopeToBs $ req_scope]
+                        & param "state" .~ maybeToList (T.decodeUtf8 . review clientState <$> maybe_state)
                         & addAuthHeaders user_m
 
     r <- liftIO $ try (getWith opts (show endpoint))

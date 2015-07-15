@@ -363,7 +363,7 @@ postAuthorizeEndpointR = do
     case maybe_request_code of
         Just RequestCode{..} | requestCodeUserID == user_id -> do
             let state_param = [ ("state", state' ^.re clientState)
-                              | Just state' <- [requestCodeState] ]
+                              | state' <- maybeToList requestCodeState ]
                 redirect_uri_st = addQueryParameters requestCodeRedirectURI
                                   state_param
             maybe_act <- lookupPostParam "action"
