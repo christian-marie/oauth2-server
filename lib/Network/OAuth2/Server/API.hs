@@ -27,10 +27,6 @@
 -- The intention is to seperate all OAuth2 specific logic from our particular
 -- way of handling AAA.
 module Network.OAuth2.Server.API (
-    -- * HTTP Headers
-    oAuthUserHeader,
-    oAuthUserScopeHeader,
-
     -- * API handlers
     --
     -- $ These functions each handle a single endpoint in the OAuth2 Server
@@ -51,7 +47,7 @@ import           Control.Applicative
 import           Control.Lens
 import           Control.Monad
 import           Control.Monad.Error.Class        (MonadError, throwError)
-import           Control.Monad.Reader.Class       (ask)
+import           Control.Monad.Reader.Class       (MonadReader, ask)
 import           Control.Monad.State.Strict
 import           Control.Monad.Trans.Except       (ExceptT(..), runExceptT)
 import           Crypto.Scrypt
@@ -101,22 +97,14 @@ wrapLogger logger component msg = do
 -- $ The OAuth2 Server API uses HTTP headers to exchange information between
 -- system components and to control caching behaviour.
 
--- | Shibboleth will pass us the UID of the authenticated user in this header.
-oAuthUserHeader :: HeaderName
-oAuthUserHeader = "Identity-OAuthUser"
-
--- | Shibboleth will pass us the available permissions of the authenticated
---   user in this header.
-oAuthUserScopeHeader :: HeaderName
-oAuthUserScopeHeader = "Identity-OAuthUserScopes"
-
-checkShibHeaders :: MonadHandler m => m (UserID, Scope)
+checkShibHeaders :: (MonadHandler m, MonadReader OAuth2Server m) => m (UserID, Scope)
 checkShibHeaders = do
-    uh' <- lookupHeader oAuthUserHeader
+    OAuth2Server{serverOptions=ServerOptions{..}} <- ask
+    uh' <- lookupHeader optUserHeader
     uid <- case preview userID =<< uh' of
         Nothing -> error "Shibboleth User header missing"
         Just uid -> return uid
-    sh' <- headerToScope <$> lookupHeader oAuthUserScopeHeader
+    sh' <- headerToScope <$> lookupHeader optUserScopesHeader
     sc <- case bsToScope =<< sh' of
         Nothing -> error "Shibboleth User Scope header missing"
         Just sc -> return sc

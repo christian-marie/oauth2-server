@@ -26,6 +26,7 @@ import           Data.Configurator                 as C
 import           Data.Configurator.Types           as C
 import           Data.IP
 import           Data.Maybe
+import           Data.Monoid
 import           Data.String
 import qualified Data.Text                         as T
 import           Data.Time.Clock
@@ -44,17 +45,19 @@ import qualified Paths_oauth2_server               as P
 -- You'll want to set optDBString at minimum.
 defaultServerOptions :: ServerOptions
 defaultServerOptions =
-    let optDBString      = ""
-        optStatsHost     = "localhost"
-        optStatsPort     = 8888
-        optServiceHost   = "*"
-        optServicePort   = 8080
-        optUIPageSize    = (10 :: Integer) ^?! pageSize
-        optUIStaticPath  = unsafePerformIO P.getDataDir </> "static"
-        optVerifyRealm   = "verify-token"
-        optShibboleth    = S.defaultConfig
-        optKeyFile       = defaultKeyFile
-        optSessionExpiry = 2 * 3600 -- 2 hours
+    let optDBString         = ""
+        optStatsHost        = "localhost"
+        optStatsPort        = 8888
+        optServiceHost      = "*"
+        optServicePort      = 8080
+        optUIPageSize       = (10 :: Integer) ^?! pageSize
+        optUIStaticPath     = unsafePerformIO P.getDataDir </> "static"
+        optVerifyRealm      = "verify-token"
+        optShibboleth       = S.defaultConfig
+        optUserHeader       = S.prefix optShibboleth <> "OAuthUser"
+        optUserScopesHeader = S.prefix optShibboleth <> "OAuthUserScopes"
+        optKeyFile          = defaultKeyFile
+        optSessionExpiry    = 2 * 3600 -- 2 hours
    in ServerOptions{..}
 
 -- | Load some server options, overwriting defaults in 'defaultServerOptions'.
@@ -68,10 +71,16 @@ loadOptions conf = do
     optUIPageSize <- maybe (optUIPageSize defaultServerOptions) unwrapNonOrphan <$>  C.lookup conf "ui.page_size"
     optUIStaticPath <- ldef optUIStaticPath "ui.static_files"
     optVerifyRealm <- ldef optVerifyRealm "api.verify_realm"
-    shibhdr <- ldef (CI.foldedCase . S.prefix . optShibboleth) "shibboleth.header_prefix"
+    shibhdr <- unwrapNonOrphan <$> ldef (NotOrphan . S.prefix . optShibboleth) "shibboleth.header_prefix"
     upstream <- C.lookup conf "shibboleth.upstream"
     let optShibboleth = ShibConfig (fromMaybe (S.upstream S.defaultConfig) (map unwrapNonOrphan <$> upstream))
-                                   (CI.mk shibhdr)
+                                   shibhdr
+    optUserHeader <- maybe (optUserHeader defaultServerOptions)
+                           ((shibhdr <>) . unwrapNonOrphan)
+                           <$> C.lookup conf "shibboleth.user_id_attr"
+    optUserScopesHeader <- maybe (optUserScopesHeader defaultServerOptions)
+                                 ((shibhdr <>) . unwrapNonOrphan)
+                                 <$> C.lookup conf "shibboleth.user_permissions_attr"
     optKeyFile <- ldef optKeyFile "session.key"
     optSessionExpiry <- unwrapNonOrphan <$> ldef (NotOrphan . optSessionExpiry) "session.expiry"
     return ServerOptions{..}
@@ -93,3 +102,6 @@ instance Configured (NotOrphan PageSize) where
 instance Configured (NotOrphan NominalDiffTime) where
     convert (C.Number x) = if x>0 then Just . NotOrphan . fromRational $ x else Nothing
     convert _            = Nothing
+
+instance (CI.FoldCase s, Configured s) => Configured (NotOrphan (CI.CI s)) where
+    convert x = NotOrphan . CI.mk <$> convert x
