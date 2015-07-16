@@ -70,8 +70,8 @@ Library
                      , ekg-core
                      , errors
                      , file-embed
-                     , formatting
                      , filepath
+                     , formatting
                      , hslogger
                      , http-types
                      , iproute
@@ -88,6 +88,7 @@ Library
                      , template-haskell
                      , text
                      , time
+                     , time-locale-compat
                      , transformers
                      , transformers-base
                      , transformers-compat
