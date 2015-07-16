@@ -86,7 +86,7 @@ renderTokensPage userScope (review pageSize -> size) (review page -> p) (ts, num
                             <tr>
                                 <td>#{T.decodeUtf8 $ maybe "Any Client" (review clientID) tokenDetailsClientID}
                                 <td>#{maybe "Never" show tokenDetailsExpires}
-                                <td>#{show tokenDetailsScope}
+                                <td>^{htmlScope tokenDetailsScope}
                                 <td>
                                     <a class="details" href=@{ShowTokenR tid}">Details
                     $else
@@ -140,7 +140,7 @@ renderToken (tid, TokenDetails{..}) =
                         <td>#{maybe "Never" show tokenDetailsExpires}
                     <tr>
                         <td>Permissions
-                        <td>#{show tokenDetailsScope}
+                        <td>^{htmlScope tokenDetailsScope}
                 <tfoot>
                     <tr>
                         <td colspan=2>
@@ -171,6 +171,16 @@ htmlCreateTokenForm s = do
                                 <label for="scope_#{perm}">#{perm}
             <input type="hidden" name="method" value="create">
             <input type="submit" class="ui right floated blue button" value="Create Token">
+    |]
+
+-- | Render a `Scope` as an unordered list inline.
+htmlScope :: Scope -> Widget
+htmlScope sc = do
+    let scope_list = map (T.decodeUtf8 . review scopeToken) $ S.toList $ scope # sc
+    [whamlet|
+        <ul class="scope">
+            $forall scope_token <- scope_list
+                <li>#{scope_token}
     |]
 
 htmlDate :: Maybe UTCTime -> Widget
