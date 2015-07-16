@@ -24,6 +24,7 @@ module Network.OAuth2.Server.UI (
 ) where
 
 import           Blaze.ByteString.Builder         (toByteString)
+import           Control.Applicative
 import           Control.Lens
 import           Data.Maybe
 import qualified Data.Set                         as S
@@ -38,28 +39,24 @@ import           Network.OAuth2.Server.Foundation
 
 -- | Render the authorisation page for users to approve or reject code requests.
 renderAuthorizePage :: RequestCode -> ClientDetails -> Widget
-renderAuthorizePage RequestCode{..} client_details =
+renderAuthorizePage RequestCode{..} ClientDetails{..} = do
+    let app_url = T.decodeUtf8 (toByteString (serializeURI clientAppUrl))
+    let maybe_permission_list = fmap (T.decodeUtf8 . review scopeToken) . S.toList . review scope <$> requestCodeScope
     [whamlet|
         <div class="ui raised blue segment top attached">
-            <h1 class="ui header">Token requested
-            <h2 class="ui header">Client details
+            <h1 class="ui header">
+                Token requested for <em>#{clientName}</em>
+                (<a href=#{app_url} target="_blank">#{app_url}</a>)
+            <p>#{clientDescription}
 
-            ^{partialClientDetails client_details}
 
-            <h2 class="ui header">Requested permissions
-            <table>
-                 <tr>
-                     <th scope="row">Expires
-                     $maybe date <- requestCodeExpires
-                         <td>#{show date}
-                     $nothing
-                         <td>Never
-                 <tr>
-                     <th scope="row">Expires
-                     $maybe scope <- requestCodeScope
-                         <td>#{show scope}
-                     $nothing
-                         <td>No permissions
+            $maybe permission_list <- maybe_permission_list
+                <h2 class="ui header">Requested permissions:
+                <ul>
+                     $forall scope_token <- permission_list
+                         <li>#{scope_token}
+            $nothing
+                <h2 class="ui header">No permissions requested.
 
             <form class="ui form" method="POST" action="@{AuthorizeEndpointR}">
                  <input type="hidden" name="code" value="#{codeValue}">
@@ -88,7 +85,7 @@ renderTokensPage userScope (review pageSize -> size) (review page -> p) (ts, num
                         $forall (tid, TokenDetails{..}) <- ts
                             <tr>
                                 <td>#{T.decodeUtf8 $ maybe "Any Client" (review clientID) tokenDetailsClientID}
-                                <td>#{show tokenDetailsExpires}
+                                <td>#{maybe "Never" show tokenDetailsExpires}
                                 <td>#{show tokenDetailsScope}
                                 <td>
                                     <a class="details" href=@{ShowTokenR tid}">Details
@@ -103,12 +100,12 @@ renderTokensPage userScope (review pageSize -> size) (review page -> p) (ts, num
                         <form method="GET" action=@{TokensR} class="ui stackable two column grid">
                             <div class="column page-prev">
                               $if prevPages
-                                <button class="ui small basic left labeled icon button" name="page" value="#{p - 1}">
+                                <button class="ui small left labeled icon button" name="page" value="#{p - 1}">
                                     <i class="left arrow icon">
                                     Previous
                             <div class="column page-next">
                               $if nextPages
-                                  <button class="ui small basic right labeled icon button" name="page" value="#{p + 1}">
+                                  <button class="ui small right labeled icon button" name="page" value="#{p + 1}">
                                     <i class="right arrow icon">
                                     Next
         ^{htmlCreateTokenForm userScope}
@@ -121,27 +118,37 @@ renderTokensPage userScope (review pageSize -> size) (review page -> p) (ts, num
 
 
 renderToken :: (TokenID, TokenDetails) -> Widget
-renderToken (tid, tok@TokenDetails{..}) =
+renderToken (tid, TokenDetails{..}) =
     [whamlet|
-        <h1 class="ui header centered">Token Details
-        <p>#{show tok}
-        <a href="@{TokensR}">Return
-    |]
-
--- | Helper for displaying client details
-partialClientDetails :: ClientDetails -> Widget
-partialClientDetails client_details@ClientDetails{..} =
-    [whamlet|
-        <table>
-            <tr>
-                <th scope="row">Name
-                <td>#{clientName}
-            <tr>
-                <th scope="row">URL
-                <td>#{T.decodeUtf8 (toByteString (serializeURI clientAppUrl))}
-            <tr>
-                <th scope="row">Description
-                <td>#{clientDescription}
+        <div class="ui raised blue segement attached">
+            <table class="ui celled table">
+                <thead>
+                    <th scope=col>ID
+                    <th scope=col>Type
+                    <th scope=col>Token
+                    <th scope=col>Client
+                    <th scope=col>Expires
+                    <th scope=col>Permissions
+                <tbody>
+                    <tr>
+                        <td>#{show tid}
+                        <td>#{show tokenDetailsTokenType}
+                        <td>#{show tokenDetailsToken}
+                        <td>#{T.decodeUtf8 $ maybe "Any Client" (review clientID) tokenDetailsClientID}
+                        <td>#{maybe "Never" show tokenDetailsExpires}
+                        <td>#{show tokenDetailsScope}
+                <tfoot>
+                    <tr>
+                        <th colspan=6>
+                            <div class="ui stackable two column grid">
+                                <div class="column page-prev">
+                                     <a class="ui small left primary button" href="@{TokensR}">
+                                         Return to list
+                                <form method="POST" action=@{TokensR} class="column page-next">
+                                     <input type=hidden name="method" value="delete">
+                                     <input type=hidden name="token_id" value="#{show tid}">
+                                     <button class="ui small right red button">
+                                         Delete Token
     |]
 
 -- | Render form to create a
