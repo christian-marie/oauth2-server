@@ -101,21 +101,18 @@ renderTokensPage userScope (review pageSize -> size) (review page -> p) (ts, num
                         <tr>
                             <td colspan=5>
                                 <h3 class="ui centered header">You have no tokens.
-              $if (prevPages || nextPages)
-                <tfoot>
-                  <tr>
-                    <th colspan=5>
-                        <form method="GET" action=@{TokensR} class="ui stackable two column grid">
-                            <div class="column page-prev">
-                              $if prevPages
-                                <button class="ui small left labeled icon button" name="page" value="#{p - 1}">
-                                    <i class="left arrow icon">
-                                    Previous
-                            <div class="column page-next">
-                              $if nextPages
-                                  <button class="ui small right labeled icon button" name="page" value="#{p + 1}">
-                                    <i class="right arrow icon">
-                                    Next
+            $if (prevPages || nextPages)
+                <form method="GET" action=@{TokensR} class="ui stackable two column grid">
+                    <div class="column page-prev">
+                      $if prevPages
+                        <button class="ui small left labeled icon button" name="page" value="#{p - 1}">
+                            <i class="left arrow icon">
+                            Previous
+                    <div class="column page-next">
+                      $if nextPages
+                          <button class="ui small right labeled icon button" name="page" value="#{p + 1}">
+                            <i class="right arrow icon">
+                            Next
         ^{htmlCreateTokenForm userScope}
     |]
   where
@@ -149,18 +146,16 @@ renderToken (tid, TokenDetails{..}) =
                     <tr>
                         <td>Permissions
                         <td>^{htmlScope tokenDetailsScope}
-                <tfoot>
-                    <tr>
-                        <td colspan=2>
-                            <div class="ui stackable two column grid">
-                                <div class="column page-prev">
-                                     <a class="ui small left primary button" href="@{TokensR}">
-                                         Return to list
-                                <form method="POST" action=@{TokensR} class="column page-next">
-                                     <input type=hidden name="method" value="delete">
-                                     <input type=hidden name="token_id" value="#{show tid}">
-                                     <button class="ui small right red button">
-                                         Delete Token
+
+            <div class="ui stackable two column grid">
+                <div class="column page-prev">
+                     <a class="ui small left primary button" href="@{TokensR}">
+                         Return to list
+                <form method="POST" action=@{TokensR} class="column page-next">
+                     <input type=hidden name="method" value="delete">
+                     <input type=hidden name="token_id" value="#{show tid}">
+                     <button class="ui small right red button">
+                         Delete Token
     |]
 
 -- | Render form to create a
