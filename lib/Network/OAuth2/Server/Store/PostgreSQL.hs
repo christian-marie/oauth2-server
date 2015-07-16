@@ -103,7 +103,7 @@ instance TokenStore PSQLConnPool where
 
     storeReadCode (PSQLConnPool pool) request_code = do
         codes :: [RequestCode] <- withResource pool $ \conn -> do
-            debugM logName $ "Attempting storeReadCode"
+            debugM logName "Attempting storeReadCode"
             query conn "SELECT * FROM active_request_codes WHERE code = ?" (Only request_code)
         return $ case codes of
             [] -> Nothing
@@ -112,7 +112,7 @@ instance TokenStore PSQLConnPool where
 
     storeDeleteCode (PSQLConnPool pool) request_code = do
         [Only res] <- withResource pool $ \conn -> do
-            debugM logName $ "Attempting storeDeleteCode"
+            debugM logName "Attempting storeDeleteCode"
             query conn "WITH deleted AS (DELETE FROM request_codes WHERE (code = ?) RETURNING *) SELECT COUNT(*) FROM deleted"
                        (Only request_code)
         return $ case res :: Int of
@@ -130,7 +130,7 @@ instance TokenStore PSQLConnPool where
             Nothing -> return ()
         debugM logName $ "Saving new token: " <> show grant
         res <- withResource pool $ \conn -> do
-            debugM logName $ "Attempting storeCreateToken"
+            debugM logName "Attempting storeCreateToken"
             case parent_token of
                 Nothing  -> query conn "INSERT INTO tokens (token_type, expires, user_id, client_id, scope, token, created) VALUES (?,?,?,?,?,uuid_generate_v4(), NOW()) RETURNING token_id, token_type, token, expires, user_id, client_id, scope" grant
                 Just tid -> query conn "INSERT INTO tokens (token_type, expires, user_id, client_id, scope, token, created, token_parent) VALUES (?,?,?,?,?,uuid_generate_v4(), NOW(), ?) RETURNING token_id, token_type, token, expires, user_id, client_id, scope" (grant :. Only tid)
