@@ -111,13 +111,15 @@ import           Data.Text                            (Text)
 import qualified Data.Text                            as T (unpack)
 import qualified Data.Text.Encoding                   as T (decodeUtf8,
                                                             encodeUtf8)
-import           Data.Time.Clock                      (UTCTime, diffUTCTime, NominalDiffTime)
+import           Data.Time.Clock                      (NominalDiffTime,
+                                                       UTCTime, diffUTCTime)
 import           Data.Typeable                        (Typeable)
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.FromField
 import           Database.PostgreSQL.Simple.FromRow
 import           Database.PostgreSQL.Simple.ToField
 import           Database.PostgreSQL.Simple.ToRow
+import           Network.HTTP.Types                   (HeaderName)
 import           Network.Wai.Handler.Warp             hiding (Connection)
 import           Yesod.Core                           (PathPiece (..))
 
@@ -153,17 +155,19 @@ pageSize = prism' (fromIntegral . unpackPageSize)
 
 -- | Configuration options for the server.
 data ServerOptions = ServerOptions
-    { optDBString      :: ByteString
-    , optStatsHost     :: ByteString
-    , optStatsPort     :: Int
-    , optServiceHost   :: HostPreference
-    , optServicePort   :: Int
-    , optUIPageSize    :: PageSize
-    , optUIStaticPath  :: FilePath
-    , optVerifyRealm   :: ByteString
-    , optShibboleth    :: ShibConfig
-    , optKeyFile       :: FilePath
-    , optSessionExpiry :: NominalDiffTime
+    { optDBString         :: ByteString
+    , optStatsHost        :: ByteString
+    , optStatsPort        :: Int
+    , optServiceHost      :: HostPreference
+    , optServicePort      :: Int
+    , optUIPageSize       :: PageSize
+    , optUIStaticPath     :: FilePath
+    , optVerifyRealm      :: ByteString
+    , optShibboleth       :: ShibConfig
+    , optUserHeader       :: HeaderName
+    , optUserScopesHeader :: HeaderName
+    , optKeyFile          :: FilePath
+    , optSessionExpiry    :: NominalDiffTime
     }
 
 -- | Describes events which should be tracked by the monitoring statistics
