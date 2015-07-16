@@ -33,7 +33,7 @@ import           Data.Time.Clock
 import           Data.Time.Format
 import           Network.OAuth2.Server.Types
 import           Prelude                          hiding (head)
-import           System.Locale                    (defaultTimeLocale)
+import           Data.Time.Locale.Compat
 import           URI.ByteString                   (serializeURI)
 import           Yesod.Core
 

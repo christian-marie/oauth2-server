@@ -69,8 +69,8 @@ Library
                      , ekg-core
                      , errors
                      , file-embed
-                     , formatting
                      , filepath
+                     , formatting
                      , hslogger
                      , http-types
                      , iproute
@@ -78,7 +78,6 @@ Library
                      , monad-control
                      , mtl
                      , network
-                     , old-locale
                      , postgresql-simple
                      , resource-pool
                      , scrypt
@@ -88,6 +87,7 @@ Library
                      , template-haskell
                      , text
                      , time
+                     , time-locale-compat
                      , transformers
                      , transformers-base
                      , transformers-compat
