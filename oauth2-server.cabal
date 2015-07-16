@@ -14,6 +14,22 @@ cabal-version:       >=1.10
 data-files:          schema/postgresql.sql
                      static/*.css
                      static/*.png
+
+                     -- default theme
+                     static/themes/default/assets/fonts/*.eot
+                     static/themes/default/assets/fonts/*.otf
+                     static/themes/default/assets/fonts/*.svg
+                     static/themes/default/assets/fonts/*.ttf
+                     static/themes/default/assets/fonts/*.woff
+                     static/themes/default/assets/fonts/*.woff2
+                     static/themes/default/assets/images/*.png
+
+                     -- basic theme
+                     static/themes/basic/assets/fonts/*.eot
+                     static/themes/basic/assets/fonts/*.svg
+                     static/themes/basic/assets/fonts/*.ttf
+                     static/themes/basic/assets/fonts/*.woff
+
 extra-source-files:  runit.sh
                      stack.yaml
                      docs/architecture.dot
