@@ -26,6 +26,7 @@ module Network.OAuth2.Server.Types.Common (
   redirectURI,
 -- * Postgres parsing for URIs
   fromFieldURI,
+  uriToBS,
 -- * URI JSON/Aeson Encoding/Decoding
   uriToJSON,
   uriFromJSON,
@@ -160,6 +161,13 @@ fromFieldURI f bs = do
     case parseURI strictURIParserOptions x of
         Left e -> returnError ConversionFailed f (show e)
         Right uri -> return uri
+
+-- | ToField convertor for URI.
+--
+-- Similar to the one used in the ToField instance for RedirectURI but
+-- allowing URI fragments.
+uriToBS :: URI -> ByteString
+uriToBS = toByteString . serializeURI
 
 --------------------------------------------------------------------------------
 

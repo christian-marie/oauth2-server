@@ -16,6 +16,11 @@ CREATE TABLE clients (
     description   TEXT          NOT NULL,
     app_url       VARCHAR(256)  NOT NULL,
 
+    -- The scopes the client is registerd for.
+    scope         VARCHAR(512)[] NOT NULL,
+    -- The status (active/deleted) of the client.
+    status        TEXT           NOT NULL,
+
     PRIMARY KEY (client_id)
 );
 
@@ -62,4 +67,21 @@ CREATE TABLE tokens (
     PRIMARY KEY (token_id),
     FOREIGN KEY (client_id) REFERENCES clients (client_id),
     FOREIGN KEY (token_parent) REFERENCES tokens (token_id)
+);
+
+-- Request codes with an active associated client
+CREATE VIEW active_request_codes AS (
+    SELECT request_codes.*
+    FROM request_codes JOIN clients
+    ON (request_codes.client_id = clients.client_id)
+    WHERE clients.status = 'active'
+);
+
+-- Tokens with no associated client or an active associated client
+CREATE VIEW active_tokens AS (
+    SELECT tokens.*
+    FROM tokens LEFT OUTER JOIN clients
+    ON (tokens.client_id = clients.client_id)
+    WHERE clients.status is NULL
+       OR clients.status = 'active'
 );
