@@ -135,15 +135,15 @@ instance TokenStore PSQLConnPool where
             (toks, n_toks) <- case maybe_uid of
                 Nothing -> do
                     debugM logName "Listing all tokens"
-                    toks <- query conn "SELECT token_id, token_type, token, expires, user_id, client_id, scope FROM tokens WHERE revoked is NULL ORDER BY created LIMIT ? OFFSET ?" (size, (p - 1) * size)
+                    toks <- query conn "SELECT token_id, token_type, token, expires, user_id, client_id, scope FROM tokens WHERE revoked is NULL ORDER BY created DESC LIMIT ? OFFSET ?" (size, (p - 1) * size)
                     debugM logName "Counting all tokens"
-                    [Only n_toks] <- query conn "SELECT count(*) FROM tokens" ()
+                    [Only n_toks] <- query_ conn "SELECT COUNT(*) FROM tokens WHERE revoked is NULL"
                     return (toks, n_toks)
                 Just uid -> do
                     debugM logName $ "Listing tokens for " <> show uid
-                    toks <- query conn "SELECT token_id, token_type, token, expires, user_id, client_id, scope FROM tokens WHERE (user_id = ?) AND revoked is NULL ORDER BY created LIMIT ? OFFSET ?" (uid, size, (p - 1) * size)
+                    toks <- query conn "SELECT token_id, token_type, token, expires, user_id, client_id, scope FROM tokens WHERE (user_id = ?) AND revoked is NULL ORDER BY created DESC LIMIT ? OFFSET ?" (uid, size, (p - 1) * size)
                     debugM logName $ "Counting tokens for " <> show uid
-                    [Only n_toks] <- query conn "SELECT count(*) FROM tokens WHERE (user_id = ?)" (Only uid)
+                    [Only n_toks] <- query conn "SELECT COUNT(*) FROM tokens WHERE (user_id = ?) AND revoked IS NULL" (Only uid)
                     return (toks, n_toks)
             return (map (\((Only tid) :. tok) -> (tid, tok)) toks, n_toks)
 
