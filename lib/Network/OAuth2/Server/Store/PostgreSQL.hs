@@ -15,8 +15,11 @@
 
 -- | Description: OAuth2 token storage instance for PostgreSQL
 --
--- OAuth2 token storage instance for PostgreSQL
+--   OAuth2 token storage backend for PostgreSQL databases. This module exports
+--   types to use either a 'Pool' of PostgreSQL 'Connection's or a single
+--   'Connection' to access the database.
 module Network.OAuth2.Server.Store.PostgreSQL (
+  PSQLConn(..),
   PSQLConnPool(..),
 ) where
 
