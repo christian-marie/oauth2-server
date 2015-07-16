@@ -114,7 +114,8 @@ import           Data.Text                            (Text)
 import qualified Data.Text                            as T (unpack)
 import qualified Data.Text.Encoding                   as T (decodeUtf8,
                                                             encodeUtf8)
-import           Data.Time.Clock                      (UTCTime, diffUTCTime, NominalDiffTime)
+import           Data.Time.Clock                      (NominalDiffTime,
+                                                       UTCTime, diffUTCTime)
 import           Data.Typeable                        (Typeable)
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.FromField

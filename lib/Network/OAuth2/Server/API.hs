@@ -53,7 +53,7 @@ import           Control.Monad
 import           Control.Monad.Error.Class        (MonadError, throwError)
 import           Control.Monad.Reader.Class       (ask)
 import           Control.Monad.State.Strict
-import           Control.Monad.Trans.Except       (ExceptT(..), runExceptT)
+import           Control.Monad.Trans.Except       (ExceptT (..), runExceptT)
 import           Crypto.Scrypt
 import qualified Data.ByteString.Char8            as BC
 import           Data.Conduit
@@ -64,8 +64,7 @@ import           Data.Monoid
 import           Data.Text                        (Text)
 import qualified Data.Text                        as T
 import qualified Data.Text.Encoding               as T
-import           Data.Time.Clock                  (addUTCTime,
-                                                   getCurrentTime)
+import           Data.Time.Clock                  (addUTCTime, getCurrentTime)
 import           Formatting                       (sformat, shown, (%))
 import           Network.HTTP.Types               hiding (Header)
 import           Network.OAuth2.Server.Types      as X

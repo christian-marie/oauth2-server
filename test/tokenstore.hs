@@ -58,9 +58,9 @@ instance Arbitrary Scope where
         fromJust . bsToScope . B.pack . unwords <$> listOf1 (listOf1 alphabet)
 
 -- Newtypes for separated Arbitrary instances
-newtype ActiveClientID    = ActiveClientID    { unActiveClientID    :: ClientID   } deriving Show
-newtype DeletedClientID   = DeletedClientID   { unDeletedClientID   :: ClientID   } deriving Show
-newtype ValidTokenGrant   = ValidTokenGrant   { unValidTokenGrant   :: TokenGrant } deriving Show
+newtype ActiveClientID    = ActiveClientID    { unActiveClientID :: ClientID } deriving Show
+newtype DeletedClientID   = DeletedClientID   { unDeletedClientID :: ClientID } deriving Show
+newtype ValidTokenGrant   = ValidTokenGrant   { unValidTokenGrant :: TokenGrant } deriving Show
 newtype InvalidTokenGrant = InvalidTokenGrant { unInvalidTokenGrant :: TokenGrant } deriving Show
 
 -- Stores are seeded with three clients, as there is not yet an

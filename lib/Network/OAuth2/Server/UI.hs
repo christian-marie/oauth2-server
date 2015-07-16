@@ -31,9 +31,9 @@ import qualified Data.Set                         as S
 import qualified Data.Text.Encoding               as T
 import           Data.Time.Clock
 import           Data.Time.Format
+import           Data.Time.Locale.Compat
 import           Network.OAuth2.Server.Types
 import           Prelude                          hiding (head)
-import           Data.Time.Locale.Compat
 import           URI.ByteString                   (serializeURI)
 import           Yesod.Core
 
