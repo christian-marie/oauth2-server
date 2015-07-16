@@ -30,8 +30,10 @@ import           Data.Maybe
 import qualified Data.Set                         as S
 import qualified Data.Text.Encoding               as T
 import           Data.Time.Clock
+import           Data.Time.Format
 import           Network.OAuth2.Server.Types
 import           Prelude                          hiding (head)
+import           System.Locale                    (defaultTimeLocale)
 import           URI.ByteString                   (serializeURI)
 import           Yesod.Core
 
@@ -76,6 +78,7 @@ renderTokensPage userScope (review pageSize -> size) (review page -> p) (ts, num
             $if validPage
             <table class="ui celled table">
                 <thead>
+                    <th scope=col>Type
                     <th scope=col>Client
                     <th scope=col>Expires
                     <th scope=col>Permissions
@@ -84,19 +87,24 @@ renderTokensPage userScope (review pageSize -> size) (review page -> p) (ts, num
                     $if (length ts) > 0
                         $forall (tid, TokenDetails{..}) <- ts
                             <tr>
-                                <td>#{T.decodeUtf8 $ maybe "Any Client" (review clientID) tokenDetailsClientID}
-                                <td>#{maybe "Never" show tokenDetailsExpires}
+                                <td>#{show tokenDetailsTokenType}
+                                <td>
+                                  $maybe client <- tokenDetailsClientID
+                                      #{T.decodeUtf8 $ (review clientID) client}
+                                  $nothing
+                                      <em>All clients
+                                <td>^{htmlDate tokenDetailsExpires}
                                 <td>^{htmlScope tokenDetailsScope}
                                 <td>
                                     <a class="details" href=@{ShowTokenR tid}">Details
                     $else
                         <tr>
-                            <td colspan=4>
+                            <td colspan=5>
                                 <h3 class="ui centered header">You have no tokens.
               $if (prevPages || nextPages)
                 <tfoot>
                   <tr>
-                    <th colspan=4>
+                    <th colspan=5>
                         <form method="GET" action=@{TokensR} class="ui stackable two column grid">
                             <div class="column page-prev">
                               $if prevPages
@@ -111,7 +119,7 @@ renderTokensPage userScope (review pageSize -> size) (review page -> p) (ts, num
         ^{htmlCreateTokenForm userScope}
     |]
   where
-    numPages = if numTokens == 0 then 1 else ((numTokens - 1) `div` size) + 1
+    numPages = if numTokens == 0 then 1 else (numTokens `div` size) + 1
     validPage = p <= numPages
     prevPages = p /= 1
     nextPages = p < numPages
@@ -183,11 +191,14 @@ htmlScope sc = do
                 <li>#{scope_token}
     |]
 
+-- | Format a timestamp for humans.
+--
+--   Displays \"Never\" when @Nothing@.
 htmlDate :: Maybe UTCTime -> Widget
 htmlDate maybe_date =
     [whamlet|
         $maybe date <- maybe_date
-            #{show date}
+            #{formatTime defaultTimeLocale "%F %R" date}
         $nothing
             Never
     |]

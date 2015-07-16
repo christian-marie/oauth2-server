@@ -78,6 +78,7 @@ Library
                      , monad-control
                      , mtl
                      , network
+                     , old-locale
                      , postgresql-simple
                      , resource-pool
                      , scrypt
