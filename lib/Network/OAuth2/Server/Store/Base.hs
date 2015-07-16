@@ -37,14 +37,14 @@ class TokenStore ref where
     -- | Register a new client
     storeCreateClient
         :: ref
-        -> EncryptedPass
-        -> Bool
-        -> [RedirectURI]
-        -> Text
-        -> Text
-        -> URI
-        -> Scope
-        -> ClientStatus
+        -> EncryptedPass -- ^ Client secret
+        -> Bool          -- ^ Whether the client is confidential or not
+        -> [RedirectURI] -- ^ The registered redirection URIs for the client
+        -> Text          -- ^ The human readable name for the client
+        -> Text          -- ^ The human readable description for the client
+        -> URI           -- ^ The URL for the client application
+        -> Scope         -- ^ The scopes the client is registered for.
+        -> ClientStatus  -- ^ Whether the client is active/deleted etc.
         -> IO ClientDetails
 
     -- | Delete an existing client
