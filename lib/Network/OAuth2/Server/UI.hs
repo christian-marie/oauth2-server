@@ -121,25 +121,29 @@ renderToken :: (TokenID, TokenDetails) -> Widget
 renderToken (tid, TokenDetails{..}) =
     [whamlet|
         <div class="ui raised blue segement attached">
-            <table class="ui celled table">
-                <thead>
-                    <th scope=col>ID
-                    <th scope=col>Type
-                    <th scope=col>Token
-                    <th scope=col>Client
-                    <th scope=col>Expires
-                    <th scope=col>Permissions
+            <table class="ui definition table">
                 <tbody>
                     <tr>
+                        <td>ID
                         <td>#{show tid}
+                    <tr>
+                        <td>Type
                         <td>#{show tokenDetailsTokenType}
+                    <tr>
+                        <td>Token
                         <td>#{show tokenDetailsToken}
+                    <tr>
+                        <td>Client
                         <td>#{T.decodeUtf8 $ maybe "Any Client" (review clientID) tokenDetailsClientID}
+                    <tr>
+                        <td>Expires
                         <td>#{maybe "Never" show tokenDetailsExpires}
+                    <tr>
+                        <td>Permissions
                         <td>#{show tokenDetailsScope}
                 <tfoot>
                     <tr>
-                        <th colspan=6>
+                        <td colspan=2>
                             <div class="ui stackable two column grid">
                                 <div class="column page-prev">
                                      <a class="ui small left primary button" href="@{TokensR}">
