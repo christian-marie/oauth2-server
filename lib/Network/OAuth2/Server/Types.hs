@@ -111,7 +111,7 @@ import           Data.Text                            (Text)
 import qualified Data.Text                            as T (unpack)
 import qualified Data.Text.Encoding                   as T (decodeUtf8,
                                                             encodeUtf8)
-import           Data.Time.Clock                      (UTCTime, diffUTCTime)
+import           Data.Time.Clock                      (UTCTime, diffUTCTime, NominalDiffTime)
 import           Data.Typeable                        (Typeable)
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.FromField
@@ -153,15 +153,17 @@ pageSize = prism' (fromIntegral . unpackPageSize)
 
 -- | Configuration options for the server.
 data ServerOptions = ServerOptions
-    { optDBString     :: ByteString
-    , optStatsHost    :: ByteString
-    , optStatsPort    :: Int
-    , optServiceHost  :: HostPreference
-    , optServicePort  :: Int
-    , optUIPageSize   :: PageSize
-    , optUIStaticPath :: FilePath
-    , optVerifyRealm  :: ByteString
-    , optShibboleth   :: ShibConfig
+    { optDBString      :: ByteString
+    , optStatsHost     :: ByteString
+    , optStatsPort     :: Int
+    , optServiceHost   :: HostPreference
+    , optServicePort   :: Int
+    , optUIPageSize    :: PageSize
+    , optUIStaticPath  :: FilePath
+    , optVerifyRealm   :: ByteString
+    , optShibboleth    :: ShibConfig
+    , optKeyFile       :: FilePath
+    , optSessionExpiry :: NominalDiffTime
     }
 
 -- | Describes events which should be tracked by the monitoring statistics

@@ -28,9 +28,11 @@ import           Data.IP
 import           Data.Maybe
 import           Data.String
 import qualified Data.Text                         as T
+import           Data.Time.Clock
 import           System.FilePath
 import           System.IO.Unsafe
 import           Text.Read
+import           Web.ClientSession
 
 import           Network.OAuth2.Server.Types
 import           Network.Wai.Middleware.Shibboleth as S
@@ -42,15 +44,17 @@ import qualified Paths_oauth2_server               as P
 -- You'll want to set optDBString at minimum.
 defaultServerOptions :: ServerOptions
 defaultServerOptions =
-    let optDBString     = ""
-        optStatsHost    = "localhost"
-        optStatsPort    = 8888
-        optServiceHost  = "*"
-        optServicePort  = 8080
-        optUIPageSize   = (10 :: Integer) ^?! pageSize
-        optUIStaticPath = unsafePerformIO P.getDataDir </> "static"
-        optVerifyRealm  = "verify-token"
-        optShibboleth   = S.defaultConfig
+    let optDBString      = ""
+        optStatsHost     = "localhost"
+        optStatsPort     = 8888
+        optServiceHost   = "*"
+        optServicePort   = 8080
+        optUIPageSize    = (10 :: Integer) ^?! pageSize
+        optUIStaticPath  = unsafePerformIO P.getDataDir </> "static"
+        optVerifyRealm   = "verify-token"
+        optShibboleth    = S.defaultConfig
+        optKeyFile       = defaultKeyFile
+        optSessionExpiry = 2 * 3600 -- 2 hours
    in ServerOptions{..}
 
 -- | Load some server options, overwriting defaults in 'defaultServerOptions'.
@@ -68,6 +72,8 @@ loadOptions conf = do
     upstream <- C.lookup conf "shibboleth.upstream"
     let optShibboleth = ShibConfig (fromMaybe (S.upstream S.defaultConfig) (map unwrapNonOrphan <$> upstream))
                                    (CI.mk shibhdr)
+    optKeyFile <- ldef optKeyFile "session.key"
+    optSessionExpiry <- unwrapNonOrphan <$> ldef (NotOrphan . optSessionExpiry) "session.expiry"
     return ServerOptions{..}
   where
     ldef f k = lookupDefault (f defaultServerOptions) conf k
@@ -82,4 +88,8 @@ instance Configured (NotOrphan IPRange) where
 
 instance Configured (NotOrphan PageSize) where
     convert (C.Number x) = NotOrphan <$> (floor x :: Integer) ^? pageSize
+    convert _            = Nothing
+
+instance Configured (NotOrphan NominalDiffTime) where
+    convert (C.Number x) = if x>0 then Just . NotOrphan . fromRational $ x else Nothing
     convert _            = Nothing
