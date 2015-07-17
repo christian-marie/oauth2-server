@@ -33,7 +33,7 @@ install:
  - psql -c "create database $DBNAME;" -U postgres
  - psql $DBNAME < schema/postgresql.sql
  - psql $DBNAME < examples/postgresql-data.sql
- - cat examples/token-server.conf | sed -e "s/DBNAME/$DBNAME/" > $TESTCONF
+ - cat examples/token-server.conf | sed -e "s/DBNAME/$DBNAME/" | sed -e "s/8082/8080/" > $TESTCONF
 
 # Here starts the actual work to be performed for the package under test; any
 # command which exits with a non-zero exit code causes the build to fail.
