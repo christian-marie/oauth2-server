@@ -20,6 +20,7 @@ module Network.OAuth2.Server.Configuration (
 ) where
 
 import           Control.Applicative
+import           Control.Error.Util
 import           Control.Lens.Operators            ((^?), (^?!))
 import qualified Data.CaseInsensitive              as CI
 import           Data.Configurator                 as C
@@ -29,10 +30,12 @@ import           Data.Maybe
 import           Data.Monoid
 import           Data.String
 import qualified Data.Text                         as T
+import qualified Data.Text.Encoding                as T
 import           Data.Time.Clock
 import           System.FilePath
 import           System.IO.Unsafe
 import           Text.Read
+import           URI.ByteString
 import           Web.ClientSession
 
 import           Network.OAuth2.Server.Types
@@ -48,6 +51,7 @@ defaultServerOptions =
     let optDBString         = ""
         optStatsHost        = "localhost"
         optStatsPort        = 8888
+        optServiceAppRoot   = Nothing
         optServiceHost      = "*"
         optServicePort      = 8080
         optUIPageSize       = (10 :: Integer) ^?! pageSize
@@ -66,6 +70,7 @@ loadOptions conf = do
     optDBString <- ldef optDBString "database"
     optStatsHost <- ldef optStatsHost "stats.host"
     optStatsPort <- ldef optStatsPort "stats.port"
+    optServiceAppRoot <- (optServiceAppRoot defaultServerOptions <|>) . fmap unwrapNonOrphan <$> C.lookup conf "api.app_root"
     optServiceHost <- maybe (optServiceHost defaultServerOptions) fromString <$> C.lookup conf "api.host"
     optServicePort <- ldef optServicePort "api.port"
     optUIPageSize <- maybe (optUIPageSize defaultServerOptions) unwrapNonOrphan <$>  C.lookup conf "ui.page_size"
@@ -105,3 +110,7 @@ instance Configured (NotOrphan NominalDiffTime) where
 
 instance (CI.FoldCase s, Configured s) => Configured (NotOrphan (CI.CI s)) where
     convert x = NotOrphan . CI.mk <$> convert x
+
+instance Configured (NotOrphan URI) where
+    convert (C.String t) = NotOrphan <$> (hush $ parseURI strictURIParserOptions $ T.encodeUtf8 t)
+    convert _            = Nothing
