@@ -61,6 +61,10 @@ do let routes = [parseRoutes|
    return $ routes_type:routes_dec:decs
 
 instance Yesod OAuth2Server where
+    approot = ApprootRelative
+
+    errorHandler = defaultErrorHandler
+
     defaultLayout contents = do
         PageContent the_title head_tags body_tags <- widgetToPageContent $ do
             addStylesheet $ StaticR semantic_css
@@ -89,6 +93,8 @@ instance Yesod OAuth2Server where
                                 <div class="centered wide column">
                                     ^{body_tags}
     |]
+
+    maximumContentLength _ _ = Just $ 2 * 1024 * 1024 -- 2 megabytes
 
     yesodMiddleware handler = do
         route <- getCurrentRoute
