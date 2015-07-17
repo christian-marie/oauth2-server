@@ -9,8 +9,7 @@
 
 {-# LANGUAGE RecordWildCards #-}
 
--- | Description: Start an OAuth2 server.
---
+-- |
 -- Description: Start an OAuth2 server.
 --
 -- This module includes the top level interface to run OAuth2 servers.

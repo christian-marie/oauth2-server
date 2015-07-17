@@ -26,14 +26,18 @@ module Network.OAuth2.Server.UI (
 import           Blaze.ByteString.Builder         (toByteString)
 import           Control.Applicative
 import           Control.Lens
+import           Data.List                        (intersperse)
 import           Data.Maybe
+import           Data.Monoid
 import qualified Data.Set                         as S
+import qualified Data.Text                        as T
 import qualified Data.Text.Encoding               as T
 import           Data.Time.Clock
 import           Data.Time.Format
 import           Data.Time.Locale.Compat
 import           Network.OAuth2.Server.Types
 import           Prelude                          hiding (head)
+import           Text.Blaze.Html5                 (toHtml, wbr)
 import           URI.ByteString                   (serializeURI)
 import           Yesod.Core
 
@@ -42,6 +46,7 @@ import           Network.OAuth2.Server.Foundation
 -- | Render the authorisation page for users to approve or reject code requests.
 renderAuthorizePage :: RequestCode -> ClientDetails -> Widget
 renderAuthorizePage RequestCode{..} ClientDetails{..} = do
+    setTitle "Review token request"
     let app_url = T.decodeUtf8 (toByteString (serializeURI clientAppUrl))
     let maybe_permission_list = fmap (T.decodeUtf8 . review scopeToken) . S.toList . review scope <$> requestCodeScope
     [whamlet|
@@ -71,7 +76,8 @@ renderAuthorizePage RequestCode{..} ClientDetails{..} = do
 -- | Render the tokens page for users to view and revoke their tokens.
 renderTokensPage :: Scope -> PageSize -> Page -> ([(TokenID, TokenDetails)], Int)
                  -> Widget
-renderTokensPage userScope (review pageSize -> size) (review page -> p) (ts, numTokens) =
+renderTokensPage userScope (review pageSize -> size) (review page -> p) (ts, numTokens) = do
+    setTitle "Your tokens"
     [whamlet|
         <div class="ui raised blue segement attached">
             <h2 class="ui centered header">Your tokens
@@ -121,9 +127,9 @@ renderTokensPage userScope (review pageSize -> size) (review page -> p) (ts, num
     prevPages = p /= 1
     nextPages = p < numPages
 
-
 renderToken :: (TokenID, TokenDetails) -> Widget
-renderToken (tid, TokenDetails{..}) =
+renderToken (tid, TokenDetails{..}) = do
+    setTitle "Token details"
     [whamlet|
         <div class="ui raised blue segement attached">
             <table class="ui definition table">
@@ -136,7 +142,7 @@ renderToken (tid, TokenDetails{..}) =
                         <td>#{show tokenDetailsTokenType}
                     <tr>
                         <td>Token
-                        <td>#{show tokenDetailsToken}
+                        <td>#{T.decodeUtf8 $ review token tokenDetailsToken}
                     <tr>
                         <td>Client
                         <td>#{T.decodeUtf8 $ maybe "Any Client" (review clientID) tokenDetailsClientID}
@@ -165,16 +171,22 @@ htmlCreateTokenForm s = do
     [whamlet|
         <form method="POST" action="@{TokensR}" class="ui form blue segment top attached create-token">
             <h2 class="ui centered header">Create a token
-            <div class="ui segment scollerise">
+            <div class="ui segment scrollerise">
                 <ul class="ui list stackable three column grid">
                     $forall perm <- scopeTokens
                         <li class="column">
                             <div class="ui checkbox">
                                 <input type="checkbox" name="scope" value="#{perm}" id="scope_#{perm}">
-                                <label for="scope_#{perm}">#{perm}
+                                <label for="scope_#{perm}">#{addBreakPoints perm}
             <input type="hidden" name="method" value="create">
             <input type="submit" class="ui right floated blue button" value="Create Token">
     |]
+
+-- | Decorate a scope token with @<wbr>@ tags allowing browsers to line wrap.
+addBreakPoints :: T.Text -> Html
+addBreakPoints t =
+    let parts = T.splitOn ":" t
+    in mconcat . intersperse wbr . intersperse ":" $ map toHtml parts
 
 -- | Render a `Scope` as an unordered list inline.
 htmlScope :: Scope -> Widget

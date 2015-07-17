@@ -4,26 +4,26 @@ ul.inline li:before { content: ", "; }
 ul.inline li:first-child:before { content: none !important; }
 
 /* For the semantic one */
-ul.scope, ul.scope li { display: inline !important; margin:0; padding: 0; }
+ul.scope, ul.scope li { display: inline !important; margin:0; padding: 0; list-style: none; }
 ul.scope li:before { content: ", "; }
 ul.scope li:first-child:before { content: none !important; }
 
 .field.scope ul li:before { content: none !important; }
+
+/*
+ * Scrolling area of create token form.
+ */
 .scrollerise {
     position: relative;
     overflow: auto;
-    height: 10em;
+    height: auto !important; height: 10em; max-height: 10em;
     padding: 1ex;
     margin: 0;
 }
 .scrollerise ul.list {
     margin: 0; padding: 0;
 }
-.scrollerise ul.ui.list li:before {
-    content: none !important;
-    color: pink !important;
-}
 
-.column.page-next {
-    text-align: right;
-}
+.scrollerise ul.list,
+.scrollerise ul.list li { list-style: none; }
+.scrollerise ul.list li:before { content: none !important; }
