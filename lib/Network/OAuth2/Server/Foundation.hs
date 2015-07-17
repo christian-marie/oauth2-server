@@ -6,6 +6,8 @@
 {-# LANGUAGE ViewPatterns      #-}
 {-# LANGUAGE RecordWildCards   #-}
 
+-- |
+-- Description: Foundation code for the Yesod web-app.
 module Network.OAuth2.Server.Foundation where
 
 import           Control.Concurrent.STM
