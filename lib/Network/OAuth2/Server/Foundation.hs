@@ -94,7 +94,7 @@ instance Yesod OAuth2Server where
                                     ^{body_tags}
     |]
 
-    maximumContentLength _ _ = Just $ 2 * 1024 * 1024 -- 2 megabytes
+    maximumContentLength _ _ = Just $ 128 * 1024 -- 128 kilobytes
 
     yesodMiddleware handler = do
         route <- getCurrentRoute
