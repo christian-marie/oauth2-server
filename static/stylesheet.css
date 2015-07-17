@@ -27,3 +27,5 @@ ul.scope li:first-child:before { content: none !important; }
 .scrollerise ul.list,
 .scrollerise ul.list li { list-style: none; }
 .scrollerise ul.list li:before { content: none !important; }
+
+.page-next { text-align: right; }
