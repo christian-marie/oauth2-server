@@ -124,6 +124,7 @@ import           Database.PostgreSQL.Simple.ToField
 import           Database.PostgreSQL.Simple.ToRow
 import           Network.HTTP.Types                   (HeaderName)
 import           Network.Wai.Handler.Warp             hiding (Connection)
+import           URI.ByteString
 import           Yesod.Core                           (PathPiece (..))
 
 import           Network.OAuth2.Server.Types.Auth
@@ -161,6 +162,7 @@ data ServerOptions = ServerOptions
     { optDBString         :: ByteString
     , optStatsHost        :: ByteString
     , optStatsPort        :: Int
+    , optServiceAppRoot   :: Maybe URI
     , optServiceHost      :: HostPreference
     , optServicePort      :: Int
     , optUIPageSize       :: PageSize
