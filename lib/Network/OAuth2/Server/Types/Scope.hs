@@ -19,15 +19,18 @@
 --
 -- https://tools.ietf.org/html/rfc6749#section-3.3
 module Network.OAuth2.Server.Types.Scope (
--- * Types
+  -- * Types
   ScopeToken,
   Scope,
--- * ByteString Encoding and Decoding
+  -- * ByteString Encoding and Decoding
   scopeToken,
   scope,
   bsToScope,
   scopeToBs,
--- * Core operations on scopes
+  scopeBS,
+  -- * Text Encoding and Decoding
+  scopeText,
+  -- * Core operations on scopes
   compatibleScope,
 ) where
 
@@ -52,9 +55,11 @@ import           Data.Set                             (Set)
 import qualified Data.Set                             as S (fromList,
                                                             isSubsetOf, null,
                                                             toList)
+import           Data.Text                            (Text)
 import qualified Data.Text                            as T (unpack)
 import qualified Data.Text.Encoding                   as T (decodeUtf8,
                                                             encodeUtf8)
+import           Data.Text.Strict.Lens                (utf8)
 import           Data.Typeable                        (Typeable)
 import qualified Data.Vector                          as V
 import           Database.PostgreSQL.Simple.FromField
@@ -116,6 +121,25 @@ bsToScope b = either fail return $ parseOnly (scopeParser <* endOfInput) b
 scopeToBs :: Scope -> ByteString
 scopeToBs =
     B.intercalate " " . fmap (review scopeToken) . S.toList .  unScope
+
+-- | Prism to parse and print 'Scope' values from 'ByteString' strings.
+--
+--   This uses parses and printers defined above and, thus, the formats
+--   specified in the RFC.
+scopeBS :: Prism' ByteString Scope
+scopeBS = prism' scopeToBs bsToScope
+
+-- * Text encoding and decoding
+
+-- | Prism to parse and print 'Scope' values from 'Text' strings.
+--
+--   This uses parses and printers defined above and, thus, the formats
+--   specified in the RFC.
+scopeText :: Prism' Text Scope
+scopeText = prism' scopeToText textToScope
+  where
+    scopeToText = T.decodeUtf8 . scopeToBs
+    textToScope = bsToScope . T.encodeUtf8
 
 --------------------------------------------------------------------------------
 
