@@ -68,6 +68,8 @@ module Network.OAuth2.Server.Types (
   scopeToBs,
   ScopeToken,
   scopeToken,
+  scopeBS,
+  scopeText,
   ServerOptions(..),
   ToHTTPHeaders(..),
   Token,
